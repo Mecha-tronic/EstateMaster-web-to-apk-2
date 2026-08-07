@@ -383,6 +383,54 @@ export const SignInView: React.FC<SignInViewProps> = ({
                   className="w-full bg-slate-50 border border-slate-300 focus:border-blue-500 focus:bg-white rounded-xl py-3 pl-10 pr-3 text-slate-900 font-semibold text-xs shadow-xs focus:outline-none transition"
                 />
               </div>
+
+              {/* Quick Registered Accounts Selector */}
+              <div className="mt-2.5 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <span className="text-[11px] font-bold text-slate-500 block mb-1.5">
+                  Click to select a registered {activeTab} account:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {activeTab === 'landlord' ? (
+                    landlords.map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => {
+                          setEmail(l.email);
+                          setPassword(l.password || 'password123');
+                          setErrorMessage(null);
+                        }}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition ${
+                          email.toLowerCase() === l.email.toLowerCase()
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-blue-400'
+                        }`}
+                      >
+                        {l.name} ({l.email.split('@')[0]})
+                      </button>
+                    ))
+                  ) : (
+                    tenants.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          setEmail(t.email);
+                          setPassword(t.password || 'password123');
+                          setErrorMessage(null);
+                        }}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition ${
+                          email.toLowerCase() === t.email.toLowerCase()
+                            ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-sky-400'
+                        }`}
+                      >
+                        {t.fullName} ({t.unitNumber})
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
 
             <div>

@@ -89,48 +89,71 @@ async function handleResponse<T = any>(res: Response, defaultError: string = 'Re
 }
 
 export async function loginUser(email: string, password?: string, role?: 'tenant' | 'landlord'): Promise<{ success: boolean; role: 'tenant' | 'landlord'; user: Tenant | Landlord }> {
+  const cleanEmail = email ? email.trim().toLowerCase() : '';
+  if (!cleanEmail) {
+    throw new Error('Please enter a valid email address.');
+  }
+
   try {
     const res = await fetch(getApiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, role }),
+      body: JSON.stringify({ email: cleanEmail, password, role }),
     });
     return await handleResponse(res, 'Authentication failed');
   } catch (err: any) {
-    console.warn('Backend fetch failed, executing local login fallback:', err);
+    // If the error message came from a server response (e.g. 401 Unregistered account or invalid password), rethrow it directly!
+    if (
+      err.message &&
+      !err.message.includes('Failed to fetch') &&
+      !err.message.includes('NetworkError') &&
+      !err.message.includes('API path not found')
+    ) {
+      throw err;
+    }
+
+    console.warn('Backend server unreachable, checking local storage for registered account:', err);
+
     if (role === 'landlord') {
       const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
-      const found = landlords.find(l => l.email.toLowerCase() === email.toLowerCase());
-      const landlordUser: Landlord = found || {
-        id: `landlord-${Date.now()}`,
-        name: email.split('@')[0] || 'Eng. Duncan Mutua',
-        companyName: 'Mutua Crest Estates',
-        email,
-        phone: '+254 712 345 678',
-        subscriptionPaid: true,
-        subscriptionExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        receiptCode: 'SAB89201923'
-      };
-      return { success: true, role: 'landlord', user: landlordUser };
-    } else {
+      const found = landlords.find(l => l.email.toLowerCase() === cleanEmail);
+      if (!found) {
+        throw new Error('No registered landlord account found with this email address. Please register first.');
+      }
+      if (password && found.password && found.password !== password) {
+        throw new Error('Invalid password. Please check your credentials.');
+      }
+      return { success: true, role: 'landlord', user: found };
+    } else if (role === 'tenant') {
       const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
-      const found = tenants.find(t => t.email.toLowerCase() === email.toLowerCase());
-      const tenantUser: Tenant = found || {
-        id: `tenant-${Date.now()}`,
-        landlordId: 'landlord-1',
-        fullName: email.split('@')[0] || 'Mercy Chebet',
-        email,
-        phone: '+254 700 123 456',
-        idNumber: 'ID-12345678',
-        unitId: 'unit-1',
-        unitNumber: 'A101',
-        propertyName: 'Kilimani Palms Heights',
-        monthlyRent: 45000,
-        leaseStartDate: '2025-01-01',
-        leaseEndDate: '2026-12-31',
-        status: 'Active'
-      };
-      return { success: true, role: 'tenant', user: tenantUser };
+      const found = tenants.find(t => t.email.toLowerCase() === cleanEmail);
+      if (!found) {
+        throw new Error('No registered tenant account found with this email address. Please register first.');
+      }
+      if (password && found.password && found.password !== password) {
+        throw new Error('Invalid password. Please check your credentials.');
+      }
+      return { success: true, role: 'tenant', user: found };
+    } else {
+      const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
+      const landlord = landlords.find(l => l.email.toLowerCase() === cleanEmail);
+      if (landlord) {
+        if (password && landlord.password && landlord.password !== password) {
+          throw new Error('Invalid password. Please check your credentials.');
+        }
+        return { success: true, role: 'landlord', user: landlord };
+      }
+
+      const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+      const tenant = tenants.find(t => t.email.toLowerCase() === cleanEmail);
+      if (tenant) {
+        if (password && tenant.password && tenant.password !== password) {
+          throw new Error('Invalid password. Please check your credentials.');
+        }
+        return { success: true, role: 'tenant', user: tenant };
+      }
+
+      throw new Error('No registered account found with this email address. Please register first.');
     }
   }
 }

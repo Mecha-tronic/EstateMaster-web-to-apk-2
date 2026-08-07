@@ -104,9 +104,8 @@ export default function App() {
       if (lData.length > 0) {
         if (!activeLandlordId) setActiveLandlordId(lData[0].id);
         setSignedInLandlord((prev) => {
-          if (prev) return prev;
-          if (!hasInitialLoaded) return lData[0];
-          return null;
+          if (!prev) return null;
+          return lData.find((l) => l.id === prev.id || l.email === prev.email) || prev;
         });
       }
       setHasInitialLoaded(true);
