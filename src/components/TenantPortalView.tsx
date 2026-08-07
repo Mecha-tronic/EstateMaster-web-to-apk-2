@@ -37,6 +37,7 @@ interface TenantPortalViewProps {
   signedInTenant?: Tenant | null;
   onSignIn?: (tenant: Tenant) => void;
   onSignOut?: () => void;
+  onLandlordSuccess?: (landlord: Landlord) => void;
   onRefreshData: () => void;
   onSwitchToRegister?: () => void;
 }
@@ -53,6 +54,7 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   signedInTenant,
   onSignIn,
   onSignOut,
+  onLandlordSuccess,
   onRefreshData,
   onSwitchToRegister,
 }) => {
@@ -131,7 +133,7 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
         units={units}
         properties={properties}
         onTenantSuccess={(tenant) => onSignIn?.(tenant)}
-        onLandlordSuccess={() => {}}
+        onLandlordSuccess={(landlord) => onLandlordSuccess?.(landlord)}
         onSwitchToRegister={onSwitchToRegister}
         onRefreshData={onRefreshData}
       />

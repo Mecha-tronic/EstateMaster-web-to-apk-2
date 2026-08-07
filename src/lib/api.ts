@@ -341,7 +341,11 @@ export async function triggerMpesaStkPush(data: { phone: string; amount: number;
 export async function fetchProperties(): Promise<Property[]> {
   try {
     const res = await fetch(getApiUrl('/api/properties'));
-    return await handleResponse(res, 'Failed to fetch properties');
+    const properties = await handleResponse(res, 'Failed to fetch properties');
+    if (Array.isArray(properties) && properties.length > 0) {
+      setLocalData(STORAGE_KEYS.PROPERTIES, properties);
+    }
+    return properties;
   } catch (err) {
     return getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, [
       {
@@ -349,6 +353,8 @@ export async function fetchProperties(): Promise<Property[]> {
         landlordId: 'landlord-1',
         name: 'Kilimani Palms Heights',
         location: 'Argwings Kodhek Road, Kilimani, Nairobi',
+        address: 'Argwings Kodhek Road, Kilimani, Nairobi',
+        city: 'Nairobi',
         type: 'Residential Apartments',
         totalUnits: 12,
         occupiedUnits: 10,
@@ -359,12 +365,57 @@ export async function fetchProperties(): Promise<Property[]> {
         landlordId: 'landlord-1',
         name: 'Westlands Commercial Plaza',
         location: 'Waiyaki Way, Westlands, Nairobi',
+        address: 'Waiyaki Way, Westlands, Nairobi',
+        city: 'Nairobi',
         type: 'Commercial Office Space',
         totalUnits: 8,
         occupiedUnits: 6,
         imageUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=800&q=80'
       }
     ]);
+  }
+}
+
+export async function createProperty(data: Partial<Property>): Promise<Property> {
+  const newProp: Property = {
+    id: data.id || `prop-${Date.now()}`,
+    landlordId: data.landlordId || 'landlord-1',
+    name: data.name || 'New Property',
+    address: data.address || data.location || 'Nairobi, Kenya',
+    location: data.location || data.address || 'Nairobi, Kenya',
+    city: data.city || 'Nairobi',
+    type: data.type || 'Residential Apartments',
+    totalUnits: data.totalUnits || 0,
+    occupiedUnits: data.occupiedUnits || 0,
+    imageUrl: data.imageUrl || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+    description: data.description || 'Landlord property listing',
+    amenities: data.amenities || ['Parking', 'Security']
+  };
+
+  try {
+    const res = await fetch(getApiUrl('/api/properties'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newProp),
+    });
+    const created = await handleResponse(res, 'Failed to create property');
+    const propertyToSave = created || newProp;
+
+    const properties = getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, []);
+    const idx = properties.findIndex(p => p.id === propertyToSave.id);
+    if (idx !== -1) properties[idx] = propertyToSave;
+    else properties.unshift(propertyToSave);
+    setLocalData(STORAGE_KEYS.PROPERTIES, properties);
+
+    return propertyToSave;
+  } catch (err) {
+    console.warn('Backend fetch failed, saving property locally:', err);
+    const properties = getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, []);
+    const idx = properties.findIndex(p => p.id === newProp.id);
+    if (idx !== -1) properties[idx] = newProp;
+    else properties.unshift(newProp);
+    setLocalData(STORAGE_KEYS.PROPERTIES, properties);
+    return newProp;
   }
 }
 
@@ -375,7 +426,15 @@ export async function updatePropertyDetails(propertyId: string, data: Partial<Pr
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    return await handleResponse(res, 'Failed to update property details');
+    const updated = await handleResponse(res, 'Failed to update property details');
+    if (updated) {
+      const props = getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, []);
+      const idx = props.findIndex(p => p.id === propertyId);
+      if (idx !== -1) props[idx] = updated;
+      else props.unshift(updated);
+      setLocalData(STORAGE_KEYS.PROPERTIES, props);
+    }
+    return updated;
   } catch (err) {
     const props = await fetchProperties();
     const idx = props.findIndex(p => p.id === propertyId);
@@ -397,16 +456,26 @@ export async function deleteProperty(propertyId: string): Promise<void> {
     });
     await handleResponse(res, 'Failed to remove property');
   } catch (err) {
-    const props = await fetchProperties();
+    console.warn('Backend fetch failed, deleting property locally:', err);
+  } finally {
+    const props = getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, []);
     const filtered = props.filter(p => p.id !== propertyId);
     setLocalData(STORAGE_KEYS.PROPERTIES, filtered);
+
+    const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
+    const filteredUnits = units.filter(u => u.propertyId !== propertyId);
+    setLocalData(STORAGE_KEYS.UNITS, filteredUnits);
   }
 }
 
 export async function fetchUnits(): Promise<Unit[]> {
   try {
     const res = await fetch(getApiUrl('/api/units'));
-    return await handleResponse(res, 'Failed to fetch units');
+    const units = await handleResponse(res, 'Failed to fetch units');
+    if (Array.isArray(units) && units.length > 0) {
+      setLocalData(STORAGE_KEYS.UNITS, units);
+    }
+    return units;
   } catch (err) {
     return getLocalData<Unit[]>(STORAGE_KEYS.UNITS, [
       {
@@ -441,6 +510,65 @@ export async function fetchUnits(): Promise<Unit[]> {
         currentTenantEmail: 'finance@techvision.co.ke'
       }
     ]);
+  }
+}
+
+export async function createUnit(data: Partial<Unit>): Promise<Unit> {
+  const newUnit: Unit = {
+    id: data.id || `unit-${Date.now()}`,
+    propertyId: data.propertyId || 'prop-1',
+    propertyName: data.propertyName || 'Property',
+    unitNumber: data.unitNumber || '101',
+    type: data.type || `${data.bedrooms || 2} Bedroom`,
+    bedrooms: data.bedrooms || 2,
+    bathrooms: data.bathrooms || 1,
+    sqft: data.sqft || 800,
+    monthlyRent: Number(data.monthlyRent || 0),
+    depositAmount: Number(data.depositAmount || data.monthlyRent || 0),
+    status: data.status || 'Available',
+    features: data.features || ['Balcony', 'Modern Bath']
+  };
+
+  try {
+    const res = await fetch(getApiUrl('/api/units'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newUnit),
+    });
+    const created = await handleResponse(res, 'Failed to create unit');
+    const unitToSave = created || newUnit;
+
+    const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
+    const idx = units.findIndex(u => u.id === unitToSave.id);
+    if (idx !== -1) units[idx] = unitToSave;
+    else units.unshift(unitToSave);
+    setLocalData(STORAGE_KEYS.UNITS, units);
+
+    // Update parent property totalUnits in localStorage as well
+    const properties = getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, []);
+    const propIdx = properties.findIndex(p => p.id === unitToSave.propertyId);
+    if (propIdx !== -1) {
+      properties[propIdx].totalUnits = (properties[propIdx].totalUnits || 0) + 1;
+      setLocalData(STORAGE_KEYS.PROPERTIES, properties);
+    }
+
+    return unitToSave;
+  } catch (err) {
+    console.warn('Backend fetch failed, saving unit locally:', err);
+    const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
+    const idx = units.findIndex(u => u.id === newUnit.id);
+    if (idx !== -1) units[idx] = newUnit;
+    else units.unshift(newUnit);
+    setLocalData(STORAGE_KEYS.UNITS, units);
+
+    const properties = getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, []);
+    const propIdx = properties.findIndex(p => p.id === newUnit.propertyId);
+    if (propIdx !== -1) {
+      properties[propIdx].totalUnits = (properties[propIdx].totalUnits || 0) + 1;
+      setLocalData(STORAGE_KEYS.PROPERTIES, properties);
+    }
+
+    return newUnit;
   }
 }
 

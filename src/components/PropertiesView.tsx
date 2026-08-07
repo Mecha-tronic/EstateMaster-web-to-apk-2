@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Property, Unit } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { Building2, Plus, Home, MapPin, CheckCircle, AlertTriangle, Layers, Trash2, AlertCircle, X, ShieldAlert, Camera, Upload, Image as ImageIcon } from 'lucide-react';
@@ -46,6 +46,12 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
   const [bathrooms, setBathrooms] = useState('2');
   const [sqft, setSqft] = useState('900');
   const [monthlyRent, setMonthlyRent] = useState('650');
+
+  useEffect(() => {
+    if (!unitPropId && properties.length > 0) {
+      setUnitPropId(properties[0].id);
+    }
+  }, [properties, unitPropId]);
 
   const filteredUnits =
     selectedPropertyId === 'all'
@@ -113,16 +119,17 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
   const handleCreateUnit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!unitNumber) return;
-    const prop = properties.find((p) => p.id === unitPropId);
+    const targetPropId = unitPropId || properties[0]?.id || 'prop-1';
+    const prop = properties.find((p) => p.id === targetPropId);
     onAddUnit({
-      propertyId: unitPropId,
+      propertyId: targetPropId,
       propertyName: prop?.name || 'Property',
       unitNumber,
-      bedrooms: parseInt(bedrooms),
-      bathrooms: parseFloat(bathrooms),
-      sqft: parseInt(sqft),
-      monthlyRent: parseFloat(monthlyRent),
-      depositAmount: parseFloat(monthlyRent),
+      bedrooms: parseInt(bedrooms) || 1,
+      bathrooms: parseFloat(bathrooms) || 1,
+      sqft: parseInt(sqft) || 500,
+      monthlyRent: parseFloat(monthlyRent) || 0,
+      depositAmount: parseFloat(monthlyRent) || 0,
       status: 'Available',
       features: ['Balcony', 'Modern Bath', 'High Ceiling']
     });

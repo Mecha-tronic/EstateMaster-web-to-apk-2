@@ -17,8 +17,11 @@ import { formatKSH } from './lib/formatters';
 import {
   fetchLandlords,
   fetchProperties,
+  createProperty,
+  updatePropertyDetails,
   deleteProperty,
   fetchUnits,
+  createUnit,
   fetchTenants,
   fetchInvoices,
   fetchQuotes,
@@ -393,22 +396,29 @@ export default function App() {
                     <PropertiesView
                       properties={properties}
                       units={units}
-                      onAddProperty={(p) => {
-                        fetch(getApiUrl('/api/properties'), {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(p)
-                        }).then(() => loadAllData());
+                      onAddProperty={async (p) => {
+                        try {
+                          await createProperty(p);
+                          await loadAllData();
+                        } catch (err) {
+                          console.error('Failed to create property:', err);
+                        }
                       }}
-                      onRemoveProperty={(propertyId) => {
-                        deleteProperty(propertyId).then(() => loadAllData());
+                      onRemoveProperty={async (propertyId) => {
+                        try {
+                          await deleteProperty(propertyId);
+                          await loadAllData();
+                        } catch (err) {
+                          console.error('Failed to remove property:', err);
+                        }
                       }}
-                      onAddUnit={(u) => {
-                        fetch(getApiUrl('/api/units'), {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(u)
-                        }).then(() => loadAllData());
+                      onAddUnit={async (u) => {
+                        try {
+                          await createUnit(u);
+                          await loadAllData();
+                        } catch (err) {
+                          console.error('Failed to create unit:', err);
+                        }
                       }}
                       onSelectUnitForRegister={() => setActiveRole('register')}
                       onRefreshData={() => loadAllData()}
@@ -488,6 +498,12 @@ export default function App() {
                 signedInTenant={signedInTenant}
                 onSignIn={(tenant) => setSignedInTenant(tenant)}
                 onSignOut={() => setSignedInTenant(null)}
+                onLandlordSuccess={(landlord) => {
+                  setInactivityNotice(null);
+                  setSignedInLandlord(landlord);
+                  setActiveLandlordId(landlord.id);
+                  setActiveRole('landlord');
+                }}
                 onRefreshData={loadAllData}
                 onSwitchToRegister={() => setActiveRole('register')}
               />
