@@ -593,90 +593,95 @@ async function startServer() {
 
   // M-Pesa Express STK Push Simulation Endpoint
   app.post('/api/payments/stk-push', (req, res) => {
-    const { phone, amount, invoiceId, accountRef } = req.body;
-    if (!phone || !amount || !invoiceId) {
-      return res.status(400).json({ error: 'Phone number, amount, and invoice ID are required for M-Pesa STK Push' });
+    try {
+      const { phone, amount, invoiceId, accountRef } = req.body;
+      if (!phone || !amount) {
+        return res.status(400).json({ error: 'Phone number and amount are required for M-Pesa STK Push' });
+      }
+
+      const payAmt = Number(amount);
+      const receiptCode = `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
+
+      const inv = invoiceId ? invoices.find((i) => i.id === invoiceId) : undefined;
+
+      const pay: Payment = {
+        id: `pay-${Date.now()}`,
+        invoiceId: invoiceId || `SUB-${Date.now()}`,
+        tenantId: inv ? inv.tenantId : 'landlord-sub',
+        tenantName: inv ? inv.tenantName : (accountRef || 'EstateMaster License'),
+        unitNumber: inv ? inv.unitNumber : 'Commercial License',
+        amount: payAmt,
+        paymentMethod: 'M-Pesa',
+        referenceCode: receiptCode,
+        paymentDate: new Date().toISOString(),
+        status: 'Completed',
+        notes: `M-Pesa Express STK Push completed for phone ${phone}. Acc: ${accountRef || (inv ? inv.unitNumber : 'EstateMaster Subscription')}`
+      };
+      payments.unshift(pay);
+
+      if (inv) {
+        // Update invoice state
+        inv.amountPaid = (inv.amountPaid || 0) + payAmt;
+        if (inv.amountPaid >= inv.totalAmount) {
+          inv.status = 'Paid';
+        } else {
+          inv.status = 'Partial';
+        }
+
+        if (inv.tenantEmail) {
+          // Dispatch instant M-Pesa SMS / Email payment receipt
+          const receiptEmailHtml = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #10b981; border-radius: 12px; background: #fff;">
+              <div style="background-color: #065f46; color: white; padding: 16px; border-radius: 8px 8px 0 0; text-align: center;">
+                <h2 style="margin: 0; font-size: 20px;">📲 M-PESA PAYMENT CONFIRMED</h2>
+                <p style="margin: 4px 0 0 0; font-size: 13px; color: #a7f3d0;">Official Rent Payment Receipt</p>
+              </div>
+              <div style="padding: 20px 0;">
+                <p style="color: #1e293b; font-size: 15px;">Dear <strong>${inv.tenantName}</strong>,</p>
+                <p style="color: #334155; font-size: 14px;">
+                  We have confirmed receipt of <strong>KSh ${payAmt.toLocaleString()}</strong> via M-Pesa Express STK Push for <strong>Invoice #${inv.invoiceNumber}</strong> (Unit ${inv.unitNumber}).
+                </p>
+
+                <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
+                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>M-Pesa Receipt Code:</strong> <span style="font-family: monospace; font-size: 15px; font-weight: bold;">${receiptCode}</span></p>
+                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Phone Number:</strong> ${phone}</p>
+                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Amount Paid:</strong> KSh ${payAmt.toLocaleString()}</p>
+                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Date & Time:</strong> ${new Date().toLocaleString('en-KE')}</p>
+                  <p style="margin: 4px 0; color: #15803d; font-size: 14px; font-weight: bold;">Status: Invoice ${inv.status}</p>
+                </div>
+
+                <p style="color: #64748b; font-size: 13px;">
+                  Thank you for paying your rent on time!
+                </p>
+              </div>
+            </div>
+          `;
+
+          emailLogs.unshift({
+            id: `email-${Date.now()}`,
+            recipientEmail: inv.tenantEmail,
+            recipientName: inv.tenantName,
+            subject: `📲 M-Pesa Receipt ${receiptCode}: KSh ${payAmt.toLocaleString()} for Invoice #${inv.invoiceNumber}`,
+            bodyHtml: receiptEmailHtml,
+            emailType: 'Payment Receipt',
+            sentAt: new Date().toISOString(),
+            readStatus: false,
+            documentId: pay.id
+          });
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        receiptCode,
+        message: `M-Pesa STK Push payment of KSh ${payAmt.toLocaleString()} successfully processed! Confirmation Code: ${receiptCode}`,
+        payment: pay,
+        invoice: inv
+      });
+    } catch (err: any) {
+      console.error('STK Push error:', err);
+      res.status(500).json({ error: err.message || 'M-Pesa STK Push processing failed' });
     }
-
-    const inv = invoices.find((i) => i.id === invoiceId);
-    if (!inv) {
-      return res.status(404).json({ error: 'Invoice not found' });
-    }
-
-    // Generate realistic Daraja / Safaricom M-Pesa receipt code
-    const receiptCode = `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
-
-    const payAmt = Number(amount);
-    const pay: Payment = {
-      id: `pay-${Date.now()}`,
-      invoiceId,
-      tenantId: inv.tenantId,
-      tenantName: inv.tenantName,
-      unitNumber: inv.unitNumber,
-      amount: payAmt,
-      paymentMethod: 'M-Pesa',
-      referenceCode: receiptCode,
-      paymentDate: new Date().toISOString(),
-      status: 'Completed',
-      notes: `M-Pesa Express STK Push completed for phone ${phone}. Acc: ${accountRef || inv.unitNumber}`
-    };
-    payments.unshift(pay);
-
-    // Update invoice state
-    inv.amountPaid = (inv.amountPaid || 0) + payAmt;
-    if (inv.amountPaid >= inv.totalAmount) {
-      inv.status = 'Paid';
-    } else {
-      inv.status = 'Partial';
-    }
-
-    // Dispatch instant M-Pesa SMS / Email payment receipt
-    const receiptEmailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #10b981; border-radius: 12px; background: #fff;">
-        <div style="background-color: #065f46; color: white; padding: 16px; border-radius: 8px 8px 0 0; text-align: center;">
-          <h2 style="margin: 0; font-size: 20px;">📲 M-PESA PAYMENT CONFIRMED</h2>
-          <p style="margin: 4px 0 0 0; font-size: 13px; color: #a7f3d0;">Official Rent Payment Receipt</p>
-        </div>
-        <div style="padding: 20px 0;">
-          <p style="color: #1e293b; font-size: 15px;">Dear <strong>${inv.tenantName}</strong>,</p>
-          <p style="color: #334155; font-size: 14px;">
-            We have confirmed receipt of <strong>KSh ${payAmt.toLocaleString()}</strong> via M-Pesa Express STK Push for <strong>Invoice #${inv.invoiceNumber}</strong> (Unit ${inv.unitNumber}).
-          </p>
-
-          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
-            <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>M-Pesa Receipt Code:</strong> <span style="font-family: monospace; font-size: 15px; font-weight: bold;">${receiptCode}</span></p>
-            <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Phone Number:</strong> ${phone}</p>
-            <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Amount Paid:</strong> KSh ${payAmt.toLocaleString()}</p>
-            <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Date & Time:</strong> ${new Date().toLocaleString('en-KE')}</p>
-            <p style="margin: 4px 0; color: #15803d; font-size: 14px; font-weight: bold;">Status: Invoice ${inv.status}</p>
-          </div>
-
-          <p style="color: #64748b; font-size: 13px;">
-            Thank you for paying your rent on time!
-          </p>
-        </div>
-      </div>
-    `;
-
-    emailLogs.unshift({
-      id: `email-${Date.now()}`,
-      recipientEmail: inv.tenantEmail,
-      recipientName: inv.tenantName,
-      subject: `📲 M-Pesa Receipt ${receiptCode}: KSh ${payAmt.toLocaleString()} for Invoice #${inv.invoiceNumber}`,
-      bodyHtml: receiptEmailHtml,
-      emailType: 'Payment Receipt',
-      sentAt: new Date().toISOString(),
-      readStatus: false,
-      documentId: pay.id
-    });
-
-    res.status(200).json({
-      success: true,
-      receiptCode,
-      message: `M-Pesa STK Push payment of KSh ${payAmt.toLocaleString()} successfully processed! Confirmation Code: ${receiptCode}`,
-      payment: pay,
-      invoice: inv
-    });
   });
 
   // Properties & Units
@@ -1371,6 +1376,19 @@ Return JSON:
     }
   });
 
+  // Catch-all 404 handler for API routes to guarantee JSON response
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+  });
+
+  // Global error handler for API routes
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.path && req.path.startsWith('/api')) {
+      console.error('API Server Error:', err);
+      return res.status(500).json({ error: err.message || 'Internal Server Error' });
+    }
+    next(err);
+  });
 
   // --- VITE / STATIC SERVING ---
   if (process.env.NODE_ENV !== 'production') {
