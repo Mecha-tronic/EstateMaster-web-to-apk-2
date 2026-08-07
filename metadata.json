@@ -1,0 +1,8 @@
+{
+  "name": "EstateMaster",
+  "description": "Android-styled property management app for landlords to manage leases, track payments, triage maintenance requests, and automatically issue rental quotes and monthly invoices to tenant emails upon registration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

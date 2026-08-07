@@ -1,0 +1,6 @@
+{
+  "appId": "com.estatemaster.app",
+  "appName": "EstateMaster",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

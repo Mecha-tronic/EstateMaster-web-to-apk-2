@@ -1,0 +1,706 @@
+import React, { useState } from 'react';
+import { Invoice, Quote, Tenant, Unit } from '../types';
+import { formatKSH } from '../lib/formatters';
+import {
+  FileText,
+  Tag,
+  Plus,
+  Send,
+  Eye,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Sparkles,
+  Printer,
+  X,
+  Mail
+} from 'lucide-react';
+import { generateAiQuote } from '../lib/api';
+
+interface InvoicesQuotesViewProps {
+  invoices: Invoice[];
+  quotes: Quote[];
+  tenants: Tenant[];
+  units: Unit[];
+  onCreateInvoice: (data: any) => void;
+  onCreateQuote: (data: any) => void;
+  showCreateInvoiceModal: boolean;
+  setShowCreateInvoiceModal: (val: boolean) => void;
+  showCreateQuoteModal: boolean;
+  setShowCreateQuoteModal: (val: boolean) => void;
+}
+
+export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
+  invoices,
+  quotes,
+  tenants,
+  units,
+  onCreateInvoice,
+  onCreateQuote,
+  showCreateInvoiceModal,
+  setShowCreateInvoiceModal,
+  showCreateQuoteModal,
+  setShowCreateQuoteModal,
+}) => {
+  const [activeSubTab, setActiveSubTab] = useState<'invoices' | 'quotes'>('invoices');
+  const [selectedDocument, setSelectedDocument] = useState<{ type: 'invoice' | 'quote'; data: any } | null>(null);
+
+  // New Invoice State
+  const [invTenantId, setInvTenantId] = useState(tenants[0]?.id || '');
+  const [invPeriod, setInvPeriod] = useState('August 2026');
+  const [invWaterFee, setInvWaterFee] = useState('25');
+  const [invTrashFee, setInvTrashFee] = useState('15');
+  const [invMaintFee, setInvMaintFee] = useState('0');
+  const [invDiscount, setInvDiscount] = useState('0');
+  const [invNotes, setInvNotes] = useState('');
+
+  // New Quote State
+  const [qteTenantName, setQteTenantName] = useState('');
+  const [qteTenantEmail, setQteTenantEmail] = useState('');
+  const [qteTenantPhone, setQteTenantPhone] = useState('');
+  const [qteUnitId, setQteUnitId] = useState(units[0]?.id || '');
+  const [qteRent, setQteRent] = useState('');
+  const [qteDeposit, setQteDeposit] = useState('');
+  const [qteLeaseMonths, setQteLeaseMonths] = useState('12');
+  const [qteNotes, setQteNotes] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  const handleGenerateInvoiceSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onCreateInvoice({
+      tenantId: invTenantId,
+      periodMonth: invPeriod,
+      waterFee: parseFloat(invWaterFee) || 0,
+      trashFee: parseFloat(invTrashFee) || 0,
+      maintenanceFee: parseFloat(invMaintFee) || 0,
+      discount: parseFloat(invDiscount) || 0,
+      notes: invNotes
+    });
+    setShowCreateInvoiceModal(false);
+  };
+
+  const handleGenerateQuoteSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onCreateQuote({
+      tenantName: qteTenantName,
+      tenantEmail: qteTenantEmail,
+      tenantPhone: qteTenantPhone,
+      unitId: qteUnitId,
+      monthlyRentQuote: parseFloat(qteRent),
+      depositQuote: parseFloat(qteDeposit),
+      leaseTermMonths: parseInt(qteLeaseMonths),
+      notes: qteNotes
+    });
+    setShowCreateQuoteModal(false);
+  };
+
+  const handleAiAutoQuote = async () => {
+    setIsAiLoading(true);
+    try {
+      const selectedU = units.find((u) => u.id === qteUnitId) || units[0];
+      const aiResult = await generateAiQuote({
+        tenantName: qteTenantName || 'Applicant',
+        tenantEmail: qteTenantEmail,
+        unitId: qteUnitId,
+        leaseTermMonths: parseInt(qteLeaseMonths),
+        moveInDate: '2026-09-01'
+      });
+
+      if (aiResult.monthlyRentQuote) setQteRent(aiResult.monthlyRentQuote.toString());
+      if (aiResult.depositQuote) setQteDeposit(aiResult.depositQuote.toString());
+      if (aiResult.notes) setQteNotes(aiResult.notes);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const handlePrintDocument = () => {
+    window.print();
+  };
+
+  return (
+    <div className="p-4 sm:p-6 space-y-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <FileText className="w-6 h-6 text-blue-600" /> Invoices & Rental Quotes
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500">
+            Generate monthly rental statements, send formal lease quotes, and automatically dispatch PDF notices to tenant emails.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowCreateQuoteModal(true)}
+            className="px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-medium shadow-sm transition flex items-center gap-1.5"
+          >
+            <Tag className="w-4 h-4 text-blue-600" /> Create Rental Quote
+          </button>
+          <button
+            onClick={() => setShowCreateInvoiceModal(true)}
+            className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" /> Issue Monthly Invoice
+          </button>
+        </div>
+      </div>
+
+      {/* Sub Tabs Toggle */}
+      <div className="flex border-b border-slate-200 text-xs font-semibold">
+        <button
+          onClick={() => setActiveSubTab('invoices')}
+          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 ${
+            activeSubTab === 'invoices'
+              ? 'border-blue-600 text-blue-600 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FileText className="w-4 h-4" /> Monthly Invoices ({invoices.length})
+        </button>
+        <button
+          onClick={() => setActiveSubTab('quotes')}
+          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 ${
+            activeSubTab === 'quotes'
+              ? 'border-blue-600 text-blue-600 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Tag className="w-4 h-4" /> Rental Quotes ({quotes.length})
+        </button>
+      </div>
+
+      {/* INVOICES LIST TAB */}
+      {activeSubTab === 'invoices' && (
+        <div className="space-y-3">
+          {invoices.map((inv) => {
+            const isPaid = inv.status === 'Paid';
+            return (
+              <div
+                key={inv.id}
+                className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-blue-500 transition shadow-sm text-slate-900"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-blue-700 text-sm">{inv.invoiceNumber}</span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 ${
+                        isPaid
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : 'bg-amber-100 text-amber-800 border border-amber-200'
+                      }`}
+                    >
+                      {isPaid ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                      {inv.status}
+                    </span>
+                    {inv.emailedToTenant && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1 font-semibold">
+                        <Mail className="w-3 h-3" /> Emailed
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-xs font-bold text-slate-900">
+                    {inv.tenantName} &bull; Unit {inv.unitNumber} ({inv.propertyName})
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Period: {inv.periodMonth} | Issued: {inv.issueDate} | Due Date: {inv.dueDate}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-0 border-slate-200 pt-2 sm:pt-0">
+                  <div className="text-left sm:text-right">
+                    <p className="text-[10px] text-slate-500 font-medium">Total Invoice Amount</p>
+                    <p className="text-lg font-extrabold text-slate-900">{formatKSH(inv.totalAmount)}</p>
+                  </div>
+
+                  <button
+                    onClick={() => setSelectedDocument({ type: 'invoice', data: inv })}
+                    className="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition flex items-center gap-1.5"
+                  >
+                    <Eye className="w-3.5 h-3.5" /> View Statement
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* QUOTES LIST TAB */}
+      {activeSubTab === 'quotes' && (
+        <div className="space-y-3">
+          {quotes.map((qte) => (
+            <div
+              key={qte.id}
+              className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-blue-500 transition shadow-sm text-slate-900"
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-blue-700 text-sm">{qte.quoteNumber}</span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-blue-100 text-blue-800 border border-blue-200">
+                    {qte.status}
+                  </span>
+                  {qte.emailedToTenant && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1 font-semibold">
+                      <Mail className="w-3 h-3" /> Emailed
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-xs font-bold text-slate-900">
+                  Applicant: {qte.tenantName} ({qte.tenantEmail})
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Property: {qte.propertyName} - Unit {qte.unitNumber} | Term: {qte.leaseTermMonths} Months | Valid Until: {qte.validUntil}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-0 border-slate-200 pt-2 sm:pt-0">
+                <div className="text-left sm:text-right">
+                  <p className="text-[10px] text-slate-500 font-medium">Quoted Move-in Cost</p>
+                  <p className="text-lg font-extrabold text-emerald-600">{formatKSH(qte.totalMoveInCost)}</p>
+                  <p className="text-[10px] text-slate-500">{formatKSH(qte.monthlyRentQuote)}/mo rent</p>
+                </div>
+
+                <button
+                  onClick={() => setSelectedDocument({ type: 'quote', data: qte })}
+                  className="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition flex items-center gap-1.5"
+                >
+                  <Eye className="w-3.5 h-3.5" /> View Quote
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* CREATE INVOICE MODAL */}
+      {showCreateInvoiceModal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 space-y-4 text-xs shadow-xl text-slate-900">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-blue-600" /> Issue Monthly Invoice to Tenant
+              </h3>
+              <button onClick={() => setShowCreateInvoiceModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGenerateInvoiceSubmit} className="space-y-3">
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Select Tenant</label>
+                <select
+                  value={invTenantId}
+                  onChange={(e) => setInvTenantId(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm"
+                >
+                  {tenants.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.fullName} - Unit {t.unitNumber} ({formatKSH(t.monthlyRent)}/mo)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Invoice Month / Period</label>
+                <input
+                  type="text"
+                  required
+                  value={invPeriod}
+                  onChange={(e) => setInvPeriod(e.target.value)}
+                  placeholder="e.g. September 2026"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Water Charge (KSh)</label>
+                  <input
+                    type="number"
+                    value={invWaterFee}
+                    onChange={(e) => setInvWaterFee(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Trash/Sanitation (KSh)</label>
+                  <input
+                    type="number"
+                    value={invTrashFee}
+                    onChange={(e) => setInvTrashFee(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Maintenance Fee (KSh)</label>
+                  <input
+                    type="number"
+                    value={invMaintFee}
+                    onChange={(e) => setInvMaintFee(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Discount (KSh)</label>
+                  <input
+                    type="number"
+                    value={invDiscount}
+                    onChange={(e) => setInvDiscount(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Invoice Notes / Payment Instructions</label>
+                <textarea
+                  value={invNotes}
+                  onChange={(e) => setInvNotes(e.target.value)}
+                  placeholder="e.g. Please send payment to M-Pesa Till 781920 or Bank A/C by 5th."
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 h-16 shadow-sm"
+                />
+              </div>
+
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs flex items-center justify-between text-slate-700">
+                <span>Auto-Dispatch:</span>
+                <span className="text-emerald-700 font-bold flex items-center gap-1">
+                  <Send className="w-3.5 h-3.5 text-emerald-600" /> Dispatches Statement to Tenant's Email
+                </span>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateInvoiceModal(false)}
+                  className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition shadow-sm"
+                >
+                  Issue & Dispatch Invoice
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE QUOTE MODAL */}
+      {showCreateQuoteModal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 space-y-4 text-xs shadow-xl text-slate-900">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Tag className="w-5 h-5 text-blue-600" /> Create Rental Quote Offer
+              </h3>
+              <button onClick={() => setShowCreateQuoteModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGenerateQuoteSubmit} className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Applicant Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={qteTenantName}
+                    onChange={(e) => setQteTenantName(e.target.value)}
+                    placeholder="e.g. Mary Atieno"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Personal Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={qteTenantEmail}
+                    onChange={(e) => setQteTenantEmail(e.target.value)}
+                    placeholder="mary@example.com"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Phone Number</label>
+                  <input
+                    type="text"
+                    value={qteTenantPhone}
+                    onChange={(e) => setQteTenantPhone(e.target.value)}
+                    placeholder="+254 7..."
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Select Apartment Unit</label>
+                  <select
+                    value={qteUnitId}
+                    onChange={(e) => setQteUnitId(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  >
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        Unit {u.unitNumber} - {formatKSH(u.monthlyRent)}/mo ({u.propertyName})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* AI Auto Pricing Trigger */}
+              <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 flex items-center justify-between">
+                <div>
+                  <p className="font-bold text-blue-900 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" /> Gemini AI Pricing Copilot
+                  </p>
+                  <p className="text-[10px] text-slate-600">Auto-calculate optimal rent & deposit rate</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAiAutoQuote}
+                  disabled={isAiLoading}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] transition shadow-sm"
+                >
+                  {isAiLoading ? 'Calculating...' : 'Run AI Estimator'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Quoted Rent (KSh)</label>
+                  <input
+                    type="number"
+                    required
+                    value={qteRent}
+                    onChange={(e) => setQteRent(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Security Deposit (KSh)</label>
+                  <input
+                    type="number"
+                    required
+                    value={qteDeposit}
+                    onChange={(e) => setQteDeposit(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Lease Months</label>
+                  <input
+                    type="number"
+                    value={qteLeaseMonths}
+                    onChange={(e) => setQteLeaseMonths(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Quotation Special Terms & Perks</label>
+                <textarea
+                  value={qteNotes}
+                  onChange={(e) => setQteNotes(e.target.value)}
+                  placeholder="e.g. Includes 1 free parking spot and high speed fiber installation."
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 h-16 shadow-sm"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateQuoteModal(false)}
+                  className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition shadow-sm"
+                >
+                  Send Rental Quote Offer
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* PRINTABLE DOCUMENT PREVIEW MODAL */}
+      {selectedDocument && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white text-slate-900 rounded-2xl max-w-2xl w-full p-6 space-y-6 shadow-2xl relative font-sans text-xs">
+            {/* Modal Control Bar (Screen only) */}
+            <div className="flex items-center justify-between border-b pb-4 border-slate-200">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-800 text-base">Official Document Preview</span>
+                <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                  {selectedDocument.type}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePrintDocument}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-800 text-white hover:bg-slate-700 font-semibold flex items-center gap-1.5"
+                >
+                  <Printer className="w-4 h-4" /> Print / Save PDF
+                </button>
+                <button
+                  onClick={() => setSelectedDocument(null)}
+                  className="p-1.5 rounded-xl text-slate-500 hover:text-slate-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Document Body (Printable Statement Letterhead) */}
+            <div className="space-y-6 p-2">
+              {/* Company Header */}
+              <div className="flex justify-between items-start border-b pb-4 border-slate-200">
+                <div>
+                  <h1 className="text-xl font-black text-indigo-950 uppercase tracking-wide">
+                    EstateMaster Property Management
+                  </h1>
+                  <p className="text-slate-500 text-[11px]">452 Elm Street &bull; Nairobi, Kenya</p>
+                  <p className="text-slate-500 text-[11px]">Email: management@estatemaster.com &bull; Tel: +254 700 112 233</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-2xl font-black text-slate-800 tracking-wider">
+                    {selectedDocument.type === 'invoice' ? 'INVOICE' : 'RENTAL QUOTE'}
+                  </span>
+                  <p className="font-mono text-indigo-600 font-bold mt-1">
+                    #{selectedDocument.data.invoiceNumber || selectedDocument.data.quoteNumber}
+                  </p>
+                </div>
+              </div>
+
+              {/* Recipient & Dates Info */}
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bill To / Recipient</p>
+                  <p className="font-bold text-slate-800 text-sm">{selectedDocument.data.tenantName}</p>
+                  <p className="text-slate-600">{selectedDocument.data.tenantEmail}</p>
+                  <p className="text-slate-600">
+                    Unit {selectedDocument.data.unitNumber} - {selectedDocument.data.propertyName}
+                  </p>
+                </div>
+
+                <div className="text-right space-y-1">
+                  <div>
+                    <span className="text-slate-400">Issue Date: </span>
+                    <span className="font-semibold text-slate-800">
+                      {selectedDocument.data.issueDate || selectedDocument.data.createdAt?.split('T')[0]}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Due / Valid Until: </span>
+                    <span className="font-semibold text-slate-800">
+                      {selectedDocument.data.dueDate || selectedDocument.data.validUntil}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Status: </span>
+                    <span className="font-bold uppercase text-indigo-600">{selectedDocument.data.status}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Line Items Table */}
+              {selectedDocument.type === 'invoice' ? (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-300 text-slate-500 text-[11px] uppercase">
+                      <th className="py-2">Description</th>
+                      <th className="py-2 text-right">Amount (KSh)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-slate-700">
+                    <tr>
+                      <td className="py-2.5 font-medium">Monthly Base Rent ({selectedDocument.data.periodMonth})</td>
+                      <td className="py-2.5 text-right font-mono">{formatKSH(selectedDocument.data.rentAmount)}</td>
+                    </tr>
+                    {selectedDocument.data.waterFee > 0 && (
+                      <tr>
+                        <td className="py-2">Water & Drainage Utility</td>
+                        <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.waterFee)}</td>
+                      </tr>
+                    )}
+                    {selectedDocument.data.trashFee > 0 && (
+                      <tr>
+                        <td className="py-2">Trash & Waste Collection</td>
+                        <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.trashFee)}</td>
+                      </tr>
+                    )}
+                    {selectedDocument.data.maintenanceFee > 0 && (
+                      <tr>
+                        <td className="py-2">Service Charge / Maintenance</td>
+                        <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.maintenanceFee)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-800 font-bold text-slate-900 text-sm">
+                      <td className="py-3">TOTAL AMOUNT DUE</td>
+                      <td className="py-3 text-right font-mono text-indigo-600">{formatKSH(selectedDocument.data.totalAmount)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-300 text-slate-500 text-[11px] uppercase">
+                      <th className="py-2">Quoted Item</th>
+                      <th className="py-2 text-right">Amount (KSh)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-slate-700">
+                    <tr>
+                      <td className="py-2.5 font-medium">Monthly Rent Rate ({selectedDocument.data.leaseTermMonths} Months Lease)</td>
+                      <td className="py-2.5 text-right font-mono">{formatKSH(selectedDocument.data.monthlyRentQuote)}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2">Security Deposit (Refundable)</td>
+                      <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.depositQuote)}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-800 font-bold text-slate-900 text-sm">
+                      <td className="py-3">ESTIMATED MOVE-IN TOTAL</td>
+                      <td className="py-3 text-right font-mono text-emerald-600">{formatKSH(selectedDocument.data.totalMoveInCost)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+
+              {/* Payment Instructions Note */}
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-[11px] text-indigo-950">
+                <p className="font-bold mb-0.5">Payment Instructions:</p>
+                <p>M-Pesa Buy Goods Till: <strong>781920</strong> (EstateMaster) or Bank Transfer to Equity Bank A/C <strong>0192830192</strong>.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
