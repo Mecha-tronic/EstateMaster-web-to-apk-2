@@ -89,7 +89,9 @@ export const SignInView: React.FC<SignInViewProps> = ({
   // Handle standard Sign In
   const handleSignInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) {
+    const cleanEmail = email ? email.trim().toLowerCase() : '';
+    const cleanPassword = password ? password.trim() : '';
+    if (!cleanEmail) {
       setErrorMessage('Please enter your email address.');
       return;
     }
@@ -98,7 +100,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
     setErrorMessage(null);
 
     try {
-      const res = await loginUser(email, password, activeTab);
+      const res = await loginUser(cleanEmail, cleanPassword, activeTab);
       if (res.role === 'tenant') {
         onTenantSuccess(res.user as Tenant);
       } else if (res.role === 'landlord') {
@@ -114,7 +116,9 @@ export const SignInView: React.FC<SignInViewProps> = ({
   // Handle Tenant Account Creation
   const handleTenantSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tenantFullName || !email) {
+    const cleanEmail = email ? email.trim().toLowerCase() : '';
+    const cleanName = tenantFullName ? tenantFullName.trim() : '';
+    if (!cleanName || !cleanEmail) {
       setErrorMessage('Full Name and Email Address are required.');
       return;
     }
@@ -124,12 +128,12 @@ export const SignInView: React.FC<SignInViewProps> = ({
 
     try {
       const payload = {
-        fullName: tenantFullName,
-        email,
-        password: password || 'password123',
-        phone: tenantPhone,
-        idNumber: tenantIdNumber,
-        occupation: tenantOccupation || 'Resident',
+        fullName: cleanName,
+        email: cleanEmail,
+        password: password ? password.trim() : 'password123',
+        phone: tenantPhone ? tenantPhone.trim() : '',
+        idNumber: tenantIdNumber ? tenantIdNumber.trim() : '',
+        occupation: tenantOccupation ? tenantOccupation.trim() : 'Resident',
         income: tenantIncome,
         unitId: selectedUnitId || units[0]?.id || '',
         moveInDate: new Date().toISOString().split('T')[0],
@@ -153,12 +157,13 @@ export const SignInView: React.FC<SignInViewProps> = ({
   // Handle Landlord Account Creation & KSH 20,000 Subscription Fee
   const handleLandlordNextStep = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!landlordName || !companyName || !email || !landlordPhone) {
+    const cleanEmail = email ? email.trim().toLowerCase() : '';
+    if (!landlordName.trim() || !companyName.trim() || !cleanEmail || !landlordPhone.trim()) {
       setErrorMessage('Please fill in all required landlord and estate details.');
       return;
     }
     setErrorMessage(null);
-    setPaymentPhone(landlordPhone);
+    setPaymentPhone(landlordPhone.trim());
     setLandlordStep(2);
   };
 
@@ -167,18 +172,21 @@ export const SignInView: React.FC<SignInViewProps> = ({
     setLoading(true);
     setErrorMessage(null);
 
+    const cleanEmail = email ? email.trim().toLowerCase() : '';
+    const cleanPassword = password ? password.trim() : 'password123';
+
     try {
       const res = await registerLandlordAccount({
-        name: landlordName,
-        companyName,
-        email,
-        phone: landlordPhone,
-        password: password || 'password123',
-        idNumber: landlordIdNumber,
+        name: landlordName.trim(),
+        companyName: companyName.trim(),
+        email: cleanEmail,
+        phone: landlordPhone.trim(),
+        password: cleanPassword,
+        idNumber: landlordIdNumber.trim(),
         mpesaTillNumber,
         mpesaPaybill,
         bankName,
-        accountName: companyName,
+        accountName: companyName.trim(),
         accountNumber,
         paymentMethod,
         paymentPhone

@@ -90,6 +90,7 @@ async function handleResponse<T = any>(res: Response, defaultError: string = 'Re
 
 export async function loginUser(email: string, password?: string, role?: 'tenant' | 'landlord'): Promise<{ success: boolean; role: 'tenant' | 'landlord'; user: Tenant | Landlord }> {
   const cleanEmail = email ? email.trim().toLowerCase() : '';
+  const cleanPassword = password ? password.trim() : '';
   if (!cleanEmail) {
     throw new Error('Please enter a valid email address.');
   }
@@ -98,9 +99,28 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
     const res = await fetch(getApiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail, password, role }),
+      body: JSON.stringify({ email: cleanEmail, password: cleanPassword, role }),
     });
-    return await handleResponse(res, 'Authentication failed');
+    const result = await handleResponse(res, 'Authentication failed');
+
+    // Keep localStorage in sync with logged in account
+    if (result && result.user) {
+      if (result.role === 'landlord') {
+        const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
+        const idx = landlords.findIndex(l => l.email.trim().toLowerCase() === cleanEmail);
+        if (idx !== -1) landlords[idx] = result.user as Landlord;
+        else landlords.unshift(result.user as Landlord);
+        setLocalData(STORAGE_KEYS.LANDLORDS, landlords);
+      } else if (result.role === 'tenant') {
+        const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+        const idx = tenants.findIndex(t => t.email.trim().toLowerCase() === cleanEmail);
+        if (idx !== -1) tenants[idx] = result.user as Tenant;
+        else tenants.unshift(result.user as Tenant);
+        setLocalData(STORAGE_KEYS.TENANTS, tenants);
+      }
+    }
+
+    return result;
   } catch (err: any) {
     // If the error message came from a server response (e.g. 401 Unregistered account or invalid password), rethrow it directly!
     if (
@@ -116,38 +136,38 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
 
     if (role === 'landlord') {
       const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
-      const found = landlords.find(l => l.email.toLowerCase() === cleanEmail);
+      const found = landlords.find(l => l.email.trim().toLowerCase() === cleanEmail);
       if (!found) {
         throw new Error('No registered landlord account found with this email address. Please register first.');
       }
-      if (password && found.password && found.password !== password) {
+      if (cleanPassword && found.password && found.password.trim() !== cleanPassword) {
         throw new Error('Invalid password. Please check your credentials.');
       }
       return { success: true, role: 'landlord', user: found };
     } else if (role === 'tenant') {
       const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
-      const found = tenants.find(t => t.email.toLowerCase() === cleanEmail);
+      const found = tenants.find(t => t.email.trim().toLowerCase() === cleanEmail);
       if (!found) {
         throw new Error('No registered tenant account found with this email address. Please register first.');
       }
-      if (password && found.password && found.password !== password) {
+      if (cleanPassword && found.password && found.password.trim() !== cleanPassword) {
         throw new Error('Invalid password. Please check your credentials.');
       }
       return { success: true, role: 'tenant', user: found };
     } else {
       const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
-      const landlord = landlords.find(l => l.email.toLowerCase() === cleanEmail);
+      const landlord = landlords.find(l => l.email.trim().toLowerCase() === cleanEmail);
       if (landlord) {
-        if (password && landlord.password && landlord.password !== password) {
+        if (cleanPassword && landlord.password && landlord.password.trim() !== cleanPassword) {
           throw new Error('Invalid password. Please check your credentials.');
         }
         return { success: true, role: 'landlord', user: landlord };
       }
 
       const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
-      const tenant = tenants.find(t => t.email.toLowerCase() === cleanEmail);
+      const tenant = tenants.find(t => t.email.trim().toLowerCase() === cleanEmail);
       if (tenant) {
-        if (password && tenant.password && tenant.password !== password) {
+        if (cleanPassword && tenant.password && tenant.password.trim() !== cleanPassword) {
           throw new Error('Invalid password. Please check your credentials.');
         }
         return { success: true, role: 'tenant', user: tenant };
@@ -161,7 +181,11 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
 export async function fetchLandlords(): Promise<Landlord[]> {
   try {
     const res = await fetch(getApiUrl('/api/landlords'));
-    return await handleResponse(res, 'Failed to fetch landlords');
+    const landlords = await handleResponse(res, 'Failed to fetch landlords');
+    if (Array.isArray(landlords) && landlords.length > 0) {
+      setLocalData(STORAGE_KEYS.LANDLORDS, landlords);
+    }
+    return landlords;
   } catch (err) {
     return getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, [
       {
@@ -191,7 +215,15 @@ export async function updateLandlordDetails(landlordId: string, data: Partial<La
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    return await handleResponse(res, 'Failed to update landlord profile');
+    const updated = await handleResponse(res, 'Failed to update landlord profile');
+    if (updated) {
+      const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
+      const idx = landlords.findIndex(l => l.id === landlordId);
+      if (idx !== -1) landlords[idx] = updated;
+      else landlords.unshift(updated);
+      setLocalData(STORAGE_KEYS.LANDLORDS, landlords);
+    }
+    return updated;
   } catch (err) {
     const landlords = await fetchLandlords();
     const idx = landlords.findIndex(l => l.id === landlordId);
@@ -207,23 +239,45 @@ export async function updateLandlordDetails(landlordId: string, data: Partial<La
 }
 
 export async function registerLandlordAccount(data: any): Promise<{ landlord: Landlord; receiptCode: string; message: string }> {
+  const cleanEmail = data.email ? data.email.trim().toLowerCase() : '';
+  const cleanPassword = data.password ? data.password.trim() : 'password123';
+  const payload = {
+    ...data,
+    email: cleanEmail,
+    password: cleanPassword
+  };
+
   try {
     const res = await fetch(getApiUrl('/api/landlords/register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
-    return await handleResponse(res, 'Landlord registration failed');
+    const result = await handleResponse(res, 'Landlord registration failed');
+
+    if (result && result.landlord) {
+      const currentLandlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
+      const existingIdx = currentLandlords.findIndex(l => l.email.trim().toLowerCase() === cleanEmail);
+      if (existingIdx !== -1) {
+        currentLandlords[existingIdx] = result.landlord;
+      } else {
+        currentLandlords.unshift(result.landlord);
+      }
+      setLocalData(STORAGE_KEYS.LANDLORDS, currentLandlords);
+    }
+
+    return result;
   } catch (err: any) {
     console.warn('Backend fetch failed, executing local landlord registration:', err);
     const receiptCode = `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
     const newLandlord: Landlord = {
       id: `landlord-${Date.now()}`,
-      name: data.name || 'Landlord',
-      companyName: data.companyName || 'Estate Management',
-      email: data.email,
-      phone: data.phone || '+254 700 000 000',
-      idNumber: data.idNumber || 'ID-12345678',
+      name: data.name ? data.name.trim() : 'Landlord',
+      companyName: data.companyName ? data.companyName.trim() : 'Estate Management',
+      email: cleanEmail,
+      phone: data.phone ? data.phone.trim() : '+254 700 000 000',
+      password: cleanPassword,
+      idNumber: data.idNumber ? data.idNumber.trim() : 'ID-12345678',
       subscriptionPaid: true,
       subscriptionExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       receiptCode,
@@ -393,7 +447,11 @@ export async function fetchUnits(): Promise<Unit[]> {
 export async function fetchTenants(): Promise<Tenant[]> {
   try {
     const res = await fetch(getApiUrl('/api/tenants'));
-    return await handleResponse(res, 'Failed to fetch tenants');
+    const tenants = await handleResponse(res, 'Failed to fetch tenants');
+    if (Array.isArray(tenants) && tenants.length > 0) {
+      setLocalData(STORAGE_KEYS.TENANTS, tenants);
+    }
+    return tenants;
   } catch (err) {
     return getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, [
       {
@@ -416,13 +474,34 @@ export async function fetchTenants(): Promise<Tenant[]> {
 }
 
 export async function registerTenant(data: any) {
+  const cleanEmail = data.email ? data.email.trim().toLowerCase() : '';
+  const cleanPassword = data.password ? data.password.trim() : 'password123';
+  const payload = {
+    ...data,
+    email: cleanEmail,
+    password: cleanPassword
+  };
+
   try {
     const res = await fetch(getApiUrl('/api/tenants/register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
-    return await handleResponse(res, 'Registration failed');
+    const result = await handleResponse(res, 'Registration failed');
+
+    if (result && result.tenant) {
+      const currentTenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+      const existingIdx = currentTenants.findIndex(t => t.email.trim().toLowerCase() === cleanEmail);
+      if (existingIdx !== -1) {
+        currentTenants[existingIdx] = result.tenant;
+      } else {
+        currentTenants.unshift(result.tenant);
+      }
+      setLocalData(STORAGE_KEYS.TENANTS, currentTenants);
+    }
+
+    return result;
   } catch (err: any) {
     console.warn('Backend fetch failed, executing local tenant registration:', err);
     const newTenant: Tenant = {

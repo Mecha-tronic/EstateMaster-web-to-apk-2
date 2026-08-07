@@ -430,43 +430,44 @@ async function startServer() {
   app.post('/api/auth/login', (req, res) => {
     try {
       const { email, password, role } = req.body;
-      if (!email || !email.trim()) {
+      if (!email || !email.toString().trim()) {
         return res.status(400).json({ error: 'Email address is required.' });
       }
 
-      const cleanEmail = email.trim().toLowerCase();
+      const cleanEmail = email.toString().trim().toLowerCase();
+      const cleanPassword = password ? password.toString().trim() : '';
 
       if (role === 'tenant') {
-        const tenant = tenants.find((t) => t.email.toLowerCase() === cleanEmail);
+        const tenant = tenants.find((t) => t.email.trim().toLowerCase() === cleanEmail);
         if (!tenant) {
           return res.status(401).json({ error: 'No tenant account found with this email address.' });
         }
-        if (password && tenant.password && tenant.password !== password) {
+        if (cleanPassword && tenant.password && tenant.password.trim() !== cleanPassword) {
           return res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
         }
         return res.json({ success: true, role: 'tenant', user: tenant });
       } else if (role === 'landlord') {
-        const landlord = landlords.find((l) => l.email.toLowerCase() === cleanEmail);
+        const landlord = landlords.find((l) => l.email.trim().toLowerCase() === cleanEmail);
         if (!landlord) {
           return res.status(401).json({ error: 'No landlord account found with this email address.' });
         }
-        if (password && landlord.password && landlord.password !== password) {
+        if (cleanPassword && landlord.password && landlord.password.trim() !== cleanPassword) {
           return res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
         }
         return res.json({ success: true, role: 'landlord', user: landlord });
       } else {
         // Auto-detect role by email
-        const tenant = tenants.find((t) => t.email.toLowerCase() === cleanEmail);
+        const tenant = tenants.find((t) => t.email.trim().toLowerCase() === cleanEmail);
         if (tenant) {
-          if (password && tenant.password && tenant.password !== password) {
+          if (cleanPassword && tenant.password && tenant.password.trim() !== cleanPassword) {
             return res.status(401).json({ error: 'Invalid password.' });
           }
           return res.json({ success: true, role: 'tenant', user: tenant });
         }
 
-        const landlord = landlords.find((l) => l.email.toLowerCase() === cleanEmail);
+        const landlord = landlords.find((l) => l.email.trim().toLowerCase() === cleanEmail);
         if (landlord) {
-          if (password && landlord.password && landlord.password !== password) {
+          if (cleanPassword && landlord.password && landlord.password.trim() !== cleanPassword) {
             return res.status(401).json({ error: 'Invalid password.' });
           }
           return res.json({ success: true, role: 'landlord', user: landlord });
@@ -491,6 +492,7 @@ async function startServer() {
         companyName,
         email,
         phone,
+        password,
         idNumber,
         mpesaTillNumber,
         mpesaPaybill,
@@ -507,8 +509,11 @@ async function startServer() {
         return res.status(400).json({ error: 'Full name, company name, email, and phone number are required.' });
       }
 
+      const cleanEmail = email.toString().trim().toLowerCase();
+      const cleanPassword = password ? password.toString().trim() : 'password123';
+
       // Check if email already registered
-      const existing = landlords.find(l => l.email.toLowerCase() === email.toLowerCase());
+      const existing = landlords.find(l => l.email.trim().toLowerCase() === cleanEmail);
       if (existing) {
         return res.status(400).json({ error: 'A landlord account with this email address already exists on EstateMaster.' });
       }
@@ -520,19 +525,19 @@ async function startServer() {
 
       const newLandlord: Landlord = {
         id: `landlord-${Date.now()}`,
-        name,
-        companyName,
-        email,
-        phone,
-        password: req.body.password || 'password123',
-        idNumber: idNumber || `ID-${Math.floor(10000000 + Math.random() * 90000000)}`,
+        name: name.toString().trim(),
+        companyName: companyName ? companyName.toString().trim() : 'Estate Management',
+        email: cleanEmail,
+        phone: phone ? phone.toString().trim() : '+254 700 000 000',
+        password: cleanPassword,
+        idNumber: idNumber ? idNumber.toString().trim() : `ID-${Math.floor(10000000 + Math.random() * 90000000)}`,
         subscriptionStatus: 'Active',
         subscriptionExpiry: nextYear.toISOString().split('T')[0],
         subscriptionPlan: 'EstateMaster Annual License (KSH 20,000/yr)',
         registeredAt: new Date().toISOString(),
         mpesaPaybill: mpesaPaybill || '247247',
         mpesaTillNumber: mpesaTillNumber || '781920',
-        mpesaPhoneNumber: phone,
+        mpesaPhoneNumber: phone ? phone.toString().trim() : '+254 712 345 678',
         bankName: bankName || 'Equity Bank Kenya',
         accountName: accountName || companyName,
         accountNumber: accountNumber || '01100998877',

@@ -35,6 +35,7 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
   const [name, setName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('password123');
   const [phone, setPhone] = useState('+254 ');
   const [idNumber, setIdNumber] = useState('');
 
@@ -51,13 +52,14 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
 
   const handleNextToPayment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email || !phone || !companyName) {
+    const cleanEmail = email ? email.trim().toLowerCase() : '';
+    if (!name.trim() || !cleanEmail || !phone.trim() || !companyName.trim()) {
       setErrorMessage('Please fill in all required personal and company details.');
       return;
     }
     setErrorMessage(null);
-    setPaymentPhone(phone);
-    setAccountName(companyName);
+    setPaymentPhone(phone.trim());
+    setAccountName(companyName.trim());
     setStep(2);
   };
 
@@ -66,20 +68,24 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
     setIsSubmitting(true);
     setErrorMessage(null);
 
+    const cleanEmail = email ? email.trim().toLowerCase() : '';
+    const cleanPassword = password ? password.trim() : 'password123';
+
     try {
       const res = await registerLandlordAccount({
-        name,
-        companyName,
-        email,
-        phone,
-        idNumber,
+        name: name.trim(),
+        companyName: companyName.trim(),
+        email: cleanEmail,
+        password: cleanPassword,
+        phone: phone.trim(),
+        idNumber: idNumber.trim(),
         mpesaTillNumber,
         mpesaPaybill,
         bankName,
-        accountName: accountName || companyName,
+        accountName: accountName ? accountName.trim() : companyName.trim(),
         accountNumber,
         paymentMethod,
-        paymentPhone
+        paymentPhone: paymentPhone.trim()
       });
 
       setSuccessMessage(`✅ Subscription Active! Ref: ${res.receiptCode}. Welcome to EstateMaster.`);
@@ -228,6 +234,20 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="e.g. peter.njuguna@njugunaestates.co.ke"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">
+                  Account Password <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Create password for sign-in"
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm"
                 />
               </div>
