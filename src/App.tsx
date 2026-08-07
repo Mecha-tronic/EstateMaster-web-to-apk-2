@@ -83,6 +83,8 @@ export default function App() {
   const [showCreateQuoteModal, setShowCreateQuoteModal] = useState(false);
   const [showLandlordRegModal, setShowLandlordRegModal] = useState(false);
   const [recentRegisteredEmail, setRecentRegisteredEmail] = useState<string>('');
+  const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
+  const [hasInitialLoaded, setHasInitialLoaded] = useState(false);
 
   const loadAllData = async () => {
     try {
@@ -101,8 +103,13 @@ export default function App() {
       setLandlords(lData);
       if (lData.length > 0) {
         if (!activeLandlordId) setActiveLandlordId(lData[0].id);
-        setSignedInLandlord((prev) => prev || lData[0]);
+        setSignedInLandlord((prev) => {
+          if (prev) return prev;
+          if (!hasInitialLoaded) return lData[0];
+          return null;
+        });
       }
+      setHasInitialLoaded(true);
       setProperties(pData);
       setUnits(uData);
       setTenants(tData);
@@ -123,6 +130,33 @@ export default function App() {
   useEffect(() => {
     loadAllData();
   }, []);
+
+  // Automatic Sign Out on Inactivity (10 Minutes)
+  useEffect(() => {
+    if (!signedInLandlord && !signedInTenant) return;
+
+    let timer: any = null;
+    const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+
+    const resetInactivityTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        setSignedInLandlord(null);
+        setSignedInTenant(null);
+        setInactivityNotice('⚡ You were automatically signed out due to 10 minutes of inactivity for security.');
+      }, INACTIVITY_TIMEOUT);
+    };
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    activityEvents.forEach((evt) => window.addEventListener(evt, resetInactivityTimer));
+
+    resetInactivityTimer();
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      activityEvents.forEach((evt) => window.removeEventListener(evt, resetInactivityTimer));
+    };
+  }, [signedInLandlord, signedInTenant]);
 
   const handleCreateInvoice = async (data: any) => {
     try {
@@ -218,11 +252,14 @@ export default function App() {
                   landlords={landlords}
                   units={units}
                   properties={properties}
+                  inactivityNotice={inactivityNotice}
                   onLandlordSuccess={(landlord) => {
+                    setInactivityNotice(null);
                     setSignedInLandlord(landlord);
                     setActiveLandlordId(landlord.id);
                   }}
                   onTenantSuccess={(tenant) => {
+                    setInactivityNotice(null);
                     setSignedInTenant(tenant);
                     setActiveRole('tenant');
                   }}

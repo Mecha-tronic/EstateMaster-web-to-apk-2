@@ -35,6 +35,7 @@ interface SignInViewProps {
   onSwitchToRegister?: () => void;
   onOpenLandlordRegister?: () => void;
   onRefreshData?: () => void;
+  inactivityNotice?: string | null;
 }
 
 export const SignInView: React.FC<SignInViewProps> = ({
@@ -48,6 +49,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
   onSwitchToRegister,
   onOpenLandlordRegister,
   onRefreshData,
+  inactivityNotice,
 }) => {
   const [activeTab, setActiveTab] = useState<'tenant' | 'landlord'>(initialRole);
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -340,6 +342,13 @@ export const SignInView: React.FC<SignInViewProps> = ({
         </div>
 
         {/* Feedback Alerts */}
+        {inactivityNotice && (
+          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-center gap-2.5 shadow-2xs">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>{inactivityNotice}</span>
+          </div>
+        )}
+
         {errorMessage && (
           <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2.5">
             <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
@@ -803,56 +812,6 @@ export const SignInView: React.FC<SignInViewProps> = ({
             </div>
           )}
         </div>
-      </div>
-
-      {/* Quick Demo Accounts for 1-Click Testing */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
-            ⚡ Quick Demo Accounts (1-Click Instant Sign In)
-          </h4>
-          <span className="text-[10px] bg-slate-200 text-slate-600 font-bold px-2 py-0.5 rounded-full">
-            Demo Testing
-          </span>
-        </div>
-
-        {activeTab === 'tenant' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {tenants.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => handleQuickTenantLogin(t)}
-                className="p-3 rounded-xl bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-400 text-left transition text-xs shadow-2xs flex items-center justify-between group"
-              >
-                <div className="min-w-0">
-                  <p className="font-bold text-slate-900 group-hover:text-blue-700 truncate">{t.fullName}</p>
-                  <p className="text-[11px] text-slate-500 truncate">{t.email}</p>
-                  <p className="text-[10px] font-bold text-blue-600 mt-0.5">Unit {t.unitNumber} &bull; {t.propertyName}</p>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 shrink-0 ml-2" />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {landlords.map((l) => (
-              <button
-                key={l.id}
-                type="button"
-                onClick={() => handleQuickLandlordLogin(l)}
-                className="p-3 rounded-xl bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-400 text-left transition text-xs shadow-2xs flex items-center justify-between group"
-              >
-                <div className="min-w-0">
-                  <p className="font-bold text-slate-900 group-hover:text-blue-700 truncate">{l.name}</p>
-                  <p className="text-[11px] text-slate-500 truncate">{l.companyName}</p>
-                  <p className="text-[10px] text-slate-400 truncate">{l.email}</p>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 shrink-0 ml-2" />
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

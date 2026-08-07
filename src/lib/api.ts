@@ -17,8 +17,8 @@ export function getApiBaseUrl(): string {
     }
   }
 
-  if (import.meta.env.VITE_API_BASE_URL) {
-    return (import.meta.env.VITE_API_BASE_URL as string).replace(/\/$/, '');
+  if ((import.meta as any).env?.VITE_API_BASE_URL) {
+    return ((import.meta as any).env.VITE_API_BASE_URL as string).replace(/\/$/, '');
   }
 
   return '';

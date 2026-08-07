@@ -1,4 +1,4 @@
-export type PropertyType = 'Apartment Building' | 'Single Family' | 'Duplex' | 'Condo' | 'Commercial';
+export type PropertyType = 'Apartment Building' | 'Single Family' | 'Duplex' | 'Condo' | 'Commercial' | 'Residential Apartments' | 'Commercial Office Space';
 
 export interface Landlord {
   id: string;
@@ -9,10 +9,13 @@ export interface Landlord {
   password?: string;
   idNumber?: string;
   // Subscription Commercialization
-  subscriptionStatus: 'Active' | 'Pending Payment' | 'Expired';
-  subscriptionExpiry: string;
-  subscriptionPlan: string; // e.g. "EstateMaster Annual License (KSH 20,000/yr)"
+  subscriptionStatus?: 'Active' | 'Pending Payment' | 'Expired';
+  subscriptionExpiry?: string;
+  subscriptionPlan?: string; // e.g. "EstateMaster Annual License (KSH 20,000/yr)"
+  subscriptionPaid?: boolean;
   registeredAt?: string;
+  createdAt?: string;
+  receiptCode?: string;
   // M-Pesa Details
   mpesaPaybill?: string;
   mpesaTillNumber?: string;
@@ -29,52 +32,58 @@ export interface Property {
   id: string;
   landlordId?: string;
   name: string;
-  address: string;
-  city: string;
-  type: PropertyType;
-  totalUnits: number;
-  imageUrl: string;
-  description: string;
-  amenities: string[];
+  address?: string;
+  location?: string;
+  city?: string;
+  type?: PropertyType;
+  totalUnits?: number;
+  occupiedUnits?: number;
+  imageUrl?: string;
+  description?: string;
+  amenities?: string[];
 }
 
 export interface Unit {
   id: string;
-  propertyId: string;
+  propertyId?: string;
   propertyName?: string;
   unitNumber: string;
-  bedrooms: number;
-  bathrooms: number;
-  sqft: number;
+  bedrooms?: number;
+  bathrooms?: number;
+  sqft?: number;
   monthlyRent: number;
-  depositAmount: number;
-  status: 'Available' | 'Occupied' | 'Under Maintenance';
-  features: string[];
+  depositAmount?: number;
+  status: 'Available' | 'Occupied' | 'Under Maintenance' | 'Vacant';
+  type?: string;
+  currentTenantName?: string;
+  currentTenantEmail?: string;
+  features?: string[];
 }
 
 export interface Tenant {
   id: string;
-  propertyId: string;
-  unitId: string;
+  landlordId?: string;
+  propertyId?: string;
+  unitId?: string;
   propertyName?: string;
   unitNumber?: string;
   fullName: string;
   email: string;
   phone: string;
   password?: string;
-  idNumber: string;
-  occupation: string;
-  income: number;
-  emergencyContactName: string;
-  emergencyContactPhone: string;
-  moveInDate: string;
-  leaseStartDate: string;
-  leaseEndDate: string;
-  monthlyRent: number;
-  depositPaid: boolean;
-  status: 'Active' | 'Pending Approval' | 'Past';
+  idNumber?: string;
+  occupation?: string;
+  income?: number;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  moveInDate?: string;
+  leaseStartDate?: string;
+  leaseEndDate?: string;
+  monthlyRent?: number;
+  depositPaid?: boolean;
+  status?: 'Active' | 'Pending Approval' | 'Past';
   profilePictureUrl?: string;
-  registeredAt: string;
+  registeredAt?: string;
 }
 
 export interface InvoiceItem {
@@ -87,56 +96,68 @@ export interface Invoice {
   invoiceNumber: string;
   tenantId: string;
   tenantName: string;
-  tenantEmail: string;
-  unitId: string;
-  unitNumber: string;
-  propertyName: string;
-  issueDate: string;
-  dueDate: string;
-  periodMonth: string; // e.g. "August 2026"
-  rentAmount: number;
-  waterFee: number;
-  trashFee: number;
-  maintenanceFee: number;
-  taxAmount: number;
-  discount: number;
+  tenantEmail?: string;
+  unitId?: string;
+  unitNumber?: string;
+  propertyName?: string;
+  issueDate?: string;
+  dueDate?: string;
+  periodMonth?: string; // e.g. "August 2026"
+  rentAmount?: number;
+  waterFee?: number;
+  trashFee?: number;
+  maintenanceFee?: number;
+  waterBill?: number;
+  electricityBill?: number;
+  serviceCharge?: number;
+  taxAmount?: number;
+  discount?: number;
   totalAmount: number;
   status: 'Unpaid' | 'Paid' | 'Overdue' | 'Partial';
-  amountPaid: number;
+  amountPaid?: number;
   notes?: string;
-  emailedToTenant: boolean;
+  emailedToTenant?: boolean;
   emailSentAt?: string;
 }
 
 export interface Quote {
   id: string;
   quoteNumber: string;
-  tenantName: string;
-  tenantEmail: string;
-  tenantPhone: string;
-  unitId: string;
-  unitNumber: string;
-  propertyName: string;
-  monthlyRentQuote: number;
-  depositQuote: number;
-  leaseTermMonths: number;
-  validUntil: string;
-  estimatedUtilities: number;
-  specialDiscount: number;
+  tenantName?: string;
+  applicantName?: string;
+  tenantEmail?: string;
+  tenantPhone?: string;
+  unitId?: string;
+  unitNumber?: string;
+  propertyName?: string;
+  monthlyRentQuote?: number;
+  monthlyRent?: number;
+  depositQuote?: number;
+  securityDeposit?: number;
+  waterDeposit?: number;
+  electricityDeposit?: number;
+  leasePreparationFee?: number;
+  leaseTermMonths?: number;
+  issueDate?: string;
+  validUntil?: string;
+  estimatedUtilities?: number;
+  specialDiscount?: number;
   totalMoveInCost: number;
-  notes: string;
-  status: 'Sent' | 'Accepted' | 'Expired';
-  createdAt: string;
-  emailedToTenant: boolean;
+  notes?: string;
+  status: 'Sent' | 'Accepted' | 'Expired' | 'Active' | 'Pending';
+  createdAt?: string;
+  emailedToTenant?: boolean;
   emailSentAt?: string;
+  applicantEmail?: string;
 }
 
 export interface Payment {
   id: string;
-  invoiceId: string;
-  tenantId: string;
+  invoiceId?: string;
+  tenantId?: string;
   tenantName: string;
-  unitNumber: string;
+  unitNumber?: string;
+  propertyName?: string;
   amount: number;
   paymentMethod: 'M-Pesa' | 'Bank Transfer' | 'Credit Card' | 'Cash' | 'Check';
   referenceCode: string;
@@ -147,18 +168,19 @@ export interface Payment {
 
 export interface MaintenanceRequest {
   id: string;
-  tenantId: string;
+  tenantId?: string;
   tenantName: string;
-  tenantEmail: string;
-  unitId: string;
-  unitNumber: string;
-  propertyName: string;
-  title: string;
+  tenantEmail?: string;
+  unitId?: string;
+  unitNumber?: string;
+  propertyName?: string;
+  title?: string;
   description: string;
-  category: 'Plumbing' | 'Electrical' | 'HVAC' | 'Appliance' | 'Structural' | 'Locks & Keys' | 'Other';
-  urgency: 'Emergency' | 'High' | 'Medium' | 'Low';
-  status: 'Open' | 'In Progress' | 'Completed' | 'Cancelled';
-  submittedAt: string;
+  category?: 'Plumbing' | 'Electrical' | 'HVAC' | 'Appliance' | 'Structural' | 'Locks & Keys' | 'Other';
+  urgency?: 'Emergency' | 'High' | 'Medium' | 'Low';
+  status: 'Open' | 'In Progress' | 'Completed' | 'Cancelled' | 'Pending';
+  submittedAt?: string;
+  createdAt?: string;
   resolvedAt?: string;
   aiTriageSummary?: string;
   aiSuggestedDiy?: string;

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Payment, Invoice } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { triggerMpesaStkPush } from '../lib/api';
-import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw } from 'lucide-react';
+import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw, Users, Search, Building } from 'lucide-react';
 
 interface PaymentTrackerViewProps {
   payments: Payment[];
@@ -17,6 +17,8 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   onRecordPayment,
   onPaymentProcessed
 }) => {
+  const [activeTab, setActiveTab] = useState<'grouped' | 'all'>('grouped');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [payInvoiceId, setPayInvoiceId] = useState(invoices[0]?.id || '');
   const [payAmount, setPayAmount] = useState('');
@@ -30,6 +32,39 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   const [stkMessage, setStkMessage] = useState<string | null>(null);
 
   const unpaidInvoices = invoices.filter((i) => i.status !== 'Paid');
+
+  // Collect unique tenants for grouping
+  const tenantMap = new Map<string, { id: string; name: string; unitNumber: string; propertyName: string }>();
+
+  payments.forEach((p) => {
+    const key = p.tenantName.toLowerCase();
+    if (!tenantMap.has(key)) {
+      tenantMap.set(key, {
+        id: p.tenantId || `tenant-${key}`,
+        name: p.tenantName,
+        unitNumber: p.unitNumber || '',
+        propertyName: p.propertyName || ''
+      });
+    }
+  });
+
+  invoices.forEach((inv) => {
+    const key = inv.tenantName.toLowerCase();
+    if (!tenantMap.has(key)) {
+      tenantMap.set(key, {
+        id: inv.tenantId || `tenant-${key}`,
+        name: inv.tenantName,
+        unitNumber: inv.unitNumber || '',
+        propertyName: inv.propertyName || ''
+      });
+    }
+  });
+
+  const tenantGroups = Array.from(tenantMap.values()).filter((t) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return t.name.toLowerCase().includes(q) || t.unitNumber.toLowerCase().includes(q);
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,11 +128,149 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
         </button>
       </div>
 
-      {/* Payment Ledger Table */}
+      {/* Sub Tabs Toggle */}
+      <div className="flex border-b border-slate-200 text-xs font-semibold overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('grouped')}
+          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'grouped'
+              ? 'border-emerald-600 text-emerald-700 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Users className="w-4 h-4" /> Single Tenant Ledgers ({tenantGroups.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('all')}
+          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'all'
+              ? 'border-emerald-600 text-emerald-700 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Receipt className="w-4 h-4" /> All Transactions History ({payments.length})
+        </button>
+      </div>
+
+      {/* SINGLE TENANT PAYMENT LEDGER TAB */}
+      {activeTab === 'grouped' && (
+        <div className="space-y-6">
+          {/* Search Bar */}
+          <div className="relative max-w-md">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search ledgers by tenant name or unit number..."
+              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 shadow-xs focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+
+          {tenantGroups.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-xl p-8 text-center space-y-2 text-slate-500 text-xs">
+              <Users className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-bold text-slate-700">No payment ledgers found matching your search.</p>
+            </div>
+          ) : (
+            tenantGroups.map((group) => {
+              const groupPayments = payments.filter(
+                (p) =>
+                  p.tenantName.toLowerCase() === group.name.toLowerCase() ||
+                  (p.tenantId && p.tenantId === group.id)
+              );
+
+              const totalPaid = groupPayments.reduce((sum, p) => sum + p.amount, 0);
+
+              return (
+                <div
+                  key={group.id}
+                  className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:border-emerald-300 transition"
+                >
+                  {/* Tenant Card Header */}
+                  <div className="bg-slate-50 border-b border-slate-200 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 font-extrabold flex items-center justify-center shrink-0 text-sm border border-emerald-200">
+                        {group.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-extrabold text-slate-900 text-base">{group.name}</h3>
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Unit {group.unitNumber || 'N/A'}
+                          </span>
+                          {group.propertyName && (
+                            <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                              <Building className="w-3 h-3 text-slate-400" /> {group.propertyName}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {groupPayments.length} Payment Transaction{groupPayments.length === 1 ? '' : 's'} Recorded
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-emerald-200 rounded-xl p-2.5 text-center sm:text-right shadow-2xs">
+                      <p className="text-[10px] text-emerald-600 font-medium">Total Rent Collected</p>
+                      <p className="text-base font-extrabold text-emerald-700">{formatKSH(totalPaid)}</p>
+                    </div>
+                  </div>
+
+                  {/* Payment Table for this Single Tenant */}
+                  {groupPayments.length === 0 ? (
+                    <div className="p-5 text-center text-xs text-slate-400 italic">
+                      No payments recorded yet for this tenant.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200 font-bold">
+                          <tr>
+                            <th className="p-3">Method</th>
+                            <th className="p-3">Reference Code</th>
+                            <th className="p-3">Date Paid</th>
+                            <th className="p-3 text-right">Amount (KSh)</th>
+                            <th className="p-3 text-center">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
+                          {groupPayments.map((p) => (
+                            <tr key={p.id} className="hover:bg-slate-50/70 transition">
+                              <td className="p-3 font-bold text-emerald-700 flex items-center gap-1.5">
+                                <Receipt className="w-3.5 h-3.5 text-emerald-600" /> {p.paymentMethod}
+                              </td>
+                              <td className="p-3 font-mono text-slate-700">{p.referenceCode}</td>
+                              <td className="p-3 text-slate-500">
+                                {new Date(p.paymentDate).toLocaleDateString('en-KE')}
+                              </td>
+                              <td className="p-3 text-right font-extrabold text-emerald-600 text-sm">
+                                {formatKSH(p.amount)}
+                              </td>
+                              <td className="p-3 text-center">
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" /> {p.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* Payment Ledger Table (ALL TRANSACTIONS TAB) */}
+      {activeTab === 'all' && (
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
         <div className="p-4 border-b border-slate-200 flex items-center justify-between">
           <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-            <Receipt className="w-4 h-4 text-emerald-600" /> Transaction History ({payments.length})
+            <Receipt className="w-4 h-4 text-emerald-600" /> All Transaction History ({payments.length})
           </h3>
         </div>
 
@@ -139,6 +312,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
           </table>
         </div>
       </div>
+      )}
 
       {/* Record / STK Push Payment Modal */}
       {showRecordModal && (
