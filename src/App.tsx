@@ -28,7 +28,8 @@ import {
   createInvoice,
   createQuote,
   recordPayment,
-  updateMaintenanceStatus
+  updateMaintenanceStatus,
+  getApiUrl
 } from './lib/api';
 
 import {
@@ -357,7 +358,7 @@ export default function App() {
                       properties={properties}
                       units={units}
                       onAddProperty={(p) => {
-                        fetch('/api/properties', {
+                        fetch(getApiUrl('/api/properties'), {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify(p)
@@ -367,7 +368,7 @@ export default function App() {
                         deleteProperty(propertyId).then(() => loadAllData());
                       }}
                       onAddUnit={(u) => {
-                        fetch('/api/units', {
+                        fetch(getApiUrl('/api/units'), {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify(u)
