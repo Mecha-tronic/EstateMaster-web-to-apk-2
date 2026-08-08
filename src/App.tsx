@@ -325,7 +325,7 @@ export default function App() {
                   onTenantSuccess={(tenant) => {
                     setInactivityNotice(null);
                     setSignedInTenant(tenant);
-                    setActiveRole('tenant');
+                    navigateRole('tenant');
                   }}
                   onOpenLandlordRegister={() => setShowLandlordRegModal(true)}
                   onRefreshData={loadAllData}
@@ -605,10 +605,10 @@ export default function App() {
                   setInactivityNotice(null);
                   setSignedInLandlord(landlord);
                   setActiveLandlordId(landlord.id);
-                  setActiveRole('landlord');
+                  navigateRole('landlord');
                 }}
                 onRefreshData={loadAllData}
-                onSwitchToRegister={() => setActiveRole('register')}
+                onSwitchToRegister={() => navigateRole('register')}
               />
             </div>
           )}

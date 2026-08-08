@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Tenant, Unit } from '../types';
 import { formatKSH } from '../lib/formatters';
-import { Users, Mail, Phone, Calendar, ShieldCheck, Briefcase, Plus, FileText, Send, Camera, Upload, X, User } from 'lucide-react';
-import { updateTenantDetails } from '../lib/api';
+import { Users, Mail, Phone, Calendar, ShieldCheck, Briefcase, Plus, FileText, Send, Camera, Upload, X, User, Trash2 } from 'lucide-react';
+import { updateTenantDetails, deleteTenantAccount } from '../lib/api';
 
 interface TenantsLeasesViewProps {
   tenants: Tenant[];
@@ -21,6 +21,8 @@ export const TenantsLeasesView: React.FC<TenantsLeasesViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingTenantPhoto, setEditingTenantPhoto] = useState<Tenant | null>(null);
+  const [deletingTenant, setDeletingTenant] = useState<Tenant | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [photoUrl, setPhotoUrl] = useState('');
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
 
@@ -30,6 +32,20 @@ export const TenantsLeasesView: React.FC<TenantsLeasesViewProps> = ({
     'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80',
     'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80',
   ];
+
+  const handleConfirmDelete = async () => {
+    if (!deletingTenant) return;
+    setIsDeleting(true);
+    try {
+      await deleteTenantAccount(deletingTenant.id);
+      if (onRefreshData) onRefreshData();
+      setDeletingTenant(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -217,10 +233,63 @@ export const TenantsLeasesView: React.FC<TenantsLeasesViewProps> = ({
               >
                 <FileText className="w-3.5 h-3.5" /> Issue Monthly Invoice
               </button>
+              <button
+                onClick={() => setDeletingTenant(tenant)}
+                className="py-2 px-3 rounded-lg bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition flex items-center justify-center gap-1"
+                title="Delete Tenant Account (Move Out)"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Delete
+              </button>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Delete Tenant Confirmation Modal */}
+      {deletingTenant && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-5 space-y-4 text-xs shadow-2xl text-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <h3 className="text-base font-bold text-rose-700 flex items-center gap-2">
+                <Trash2 className="w-5 h-5 text-rose-600" /> Confirm Tenant Move Out & Account Deletion
+              </h3>
+              <button onClick={() => setDeletingTenant(null)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-2 text-rose-900">
+              <p className="font-semibold">Are you sure you want to delete this tenant account?</p>
+              <p className="text-[11px] text-rose-800">
+                Tenant: <strong className="font-bold">{deletingTenant.fullName}</strong><br />
+                Unit: <strong className="font-bold">{deletingTenant.propertyName || 'Property'} &bull; Unit {deletingTenant.unitNumber || 'A1'}</strong>
+              </p>
+            </div>
+
+            <p className="text-slate-600 leading-relaxed text-[11px]">
+              This action will permanently delete the tenant's profile and reset Unit <strong className="text-slate-900">{deletingTenant.unitNumber}</strong> status back to <span className="font-bold text-emerald-700">Available</span> so a new tenant can be registered.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDeletingTenant(null)}
+                className="px-4 py-2 rounded-lg bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="px-5 py-2 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 transition shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting...' : 'Confirm Delete & Move Out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Tenant Photo Modal for Landlord */}
       {editingTenantPhoto && (

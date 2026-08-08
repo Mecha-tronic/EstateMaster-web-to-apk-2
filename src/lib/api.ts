@@ -94,6 +94,9 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
   if (!cleanEmail) {
     throw new Error('Please enter a valid email address.');
   }
+  if (!cleanPassword) {
+    throw new Error('Password is required to sign in.');
+  }
 
   try {
     const res = await fetch(getApiUrl('/api/auth/login'), {
@@ -757,6 +760,51 @@ export async function updateTenantDetails(tenantId: string, data: Partial<Tenant
     const updated = { id: tenantId, fullName: 'Tenant', email: '', status: 'Active', ...data } as Tenant;
     setLocalData(STORAGE_KEYS.TENANTS, [updated, ...tenants]);
     return updated;
+  }
+}
+
+export async function deleteTenantAccount(tenantId: string): Promise<boolean> {
+  try {
+    const res = await fetch(getApiUrl(`/api/tenants/${tenantId}`), {
+      method: 'DELETE',
+    });
+    await handleResponse(res, 'Failed to delete tenant account');
+
+    // Sync localStorage
+    const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+    const deleted = tenants.find(t => t.id === tenantId);
+    const updatedTenants = tenants.filter(t => t.id !== tenantId);
+    setLocalData(STORAGE_KEYS.TENANTS, updatedTenants);
+
+    if (deleted && deleted.unitId) {
+      const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
+      const unit = units.find(u => u.id === deleted.unitId);
+      if (unit) {
+        unit.status = 'Available';
+        delete unit.currentTenantName;
+        delete unit.currentTenantEmail;
+        setLocalData(STORAGE_KEYS.UNITS, units);
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn('Fallback deleting tenant account locally:', err);
+    const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+    const deleted = tenants.find(t => t.id === tenantId);
+    const updatedTenants = tenants.filter(t => t.id !== tenantId);
+    setLocalData(STORAGE_KEYS.TENANTS, updatedTenants);
+
+    if (deleted && deleted.unitId) {
+      const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
+      const unit = units.find(u => u.id === deleted.unitId);
+      if (unit) {
+        unit.status = 'Available';
+        delete unit.currentTenantName;
+        delete unit.currentTenantEmail;
+        setLocalData(STORAGE_KEYS.UNITS, units);
+      }
+    }
+    return true;
   }
 }
 

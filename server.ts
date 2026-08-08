@@ -433,16 +433,19 @@ async function startServer() {
       if (!email || !email.toString().trim()) {
         return res.status(400).json({ error: 'Email address is required.' });
       }
+      if (!password || !password.toString().trim()) {
+        return res.status(400).json({ error: 'Password is required to sign in.' });
+      }
 
       const cleanEmail = email.toString().trim().toLowerCase();
-      const cleanPassword = password ? password.toString().trim() : '';
+      const cleanPassword = password.toString().trim();
 
       if (role === 'tenant') {
         const tenant = tenants.find((t) => t.email.trim().toLowerCase() === cleanEmail);
         if (!tenant) {
           return res.status(401).json({ error: 'No tenant account found with this email address.' });
         }
-        if (cleanPassword && tenant.password && tenant.password.trim() !== cleanPassword) {
+        if (tenant.password && tenant.password.trim() !== cleanPassword) {
           return res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
         }
         return res.json({ success: true, role: 'tenant', user: tenant });
@@ -451,7 +454,7 @@ async function startServer() {
         if (!landlord) {
           return res.status(401).json({ error: 'No landlord account found with this email address.' });
         }
-        if (cleanPassword && landlord.password && landlord.password.trim() !== cleanPassword) {
+        if (landlord.password && landlord.password.trim() !== cleanPassword) {
           return res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
         }
         return res.json({ success: true, role: 'landlord', user: landlord });
@@ -459,7 +462,7 @@ async function startServer() {
         // Auto-detect role by email
         const tenant = tenants.find((t) => t.email.trim().toLowerCase() === cleanEmail);
         if (tenant) {
-          if (cleanPassword && tenant.password && tenant.password.trim() !== cleanPassword) {
+          if (tenant.password && tenant.password.trim() !== cleanPassword) {
             return res.status(401).json({ error: 'Invalid password.' });
           }
           return res.json({ success: true, role: 'tenant', user: tenant });
@@ -467,7 +470,7 @@ async function startServer() {
 
         const landlord = landlords.find((l) => l.email.trim().toLowerCase() === cleanEmail);
         if (landlord) {
-          if (cleanPassword && landlord.password && landlord.password.trim() !== cleanPassword) {
+          if (landlord.password && landlord.password.trim() !== cleanPassword) {
             return res.status(401).json({ error: 'Invalid password.' });
           }
           return res.json({ success: true, role: 'landlord', user: landlord });
@@ -765,6 +768,27 @@ async function startServer() {
     }
     Object.assign(tenant, req.body);
     res.json(tenant);
+  });
+
+  app.delete('/api/tenants/:id', (req, res) => {
+    const { id } = req.params;
+    const index = tenants.findIndex((t) => t.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Tenant account not found' });
+    }
+    const deletedTenant = tenants.splice(index, 1)[0];
+
+    // Reset associated unit status to 'Available'
+    if (deletedTenant.unitId) {
+      const unit = units.find((u) => u.id === deletedTenant.unitId);
+      if (unit) {
+        unit.status = 'Available';
+        delete unit.currentTenantName;
+        delete unit.currentTenantEmail;
+      }
+    }
+
+    res.json({ message: 'Tenant account deleted successfully', tenant: deletedTenant });
   });
 
   // NEW TENANT SELF-REGISTRATION FOR AN APARTMENT
@@ -1226,18 +1250,23 @@ async function startServer() {
 
       if (ai) {
         try {
-          const systemInstruction = `You are an expert AI Property Maintenance & Safety Assistant for EstateMaster Apartment Tenants.
-Your job is to provide friendly, clear, step-by-step DIY troubleshooting, safety instructions (e.g., water shutoff valves, breaker box safety), and realistic repair cost estimates in Kenyan Shillings (KSh).
+          const systemInstruction = `You are EstateMaster's 24/7 AI Property Assistant for tenants.
+Your job is to provide friendly, accurate, step-by-step guidance for apartment maintenance issues, safety procedures, DIY fixes, rent payment instructions (M-Pesa Till/Paybill, Equity Bank), lease terms, and estate rules in Kenya.
+
 Tenant Name: ${tenantName || 'Resident'}
 Unit: ${unitNumber || 'Apartment'}
 Category: ${category || 'General'}
 
-Keep responses concise, empathetic, well-formatted, and actionable. Include safety warnings if relevant.`;
+Guidelines:
+1. Format responses clearly with bold section titles, numbered steps, and bullet points.
+2. For maintenance issues, provide immediate DIY/safety steps and realistic repair cost estimates in Kenyan Shillings (KSh).
+3. For payment questions, state that rent can be paid via M-Pesa Express or Bank Transfer on the Tenant Portal.
+4. Keep the tone professional, helpful, and empathetic.`;
 
-          const prompt = `Tenant Question / Issue Description: "${message}"\nProvide immediate diagnostic steps, troubleshooting advice, and safety recommendations.`;
+          const prompt = `Tenant Question / Request: "${message}"\nProvide clear diagnostic advice, safety guidance, or relevant property instructions.`;
 
           const response = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
+            model: 'gemini-2.5-flash',
             contents: prompt,
             config: { systemInstruction },
           });
@@ -1250,16 +1279,20 @@ Keep responses concise, empathetic, well-formatted, and actionable. Include safe
 
       if (!aiReply) {
         const lower = message.toLowerCase();
-        if (lower.includes('water') || lower.includes('leak') || lower.includes('tap') || lower.includes('sink') || lower.includes('pipe') || lower.includes('drain')) {
-          aiReply = `🔧 **AI Plumbing Diagnostic & Safety Guidance:**\n\n1. **Emergency Shut-Off:** Locate the isolation valve directly under the sink/toilet or turn off the apartment's main stopcock.\n2. **Clear Debris:** Inspect the sink trap for hair or foreign object blockages.\n3. **DIY Tip:** Place a basin under leaking joints to prevent subfloor water damage.\n4. **Estimated Cost:** KSh 2,500 - KSh 6,500 if a plumber is required.\n\n*Submit a ticket below to dispatch a technician.*`;
-        } else if (lower.includes('power') || lower.includes('electric') || lower.includes('spark') || lower.includes('trip') || lower.includes('socket') || lower.includes('light')) {
-          aiReply = `⚡ **AI Electrical Diagnostic & Safety Warning:**\n\n1. **Safety Warning:** Do not touch wet switches or damaged electrical cords.\n2. **Circuit Breaker Check:** Open your apartment's consumer unit (breaker box) and check if any toggle has tripped to "OFF".\n3. **Isolate Appliances:** Unplug recent high-draw appliances (microwave, iron) before resetting the main breaker.\n4. **Estimated Cost:** KSh 2,000 - KSh 5,000.\n\n*If you smell burning, submit an Emergency ticket immediately.*`;
-        } else if (lower.includes('ac') || lower.includes('hvac') || lower.includes('cool') || lower.includes('fan') || lower.includes('heat')) {
-          aiReply = `❄️ **AI Climate Control Diagnostic:**\n\n1. **Air Filter:** Ensure dust filters are clean and air vents are clear.\n2. **Thermostat Check:** Confirm mode is set to "COOL" and temperature is 3°C lower than room temp.\n3. **Power Cycle:** Turn off AC power isolator for 3 minutes and turn back on.\n4. **Estimated Cost:** KSh 3,500 - KSh 8,500.`;
-        } else if (lower.includes('key') || lower.includes('lock') || lower.includes('door') || lower.includes('handle')) {
-          aiReply = `🔑 **AI Lock & Access Troubleshooting:**\n\n1. **Lubrication:** Spray silicone lubricant into keyway; do not force stiff keys.\n2. **Alignment:** Check if door latch bolt aligns smoothly with the strike plate.\n3. **Lockout Assistance:** Contact estate security or landlord for master key access.\n4. **Estimated Cost:** KSh 1,500 - KSh 4,500.`;
+        if (lower.includes('water') || lower.includes('leak') || lower.includes('tap') || lower.includes('sink') || lower.includes('pipe') || lower.includes('drain') || lower.includes('shower') || lower.includes('toilet')) {
+          aiReply = `🔧 **AI Plumbing & Water Diagnostic:**\n\n1. **Emergency Isolation:** Turn off the local shutoff valve under the sink/toilet or main apartment stopcock immediately.\n2. **Prevent Damage:** Place a basin or dry towels under active leaks to protect flooring.\n3. **Clear Minor Clogs:** Pour hot water and mild detergent down sluggish drains.\n4. **Estimated Repair Cost:** KSh 2,500 - KSh 6,500.\n\n*Submit a ticket below to request landlord technician dispatch.*`;
+        } else if (lower.includes('power') || lower.includes('electric') || lower.includes('spark') || lower.includes('trip') || lower.includes('socket') || lower.includes('light') || lower.includes('fuse')) {
+          aiReply = `⚡ **AI Electrical Safety & Troubleshooting:**\n\n1. **Safety First:** Never touch wet switches or damaged cables. Keep children clear.\n2. **Breaker Box Check:** Open your consumer unit board and check if any toggle switch has tripped to "OFF".\n3. **Isolate Appliance:** Unplug high-wattage items (iron, heater) before flipping the breaker back to "ON".\n4. **Estimated Repair Cost:** KSh 2,000 - KSh 5,500.\n\n*If you smell burning, submit an Emergency Maintenance Ticket immediately!*`;
+        } else if (lower.includes('pay') || lower.includes('rent') || lower.includes('mpesa') || lower.includes('till') || lower.includes('paybill') || lower.includes('bank') || lower.includes('invoice') || lower.includes('receipt')) {
+          aiReply = `💳 **Rent Payment & Billing Information:**\n\n1. **M-Pesa STK Push:** You can initiate instant rent settlement directly from the **Invoices & Receipts** tab in your Tenant Portal.\n2. **M-Pesa Till Number:** 781920 (EstateMaster Property Management).\n3. **M-Pesa Paybill:** 247247 (Account Number: Your Unit Number e.g. A101).\n4. **Equity Bank Account:** 0110293847561 (Mwangi Premier Estates Ltd).\n5. **Automated Receipts:** An official payment receipt is generated and emailed to your address immediately upon payment.`;
+        } else if (lower.includes('ac') || lower.includes('hvac') || lower.includes('cool') || lower.includes('fan') || lower.includes('heat') || lower.includes('air')) {
+          aiReply = `❄️ **AI Climate Control & AC Guidance:**\n\n1. **Filter Cleaning:** Check if air intake filters are clogged with dust.\n2. **Thermostat Setting:** Ensure mode is set to "COOL" at 21°C - 23°C.\n3. **Power Cycle:** Turn off the main AC isolator switch for 3 minutes and turn back on.\n4. **Estimated Cost:** KSh 3,500 - KSh 8,500.`;
+        } else if (lower.includes('key') || lower.includes('lock') || lower.includes('door') || lower.includes('gate') || lower.includes('handle')) {
+          aiReply = `🔑 **AI Lock & Door Access Guidance:**\n\n1. **Stiff Locks:** Apply silicone spray or graphite lubricant into the keyway.\n2. **Latch Alignment:** Ensure the door bolt aligns cleanly with the frame strike plate.\n3. **Emergency Lockout:** Contact estate caretaker or security for master key verification.\n4. **Estimated Replacement:** KSh 1,500 - KSh 4,500.`;
+        } else if (lower.includes('garbage') || lower.includes('trash') || lower.includes('waste') || lower.includes('noise') || lower.includes('parking')) {
+          aiReply = `🏢 **Estate Living & Facility Guidelines:**\n\n1. **Garbage Collection:** Collected every Monday, Wednesday, and Friday morning from the designated bins.\n2. **Quiet Hours:** Observed from 10:00 PM to 6:00 AM daily.\n3. **Parking:** Please park strictly in your assigned unit bay.\n4. **Questions:** Submit a notice to your landlord using the form below.`;
         } else {
-          aiReply = `🛠️ **AI Maintenance Assistant Diagnostic:**\n\nI have reviewed your query regarding "${message}".\n\n1. **Assessment:** Issue logged for Unit ${unitNumber || 'your apartment'} under ${category || 'General Maintenance'}.\n2. **Safety First:** Ensure the area is well-ventilated, dry, and safe.\n3. **Next Action:** Submit the maintenance ticket using the form below for landlord review and dispatch.`;
+          aiReply = `🛠️ **AI Property Assistant Diagnostic:**\n\nHello ${tenantName || 'Resident'}! I have logged your query regarding "${message}".\n\n1. **Assessment:** Issue noted for Unit ${unitNumber || 'your apartment'}.\n2. **Safety Tip:** Ensure the area is safe, dry, and secure.\n3. **Next Step:** You can submit a formal maintenance ticket using the form below to alert your landlord and arrange a technician visit.`;
         }
       }
 
@@ -1271,11 +1304,24 @@ Keep responses concise, empathetic, well-formatted, and actionable. Include safe
 
   app.post('/api/maintenance/create', async (req, res) => {
     try {
-      const { tenantId, title, description, category, urgency, photoUrl } = req.body;
-      const tenant = tenants.find(t => t.id === tenantId) || tenants[0];
+      const { tenantId, tenantName, tenantEmail, unitNumber, propertyName, title, description, category, urgency, photoUrl } = req.body;
+      
+      // Match registered tenant accurately by ID, Email, or Name
+      const matchedTenant = tenants.find((t) =>
+        (tenantId && t.id === tenantId) ||
+        (tenantEmail && t.email?.toLowerCase() === tenantEmail.toLowerCase()) ||
+        (tenantName && t.fullName?.toLowerCase() === tenantName.toLowerCase())
+      );
+
+      const resolvedTenantId = matchedTenant ? matchedTenant.id : (tenantId || `tenant-${Date.now()}`);
+      const resolvedTenantName = matchedTenant ? matchedTenant.fullName : (tenantName || 'Resident');
+      const resolvedTenantEmail = matchedTenant ? matchedTenant.email : (tenantEmail || '');
+      const resolvedUnitId = matchedTenant ? matchedTenant.unitId : (req.body.unitId || '');
+      const resolvedUnitNumber = matchedTenant ? matchedTenant.unitNumber : (unitNumber || 'Unit');
+      const resolvedPropertyName = matchedTenant ? matchedTenant.propertyName : (propertyName || 'Apartment Complex');
 
       // Smart Default Category Triage
-      let aiSummary = `${category || 'Maintenance'} issue reported for Unit ${tenant?.unitNumber || 'Apartment'}.`;
+      let aiSummary = `${category || 'Maintenance'} issue reported for Unit ${resolvedUnitNumber}.`;
       let aiDiy = 'Inspect area safely and keep clear of hazards.';
       let aiCost = 'Estimated KSh 3,000 - KSh 10,000';
 
@@ -1311,7 +1357,7 @@ Provide a JSON object with:
 "estimatedCost": repair cost range in Kenyan Shillings (KSh)`;
 
           const genResponse = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
+            model: 'gemini-2.5-flash',
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -1333,12 +1379,12 @@ Provide a JSON object with:
 
       const reqObj: MaintenanceRequest = {
         id: `maint-${Date.now()}`,
-        tenantId: tenant ? tenant.id : 'tenant-1',
-        tenantName: tenant ? tenant.fullName : 'Resident',
-        tenantEmail: tenant ? tenant.email : 'tenant@estatemaster.co.ke',
-        unitId: tenant ? tenant.unitId : 'unit-1',
-        unitNumber: tenant ? (tenant.unitNumber || 'Unit') : 'Unit',
-        propertyName: tenant ? (tenant.propertyName || 'Property') : 'Property',
+        tenantId: resolvedTenantId,
+        tenantName: resolvedTenantName,
+        tenantEmail: resolvedTenantEmail,
+        unitId: resolvedUnitId,
+        unitNumber: resolvedUnitNumber,
+        propertyName: resolvedPropertyName,
         title,
         description,
         category: category || 'Other',

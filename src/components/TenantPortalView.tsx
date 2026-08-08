@@ -203,6 +203,11 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
     try {
       await createMaintenance({
         tenantId: currentTenant?.id,
+        tenantName: currentTenant?.fullName,
+        tenantEmail: currentTenant?.email,
+        unitId: currentTenant?.unitId,
+        unitNumber: currentTenant?.unitNumber,
+        propertyName: currentTenant?.propertyName,
         title: maintTitle,
         description: maintDesc,
         category: maintCategory,
