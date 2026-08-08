@@ -20,7 +20,8 @@ import {
   Upload,
   User,
   X,
-  Lock
+  Lock,
+  Users
 } from 'lucide-react';
 import { registerTenant } from '../lib/api';
 
@@ -560,9 +561,9 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
 
           <button
             onClick={() => onGoToPortal(registrationResult?.tenant?.email || email)}
-            className="w-full py-3 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition flex items-center justify-center gap-2"
+            className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs sm:text-sm shadow-md transition flex items-center justify-center gap-2"
           >
-            Open Tenant Portal & Check Personal Email Inbox <ArrowRight className="w-4 h-4" />
+            <Users className="w-4 h-4" /> View Registered Tenant in Landlord Directory <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       )}

@@ -804,6 +804,7 @@ async function startServer() {
 
       const newTenant: Tenant = {
         id: newTenantId,
+        landlordId: selectedProp?.landlordId || (landlords[0]?.id || 'landlord-1'),
         propertyId: selectedUnit.propertyId,
         unitId: selectedUnit.id,
         propertyName: selectedUnit.propertyName || selectedProp?.name || 'Apartment',
@@ -827,9 +828,16 @@ async function startServer() {
         registeredAt: new Date().toISOString()
       };
 
-      // Mark unit as occupied
+      // Mark unit as occupied and attach tenant details directly
       selectedUnit.status = 'Occupied';
-      tenants.push(newTenant);
+      selectedUnit.currentTenantName = fullName;
+      selectedUnit.currentTenantEmail = email;
+
+      if (selectedProp) {
+        selectedProp.occupiedUnits = units.filter(u => u.propertyId === selectedProp.id && u.status === 'Occupied').length;
+      }
+
+      tenants.unshift(newTenant);
 
       // 2. Automatically Generate Rental Quote for the registered tenant
       const quoteId = `q-${Date.now()}`;

@@ -11,6 +11,7 @@ import { TenantPortalView } from './components/TenantPortalView';
 import { LandlordProfileView } from './components/LandlordProfileView';
 import { LandlordRegistrationModal } from './components/LandlordRegistrationModal';
 import { SubscriptionLockScreen } from './components/SubscriptionLockScreen';
+import { SubscriptionRenewalModal } from './components/SubscriptionRenewalModal';
 import { SignInView } from './components/SignInView';
 import { formatKSH } from './lib/formatters';
 
@@ -58,7 +59,8 @@ import {
   Key,
   CreditCard,
   LogOut,
-  ArrowLeft
+  ArrowLeft,
+  RefreshCw
 } from 'lucide-react';
 
 export default function App() {
@@ -86,6 +88,7 @@ export default function App() {
   const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
   const [showCreateQuoteModal, setShowCreateQuoteModal] = useState(false);
   const [showLandlordRegModal, setShowLandlordRegModal] = useState(false);
+  const [showRenewSubscriptionModal, setShowRenewSubscriptionModal] = useState(false);
   const [recentRegisteredEmail, setRecentRegisteredEmail] = useState<string>('');
   const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
   const [hasInitialLoaded, setHasInitialLoaded] = useState(false);
@@ -201,13 +204,12 @@ export default function App() {
     await loadAllData();
     if (result?.tenant) {
       setRecentRegisteredEmail(result.tenant.email);
-      setSignedInTenant(result.tenant);
     }
   };
 
   const handleGoToPortalFromRegister = (email: string) => {
     setRecentRegisteredEmail(email);
-    setActiveRole('tenant');
+    setLandlordTab('tenants');
   };
 
   const currentLandlord = signedInLandlord || landlords.find((l) => l.id === activeLandlordId) || landlords[0];
@@ -228,10 +230,13 @@ export default function App() {
   const isSubscriptionActive = checkLandlordSubscriptionActive(currentLandlord);
 
   // Landlord-scoped datasets for multi-tenant isolation
-  const scopedProperties = properties.filter((p) => p.landlordId === currentLandlord?.id);
-  const scopedUnits = units.filter((u) => scopedProperties.some((p) => p.id === u.propertyId));
+  const scopedProperties = properties.filter((p) => p.landlordId === currentLandlord?.id || (!p.landlordId && currentLandlord?.id === 'landlord-1'));
+  const scopedUnits = units.filter((u) => scopedProperties.some((p) => p.id === u.propertyId) || properties.length === 0);
   const scopedTenants = tenants.filter(
-    (t) => t.landlordId === currentLandlord?.id || scopedProperties.some((p) => p.id === t.propertyId)
+    (t) =>
+      t.landlordId === currentLandlord?.id ||
+      scopedProperties.some((p) => p.id === t.propertyId) ||
+      scopedUnits.some((u) => u.id === t.unitId)
   );
   const scopedInvoices = invoices.filter(
     (inv) => scopedTenants.some((t) => t.id === inv.tenantId) || scopedProperties.some((p) => p.id === inv.propertyId)
@@ -291,90 +296,90 @@ export default function App() {
             ) : (
               <div className="flex-1 flex flex-col justify-between">
                 {/* Landlord Header Sub-Navigation Bar */}
-                <div className="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between gap-1 overflow-x-auto text-xs sticky top-0 z-20 shadow-xs">
-                  <div className="flex items-center gap-1 font-semibold">
+                <div className="bg-white border-b-2 border-slate-200 px-4 py-3 sm:py-3.5 flex items-center justify-between gap-2 overflow-x-auto text-sm sticky top-0 z-20 shadow-xs">
+                  <div className="flex items-center gap-2 sm:gap-2.5 font-bold text-sm w-full">
                     <button
                       onClick={() => setLandlordTab('dashboard')}
-                      className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'dashboard'
-                          ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
+                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
+                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <LayoutDashboard className="w-3.5 h-3.5" /> Overview
+                      <LayoutDashboard className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-blue-300" /> Overview
                     </button>
 
                     <button
                       onClick={() => setLandlordTab('properties')}
-                      className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'properties'
-                          ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
+                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
+                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <Building2 className="w-3.5 h-3.5" /> Properties ({scopedUnits.length})
+                      <Building2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Properties ({scopedUnits.length})
                     </button>
 
                     <button
                       onClick={() => setLandlordTab('tenants')}
-                      className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'tenants'
-                          ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
+                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
+                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <Users className="w-3.5 h-3.5" /> Tenants ({scopedTenants.length})
+                      <Users className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Tenants ({scopedTenants.length})
                     </button>
 
                     <button
                       onClick={() => setLandlordTab('invoices')}
-                      className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'invoices'
-                          ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
+                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
+                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <FileText className="w-3.5 h-3.5" /> Invoices & Quotes
+                      <FileText className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Invoices & Quotes
                     </button>
 
                     <button
                       onClick={() => setLandlordTab('payments')}
-                      className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'payments'
-                          ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
+                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
+                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <DollarSign className="w-3.5 h-3.5" /> Payment Ledger
+                      <DollarSign className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Payment Ledger
                     </button>
 
                     <button
                       onClick={() => setLandlordTab('maintenance')}
-                      className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'maintenance'
-                          ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
+                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
+                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <Wrench className="w-3.5 h-3.5" /> Maintenance ({scopedMaintenance.length})
+                      <Wrench className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Maintenance ({scopedMaintenance.length})
                     </button>
 
                     <button
                       onClick={() => setLandlordTab('landlord-accounts')}
-                      className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'landlord-accounts'
-                          ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
+                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
+                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <CreditCard className="w-3.5 h-3.5 text-emerald-400" /> Bank & M-Pesa Accounts
+                      <CreditCard className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-500" /> Bank & M-Pesa Accounts
                     </button>
 
                     <button
-                      onClick={() => setShowLandlordRegModal(true)}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-xs whitespace-nowrap ml-auto"
+                      onClick={() => setShowRenewSubscriptionModal(true)}
+                      className="px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm transition flex items-center gap-2 shadow-md hover:shadow-lg whitespace-nowrap ml-auto"
                     >
-                      <UserPlus className="w-3.5 h-3.5" /> + Register Landlord ({formatKSH(20000)}/yr)
+                      <RefreshCw className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-200" /> Renew Subscription ({formatKSH(20000)}/yr)
                     </button>
                   </div>
                 </div>
@@ -573,6 +578,14 @@ export default function App() {
           setActiveLandlordId(newLandlord.id);
           loadAllData();
         }}
+      />
+
+      {/* Annual Subscription Renewal Modal */}
+      <SubscriptionRenewalModal
+        isOpen={showRenewSubscriptionModal}
+        onClose={() => setShowRenewSubscriptionModal(false)}
+        activeLandlord={currentLandlord}
+        onSubscriptionRenewed={() => loadAllData()}
       />
     </AndroidFrame>
   );
