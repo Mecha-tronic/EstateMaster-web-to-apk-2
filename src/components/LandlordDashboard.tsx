@@ -46,9 +46,17 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
   onOpenNewInvoice,
   onOpenNewQuote,
 }) => {
-  const totalUnitsCount = units.length;
-  const occupiedUnits = units.filter((u) => u.status === 'Occupied').length;
-  const occupancyRate = totalUnitsCount > 0 ? Math.round((occupiedUnits / totalUnitsCount) * 100) : 0;
+  // Calculate total units and occupied units based on unit status and registered tenants
+  const totalUnitsCount = units.length > 0 ? units.length : Math.max(tenants.length, 1);
+  const occupiedUnitsCount = units.filter(
+    (u) =>
+      u.status === 'Occupied' ||
+      tenants.some((t) => t.unitId === u.id || (t.unitNumber && t.unitNumber === u.unitNumber))
+  ).length;
+
+  // Ensure occupied count reflects registered tenants accurately
+  const effectiveOccupied = Math.min(totalUnitsCount, Math.max(occupiedUnitsCount, tenants.length));
+  const occupancyRate = totalUnitsCount > 0 ? Math.round((effectiveOccupied / totalUnitsCount) * 100) : 0;
 
   const totalCollected = invoices
     .filter((inv) => inv.status === 'Paid')
@@ -158,7 +166,7 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
           </div>
           <div className="text-xl sm:text-2xl font-bold text-slate-900">{occupancyRate}%</div>
           <p className="text-[11px] text-slate-500 mt-1 font-medium">
-            {occupiedUnits} / {totalUnitsCount} Units Occupied
+            {effectiveOccupied} / {totalUnitsCount} Units Occupied
           </p>
         </div>
 

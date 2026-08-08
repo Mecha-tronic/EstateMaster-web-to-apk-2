@@ -788,7 +788,7 @@ async function startServer() {
         return res.status(400).json({ error: 'Full name, email, and selected unit are required.' });
       }
 
-      const selectedUnit = units.find(u => u.id === unitId);
+      const selectedUnit = units.find(u => u.id === unitId) || units.find(u => u.unitNumber === unitId);
       if (!selectedUnit) {
         return res.status(400).json({ error: 'Selected apartment unit not found.' });
       }

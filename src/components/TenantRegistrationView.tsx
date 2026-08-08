@@ -182,22 +182,30 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
                     return (
                       <div
                         key={unit.id}
-                        onClick={() => !isOccupied && setSelectedUnitId(unit.id)}
+                        onClick={() => setSelectedUnitId(unit.id)}
                         className={`p-4 rounded-xl border transition cursor-pointer relative ${
-                          isOccupied
-                            ? 'opacity-50 border-slate-200 bg-slate-50 cursor-not-allowed'
-                            : isSelected
-                            ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20'
+                          isSelected
+                            ? 'border-emerald-600 bg-emerald-50/80 ring-2 ring-emerald-500 shadow-md'
+                            : isOccupied
+                            ? 'border-slate-200 bg-slate-50/60 opacity-80'
                             : 'border-slate-200 bg-white hover:border-slate-300 shadow-xs'
                         }`}
                       >
-                        <div className="flex justify-between items-start mb-2">
+                        {isSelected && (
+                          <div className="absolute top-2.5 right-2.5 bg-emerald-600 text-white text-[10px] font-extrabold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs z-10">
+                            <CheckCircle2 className="w-3 h-3" /> SELECTED FOR LEASE
+                          </div>
+                        )}
+                        <div className="flex justify-between items-start mb-2 pr-20">
                           <div>
                             <span className="text-[10px] text-slate-500 uppercase font-bold">
                               {unit.propertyName}
                             </span>
                             <h4 className="font-bold text-slate-900 text-base">Unit {unit.unitNumber}</h4>
                           </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 my-1">
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                               isOccupied ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'

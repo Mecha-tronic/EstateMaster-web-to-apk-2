@@ -209,6 +209,7 @@ export default function App() {
 
   const handleGoToPortalFromRegister = (email: string) => {
     setRecentRegisteredEmail(email);
+    setActiveRole('landlord');
     setLandlordTab('tenants');
   };
 
@@ -417,8 +418,14 @@ export default function App() {
                         if (tab === 'register') setActiveRole('register');
                         else setLandlordTab(tab);
                       }}
-                      onOpenNewInvoice={() => setShowCreateInvoiceModal(true)}
-                      onOpenNewQuote={() => setShowCreateQuoteModal(true)}
+                      onOpenNewInvoice={() => {
+                        setLandlordTab('invoices');
+                        setShowCreateInvoiceModal(true);
+                      }}
+                      onOpenNewQuote={() => {
+                        setLandlordTab('invoices');
+                        setShowCreateQuoteModal(true);
+                      }}
                     />
                   )}
 
