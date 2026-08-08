@@ -509,9 +509,17 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                     )}
                   </div>
 
-                  <p className="text-xs font-bold text-slate-900">
-                    {inv.tenantName} &bull; Unit {inv.unitNumber} ({inv.propertyName})
-                  </p>
+                  {(() => {
+                    const matchingTenant = tenants.find((t) => t.id === inv.tenantId || t.fullName.toLowerCase() === inv.tenantName.toLowerCase());
+                    const matchingUnit = units.find((u) => u.id === inv.unitId || (matchingTenant && u.id === matchingTenant.unitId));
+                    const uNum = inv.unitNumber && inv.unitNumber !== 'Unit' ? inv.unitNumber : (matchingTenant?.unitNumber || matchingUnit?.unitNumber || 'Unit');
+                    const pName = inv.propertyName && inv.propertyName !== 'Property' ? inv.propertyName : (matchingTenant?.propertyName || matchingUnit?.propertyName || 'Property');
+                    return (
+                      <p className="text-xs font-bold text-slate-900">
+                        {inv.tenantName} &bull; Unit {uNum} ({pName})
+                      </p>
+                    );
+                  })()}
                   <p className="text-[11px] text-slate-500">
                     Period: {inv.periodMonth} | Issued: {inv.issueDate} | Due Date: {inv.dueDate}
                   </p>
@@ -560,9 +568,17 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                 <p className="text-xs font-bold text-slate-900">
                   Applicant: {qte.tenantName} ({qte.tenantEmail})
                 </p>
-                <p className="text-[11px] text-slate-500">
-                  Property: {qte.propertyName} - Unit {qte.unitNumber} | Term: {qte.leaseTermMonths} Months | Valid Until: {qte.validUntil}
-                </p>
+                {(() => {
+                  const matchingTenant = tenants.find((t) => t.fullName.toLowerCase() === qte.tenantName.toLowerCase() || t.email.toLowerCase() === qte.tenantEmail.toLowerCase());
+                  const matchingUnit = units.find((u) => u.id === qte.unitId || (matchingTenant && u.id === matchingTenant.unitId));
+                  const uNum = qte.unitNumber && qte.unitNumber !== 'Unit' ? qte.unitNumber : (matchingTenant?.unitNumber || matchingUnit?.unitNumber || 'Unit');
+                  const pName = qte.propertyName && qte.propertyName !== 'Property' ? qte.propertyName : (matchingTenant?.propertyName || matchingUnit?.propertyName || 'Property');
+                  return (
+                    <p className="text-[11px] text-slate-500">
+                      Property: {pName} - Unit {uNum} | Term: {qte.leaseTermMonths} Months | Valid Until: {qte.validUntil}
+                    </p>
+                  );
+                })()}
               </div>
 
               <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-0 border-slate-200 pt-2 sm:pt-0">

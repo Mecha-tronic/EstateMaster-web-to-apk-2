@@ -67,6 +67,44 @@ export default function App() {
   const [isAndroidView, setIsAndroidView] = useState<boolean>(true);
   const [activeRole, setActiveRole] = useState<'landlord' | 'tenant' | 'register'>('landlord');
   const [landlordTab, setLandlordTab] = useState<string>('dashboard');
+  const [preselectedUnitId, setPreselectedUnitId] = useState<string>('');
+
+  // Browser History Management for Samsung/Android Back Button Navigation
+  const navigateTab = (newTab: string) => {
+    setLandlordTab(newTab);
+    window.history.pushState({ activeRole, landlordTab: newTab }, '', window.location.pathname);
+  };
+
+  const navigateRole = (newRole: 'landlord' | 'tenant' | 'register', newTab?: string) => {
+    setActiveRole(newRole);
+    if (newTab) setLandlordTab(newTab);
+    window.history.pushState({ activeRole: newRole, landlordTab: newTab || landlordTab }, '', window.location.pathname);
+  };
+
+  useEffect(() => {
+    if (!window.history.state) {
+      window.history.replaceState({ activeRole: 'landlord', landlordTab: 'dashboard' }, '');
+    }
+
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state) {
+        if (event.state.activeRole) {
+          setActiveRole(event.state.activeRole);
+        }
+        if (event.state.landlordTab) {
+          setLandlordTab(event.state.landlordTab);
+        }
+      } else {
+        setActiveRole('landlord');
+        setLandlordTab('dashboard');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   // Authentication States
   const [signedInTenant, setSignedInTenant] = useState<Tenant | null>(null);
@@ -209,8 +247,7 @@ export default function App() {
 
   const handleGoToPortalFromRegister = (email: string) => {
     setRecentRegisteredEmail(email);
-    setActiveRole('landlord');
-    setLandlordTab('tenants');
+    navigateRole('landlord', 'tenants');
   };
 
   const currentLandlord = signedInLandlord || landlords.find((l) => l.id === activeLandlordId) || landlords[0];
@@ -300,7 +337,7 @@ export default function App() {
                 <div className="bg-white border-b-2 border-slate-200 px-4 py-3 sm:py-3.5 flex items-center justify-between gap-2 overflow-x-auto text-sm sticky top-0 z-20 shadow-xs">
                   <div className="flex items-center gap-2 sm:gap-2.5 font-bold text-sm w-full">
                     <button
-                      onClick={() => setLandlordTab('dashboard')}
+                      onClick={() => navigateTab('dashboard')}
                       className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'dashboard'
                           ? 'bg-blue-600 text-white shadow-md font-extrabold'
@@ -311,7 +348,7 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setLandlordTab('properties')}
+                      onClick={() => navigateTab('properties')}
                       className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'properties'
                           ? 'bg-blue-600 text-white shadow-md font-extrabold'
@@ -322,7 +359,7 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setLandlordTab('tenants')}
+                      onClick={() => navigateTab('tenants')}
                       className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'tenants'
                           ? 'bg-blue-600 text-white shadow-md font-extrabold'
@@ -333,7 +370,7 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setLandlordTab('invoices')}
+                      onClick={() => navigateTab('invoices')}
                       className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'invoices'
                           ? 'bg-blue-600 text-white shadow-md font-extrabold'
@@ -344,7 +381,7 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setLandlordTab('payments')}
+                      onClick={() => navigateTab('payments')}
                       className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'payments'
                           ? 'bg-blue-600 text-white shadow-md font-extrabold'
@@ -355,7 +392,7 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setLandlordTab('maintenance')}
+                      onClick={() => navigateTab('maintenance')}
                       className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'maintenance'
                           ? 'bg-blue-600 text-white shadow-md font-extrabold'
@@ -366,7 +403,7 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setLandlordTab('landlord-accounts')}
+                      onClick={() => navigateTab('landlord-accounts')}
                       className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
                         landlordTab === 'landlord-accounts'
                           ? 'bg-blue-600 text-white shadow-md font-extrabold'
@@ -389,7 +426,7 @@ export default function App() {
                 {landlordTab !== 'dashboard' && (
                   <div className="bg-slate-100 border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
                     <button
-                      onClick={() => setLandlordTab('dashboard')}
+                      onClick={() => navigateTab('dashboard')}
                       className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-blue-500 hover:text-blue-600 text-slate-800 text-xs font-bold shadow-xs transition"
                     >
                       <ArrowLeft className="w-4 h-4 text-blue-600" />
@@ -415,15 +452,15 @@ export default function App() {
                       signedInLandlord={currentLandlord}
                       onSignOut={() => setSignedInLandlord(null)}
                       onNavigate={(tab) => {
-                        if (tab === 'register') setActiveRole('register');
-                        else setLandlordTab(tab);
+                        if (tab === 'register') navigateRole('register');
+                        else navigateTab(tab);
                       }}
                       onOpenNewInvoice={() => {
-                        setLandlordTab('invoices');
+                        navigateTab('invoices');
                         setShowCreateInvoiceModal(true);
                       }}
                       onOpenNewQuote={() => {
-                        setLandlordTab('invoices');
+                        navigateTab('invoices');
                         setShowCreateQuoteModal(true);
                       }}
                     />
@@ -467,7 +504,10 @@ export default function App() {
                           console.error('Failed to create unit:', err);
                         }
                       }}
-                      onSelectUnitForRegister={() => setActiveRole('register')}
+                      onSelectUnitForRegister={(unitId) => {
+                        if (unitId) setPreselectedUnitId(unitId);
+                        navigateRole('register');
+                      }}
                       onRefreshData={() => loadAllData()}
                     />
                   )}
@@ -475,9 +515,10 @@ export default function App() {
                   {landlordTab === 'tenants' && (
                     <TenantsLeasesView
                       tenants={scopedTenants}
-                      onNavigateRegister={() => setActiveRole('register')}
+                      units={scopedUnits}
+                      onNavigateRegister={() => navigateRole('register')}
                       onOpenInvoiceModal={() => {
-                        setLandlordTab('invoices');
+                        navigateTab('invoices');
                         setShowCreateInvoiceModal(true);
                       }}
                       onRefreshData={() => loadAllData()}
@@ -525,10 +566,7 @@ export default function App() {
             <div className="flex-1 pb-12">
               <div className="bg-slate-100 border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
                 <button
-                  onClick={() => {
-                    setActiveRole('landlord');
-                    setLandlordTab('dashboard');
-                  }}
+                  onClick={() => navigateRole('landlord', 'dashboard')}
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-blue-500 hover:text-blue-600 text-slate-800 text-xs font-bold shadow-xs transition"
                 >
                   <ArrowLeft className="w-4 h-4 text-blue-600" />
@@ -541,6 +579,7 @@ export default function App() {
               <TenantRegistrationView
                 properties={scopedProperties.length > 0 ? scopedProperties : properties}
                 units={scopedUnits.length > 0 ? scopedUnits : units}
+                initialSelectedUnitId={preselectedUnitId}
                 onRegistrationComplete={handleRegistrationComplete}
                 onGoToPortal={handleGoToPortalFromRegister}
               />

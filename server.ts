@@ -976,6 +976,7 @@ async function startServer() {
         tenant: newTenant,
         quote: newQuote,
         invoice: newInvoice,
+        unit: selectedUnit,
         email: welcomeEmail,
         message: `Tenant registered! Automated rental quote & invoice dispatched to ${email}.`
       });
@@ -1002,15 +1003,21 @@ async function startServer() {
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 5);
 
+    const matchedUnit = units.find(u => u.id === tenant.unitId);
+    const matchedProp = properties.find(p => p.id === tenant.propertyId || p.id === matchedUnit?.propertyId);
+
+    const unitNum = tenant.unitNumber || matchedUnit?.unitNumber || 'Unit';
+    const propName = tenant.propertyName || matchedUnit?.propertyName || matchedProp?.name || 'Property';
+
     const inv: Invoice = {
       id: `inv-${Date.now()}`,
       invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
       tenantId: tenant.id,
       tenantName: tenant.fullName,
       tenantEmail: tenant.email,
-      unitId: tenant.unitId,
-      unitNumber: tenant.unitNumber || 'Unit',
-      propertyName: tenant.propertyName || 'Property',
+      unitId: tenant.unitId || matchedUnit?.id || '',
+      unitNumber: unitNum,
+      propertyName: propName,
       issueDate: new Date().toISOString().split('T')[0],
       dueDate: dueDate.toISOString().split('T')[0],
       periodMonth: periodMonth || 'Current Month',

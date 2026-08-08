@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Tenant } from '../types';
+import { Tenant, Unit } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { Users, Mail, Phone, Calendar, ShieldCheck, Briefcase, Plus, FileText, Send, Camera, Upload, X, User } from 'lucide-react';
 import { updateTenantDetails } from '../lib/api';
 
 interface TenantsLeasesViewProps {
   tenants: Tenant[];
+  units?: Unit[];
   onNavigateRegister: () => void;
   onOpenInvoiceModal: (tenantId: string) => void;
   onRefreshData?: () => void;
@@ -13,6 +14,7 @@ interface TenantsLeasesViewProps {
 
 export const TenantsLeasesView: React.FC<TenantsLeasesViewProps> = ({
   tenants,
+  units = [],
   onNavigateRegister,
   onOpenInvoiceModal,
   onRefreshData,
@@ -127,9 +129,16 @@ export const TenantsLeasesView: React.FC<TenantsLeasesViewProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-base leading-tight">{tenant.fullName}</h3>
-                  <p className="text-xs text-blue-600 font-semibold mt-0.5">
-                    {tenant.propertyName} &bull; Unit {tenant.unitNumber}
-                  </p>
+                  {(() => {
+                    const matchedUnit = units.find((u) => u.id === tenant.unitId);
+                    const propName = tenant.propertyName || matchedUnit?.propertyName || 'Apartment';
+                    const unitNum = tenant.unitNumber || matchedUnit?.unitNumber || 'Unit';
+                    return (
+                      <p className="text-xs text-blue-600 font-semibold mt-0.5">
+                        {propName} &bull; Unit {unitNum}
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
 

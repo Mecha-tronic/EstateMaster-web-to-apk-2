@@ -28,6 +28,7 @@ import { registerTenant } from '../lib/api';
 interface TenantRegistrationViewProps {
   properties: Property[];
   units: Unit[];
+  initialSelectedUnitId?: string;
   onRegistrationComplete: (result: any) => void;
   onGoToPortal: (email: string) => void;
 }
@@ -35,20 +36,23 @@ interface TenantRegistrationViewProps {
 export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
   properties,
   units = [],
+  initialSelectedUnitId,
   onRegistrationComplete,
   onGoToPortal,
 }) => {
   const availableUnits = units.filter((u) => u.status === 'Available');
 
   const [step, setStep] = useState<number>(1);
-  const [selectedUnitId, setSelectedUnitId] = useState<string>('');
+  const [selectedUnitId, setSelectedUnitId] = useState<string>(initialSelectedUnitId || '');
 
   useEffect(() => {
-    if (!selectedUnitId && units.length > 0) {
+    if (initialSelectedUnitId) {
+      setSelectedUnitId(initialSelectedUnitId);
+    } else if (!selectedUnitId && units.length > 0) {
       const avail = units.find((u) => u.status === 'Available') || units[0];
       if (avail) setSelectedUnitId(avail.id);
     }
-  }, [units, selectedUnitId]);
+  }, [initialSelectedUnitId, units]);
 
   // Form State
   const [fullName, setFullName] = useState('');

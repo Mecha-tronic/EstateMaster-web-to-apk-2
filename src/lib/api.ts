@@ -620,31 +620,78 @@ export async function registerTenant(data: any) {
     });
     const result = await handleResponse(res, 'Registration failed');
 
-    if (result && result.tenant) {
-      const currentTenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
-      const existingIdx = currentTenants.findIndex(t => t.email.trim().toLowerCase() === cleanEmail);
-      if (existingIdx !== -1) {
-        currentTenants[existingIdx] = result.tenant;
-      } else {
-        currentTenants.unshift(result.tenant);
+    if (result) {
+      if (result.tenant) {
+        const currentTenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+        const existingIdx = currentTenants.findIndex(t => t.email.trim().toLowerCase() === cleanEmail);
+        if (existingIdx !== -1) {
+          currentTenants[existingIdx] = result.tenant;
+        } else {
+          currentTenants.unshift(result.tenant);
+        }
+        setLocalData(STORAGE_KEYS.TENANTS, currentTenants);
       }
-      setLocalData(STORAGE_KEYS.TENANTS, currentTenants);
+
+      if (result.unit) {
+        const currentUnits = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
+        const uIdx = currentUnits.findIndex(u => u.id === result.unit.id);
+        if (uIdx !== -1) {
+          currentUnits[uIdx] = { ...currentUnits[uIdx], ...result.unit, status: 'Occupied' };
+        } else {
+          currentUnits.unshift({ ...result.unit, status: 'Occupied' });
+        }
+        setLocalData(STORAGE_KEYS.UNITS, currentUnits);
+      }
+
+      if (result.invoice) {
+        const currentInvoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
+        const invIdx = currentInvoices.findIndex(i => i.id === result.invoice.id);
+        if (invIdx !== -1) currentInvoices[invIdx] = result.invoice;
+        else currentInvoices.unshift(result.invoice);
+        setLocalData(STORAGE_KEYS.INVOICES, currentInvoices);
+      }
+
+      if (result.quote) {
+        const currentQuotes = getLocalData<Quote[]>(STORAGE_KEYS.QUOTES, []);
+        const qIdx = currentQuotes.findIndex(q => q.id === result.quote.id);
+        if (qIdx !== -1) currentQuotes[qIdx] = result.quote;
+        else currentQuotes.unshift(result.quote);
+        setLocalData(STORAGE_KEYS.QUOTES, currentQuotes);
+      }
     }
 
     return result;
   } catch (err: any) {
     console.warn('Backend fetch failed, executing local tenant registration:', err);
+
+    const localUnits = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
+    const localProps = getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, []);
+    const targetUnit = localUnits.find(u => u.id === data.unitId || u.unitNumber === data.unitId) || localUnits[0];
+    const targetProp = localProps.find(p => p.id === targetUnit?.propertyId);
+
+    const propName = targetUnit?.propertyName || targetProp?.name || 'Apartment';
+    const uNum = targetUnit?.unitNumber || '101';
+    const rent = targetUnit?.monthlyRent || 45000;
+
+    if (targetUnit) {
+      targetUnit.status = 'Occupied';
+      targetUnit.currentTenantName = data.fullName;
+      targetUnit.currentTenantEmail = data.email;
+      setLocalData(STORAGE_KEYS.UNITS, localUnits);
+    }
+
     const newTenant: Tenant = {
       id: `tenant-${Date.now()}`,
-      landlordId: 'landlord-1',
+      landlordId: targetProp?.landlordId || 'landlord-1',
+      propertyId: targetUnit?.propertyId || 'prop-1',
+      unitId: targetUnit?.id || 'unit-1',
       fullName: data.fullName || 'New Tenant',
       email: data.email,
       phone: data.phone || '+254 700 000 000',
       idNumber: data.idNumber || 'ID-12345678',
-      unitId: data.unitId || 'unit-1',
-      unitNumber: 'A101',
-      propertyName: 'Kilimani Palms Heights',
-      monthlyRent: 45000,
+      unitNumber: uNum,
+      propertyName: propName,
+      monthlyRent: rent,
       leaseStartDate: new Date().toISOString().split('T')[0],
       leaseEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       status: 'Active'
@@ -654,20 +701,39 @@ export async function registerTenant(data: any) {
     currentTenants.unshift(newTenant);
     setLocalData(STORAGE_KEYS.TENANTS, currentTenants);
 
+    const newInvoice: Invoice = {
+      id: `inv-${Date.now()}`,
+      invoiceNumber: `INV-${Math.floor(10000 + Math.random() * 90000)}`,
+      tenantId: newTenant.id,
+      tenantName: newTenant.fullName,
+      tenantEmail: newTenant.email,
+      unitId: newTenant.unitId,
+      unitNumber: newTenant.unitNumber,
+      propertyName: newTenant.propertyName,
+      issueDate: new Date().toISOString().split('T')[0],
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      periodMonth: 'Current Month',
+      rentAmount: rent,
+      waterFee: 25,
+      trashFee: 15,
+      maintenanceFee: 0,
+      taxAmount: 0,
+      discount: 0,
+      totalAmount: rent + 40,
+      status: 'Unpaid',
+      amountPaid: 0,
+      notes: `Welcome to ${propName}! Initial move-in rental invoice.`
+    };
+
+    const currentInvoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
+    currentInvoices.unshift(newInvoice);
+    setLocalData(STORAGE_KEYS.INVOICES, currentInvoices);
+
     return {
       success: true,
       tenant: newTenant,
-      invoice: {
-        id: `inv-${Date.now()}`,
-        invoiceNumber: `INV-${Math.floor(10000 + Math.random() * 90000)}`,
-        tenantId: newTenant.id,
-        tenantName: newTenant.fullName,
-        unitNumber: newTenant.unitNumber,
-        totalAmount: 45000,
-        amountPaid: 0,
-        dueDate: new Date().toISOString().split('T')[0],
-        status: 'Unpaid'
-      }
+      unit: targetUnit,
+      invoice: newInvoice
     };
   }
 }
