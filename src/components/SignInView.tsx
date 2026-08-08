@@ -56,7 +56,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
 
   // Common Auth state
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('password123');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -444,7 +444,6 @@ export const SignInView: React.FC<SignInViewProps> = ({
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="block text-slate-700 font-bold">Password / PIN</label>
-                <span className="text-[11px] text-slate-400">Default demo password: <code className="text-blue-600 font-mono">password123</code></span>
               </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />

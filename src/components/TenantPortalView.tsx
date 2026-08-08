@@ -383,43 +383,75 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
           <div className="space-y-3">
             {tenantInvoices.map((inv) => {
               const isPaid = inv.status === 'Paid';
+              const prop = properties.find((p) => p.id === inv.propertyId || p.name === inv.propertyName);
+              const targetLandlord = landlords.find((l) => l.id === (inv.landlordId || currentTenant?.landlordId || prop?.landlordId)) || landlords[0];
+
               return (
                 <div
                   key={inv.id}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm text-slate-900"
+                  className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-slate-900 space-y-3"
                 >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-blue-700 text-sm">{inv.invoiceNumber}</span>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                          isPaid ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
-                        }`}
-                      >
-                        {inv.status}
-                      </span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-blue-700 text-sm">{inv.invoiceNumber}</span>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            isPaid ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
+                          }`}
+                        >
+                          {inv.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-700 font-medium">
+                        Month: {inv.periodMonth} | Due Date: {inv.dueDate || '10th of Month'}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Rent: {formatKSH(inv.rentAmount || inv.totalAmount * 0.85)} + Water: {formatKSH(inv.waterFee || 0)} + Trash: {formatKSH(inv.trashFee || 0)}
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-700 font-medium">
-                      Month: {inv.periodMonth} | Due: {inv.dueDate}
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Rent: ${inv.rentAmount} + Water: ${inv.waterFee} + Trash: ${inv.trashFee}
-                    </p>
+
+                    <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-0 border-slate-200 pt-2 sm:pt-0">
+                      <div className="text-left sm:text-right">
+                        <p className="text-[10px] text-slate-500 font-medium">Total Amount</p>
+                        <p className="text-lg font-extrabold text-slate-900">{formatKSH(inv.totalAmount)}</p>
+                      </div>
+
+                      {!isPaid && (
+                        <button
+                          onClick={() => setPayingInvoice(inv)}
+                          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5"
+                        >
+                          <DollarSign className="w-4 h-4" /> Pay Now
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-0 border-slate-200 pt-2 sm:pt-0">
-                    <div className="text-left sm:text-right">
-                      <p className="text-[10px] text-slate-500 font-medium">Total Amount</p>
-                      <p className="text-lg font-extrabold text-slate-900">${inv.totalAmount.toFixed(2)}</p>
-                    </div>
-
-                    {!isPaid && (
-                      <button
-                        onClick={() => setPayingInvoice(inv)}
-                        className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5"
-                      >
-                        <DollarSign className="w-4 h-4" /> Pay Now
-                      </button>
+                  {/* Registered Landlord Payment Instructions */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1 text-slate-700">
+                    <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                      💳 Landlord Rent Payment Instructions
+                    </p>
+                    {targetLandlord ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                          <p className="font-bold text-emerald-700 mb-0.5">📱 M-Pesa Mobile Money:</p>
+                          {targetLandlord.mpesaPaybill && <p>Paybill: <strong className="text-slate-900">{targetLandlord.mpesaPaybill}</strong></p>}
+                          {targetLandlord.mpesaTillNumber && <p>Till No: <strong className="text-slate-900">{targetLandlord.mpesaTillNumber}</strong></p>}
+                          {targetLandlord.mpesaPhoneNumber && <p>Phone: <strong className="text-slate-900">{targetLandlord.mpesaPhoneNumber}</strong></p>}
+                          <p className="text-slate-500 mt-0.5">Account Ref: <strong className="text-slate-800">Unit {inv.unitNumber || currentTenant?.unitNumber || 'Rent'}</strong></p>
+                        </div>
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                          <p className="font-bold text-blue-700 mb-0.5">🏦 Bank Account Details:</p>
+                          {targetLandlord.bankName && <p>Bank: <strong className="text-slate-900">{targetLandlord.bankName}</strong></p>}
+                          {targetLandlord.accountName && <p>A/C Name: <strong className="text-slate-900">{targetLandlord.accountName}</strong></p>}
+                          {targetLandlord.accountNumber && <p>A/C No: <strong className="text-slate-900">{targetLandlord.accountNumber}</strong></p>}
+                          {targetLandlord.branchName && <p>Branch: <strong className="text-slate-900">{targetLandlord.branchName}</strong></p>}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-500">Pay directly to landlord account via M-Pesa or Bank transfer.</p>
                     )}
                   </div>
                 </div>

@@ -46,9 +46,9 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
   onOpenNewInvoice,
   onOpenNewQuote,
 }) => {
-  const totalUnits = units.length || 1;
+  const totalUnitsCount = units.length;
   const occupiedUnits = units.filter((u) => u.status === 'Occupied').length;
-  const occupancyRate = Math.round((occupiedUnits / totalUnits) * 100);
+  const occupancyRate = totalUnitsCount > 0 ? Math.round((occupiedUnits / totalUnitsCount) * 100) : 0;
 
   const totalCollected = invoices
     .filter((inv) => inv.status === 'Paid')
@@ -158,7 +158,7 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
           </div>
           <div className="text-xl sm:text-2xl font-bold text-slate-900">{occupancyRate}%</div>
           <p className="text-[11px] text-slate-500 mt-1 font-medium">
-            {occupiedUnits} / {totalUnits} Units Occupied
+            {occupiedUnits} / {totalUnitsCount} Units Occupied
           </p>
         </div>
 
@@ -269,12 +269,12 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
             <div className="grid grid-cols-1 gap-2.5">
               <button
                 onClick={() => onNavigate('register')}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="p-1.5 rounded-lg bg-emerald-100 text-emerald-700">📝</span>
                   <div>
-                    <p className="font-bold text-slate-900">Tenant Self-Registration</p>
+                    <p className="font-bold text-slate-900">Register New Tenant</p>
                     <p className="text-[11px] text-slate-500">Generates quote & first invoice instantly</p>
                   </div>
                 </div>
@@ -282,14 +282,14 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
               </button>
 
               <button
-                onClick={onOpenNewQuote}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                onClick={() => onNavigate('properties')}
+                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
               >
                 <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-lg bg-blue-100 text-blue-700">🏷️</span>
+                  <span className="p-1.5 rounded-lg bg-blue-100 text-blue-700">🏢</span>
                   <div>
-                    <p className="font-bold text-slate-900">Generate Rental Quote</p>
-                    <p className="text-[11px] text-slate-500">AI-assisted pricing & terms email</p>
+                    <p className="font-bold text-slate-900">Add Property / Apartment Unit</p>
+                    <p className="text-[11px] text-slate-500">Register apartments & set monthly rent</p>
                   </div>
                 </div>
                 <ArrowUpRight className="w-4 h-4 text-slate-400" />
@@ -297,13 +297,69 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
 
               <button
                 onClick={onOpenNewInvoice}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700">📄</span>
                   <div>
                     <p className="font-bold text-slate-900">Issue Monthly Invoice</p>
                     <p className="text-[11px] text-slate-500">Breakdown & dispatch to tenant email</p>
+                  </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              <button
+                onClick={onOpenNewQuote}
+                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-sky-50/60 border border-slate-200 hover:border-sky-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="p-1.5 rounded-lg bg-sky-100 text-sky-700">🏷️</span>
+                  <div>
+                    <p className="font-bold text-slate-900">Generate Rental Quote</p>
+                    <p className="text-[11px] text-slate-500">Pricing, terms & move-in estimate</p>
+                  </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              <button
+                onClick={() => onNavigate('payments')}
+                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-amber-50/60 border border-slate-200 hover:border-amber-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="p-1.5 rounded-lg bg-amber-100 text-amber-700">💳</span>
+                  <div>
+                    <p className="font-bold text-slate-900">Payment Ledger & Receipts</p>
+                    <p className="text-[11px] text-slate-500">Record M-Pesa or bank payments</p>
+                  </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              <button
+                onClick={() => onNavigate('maintenance')}
+                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-rose-50/60 border border-slate-200 hover:border-rose-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="p-1.5 rounded-lg bg-rose-100 text-rose-700">🔧</span>
+                  <div>
+                    <p className="font-bold text-slate-900">Maintenance Tickets</p>
+                    <p className="text-[11px] text-slate-500">Review repairs & technician assignments</p>
+                  </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              <button
+                onClick={() => onNavigate('landlord-accounts')}
+                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-purple-50/60 border border-slate-200 hover:border-purple-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="p-1.5 rounded-lg bg-purple-100 text-purple-700">🏦</span>
+                  <div>
+                    <p className="font-bold text-slate-900">Bank & M-Pesa Accounts</p>
+                    <p className="text-[11px] text-slate-500">Configure rent collection details</p>
                   </div>
                 </div>
                 <ArrowUpRight className="w-4 h-4 text-slate-400" />

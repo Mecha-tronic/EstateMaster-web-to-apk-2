@@ -57,7 +57,8 @@ import {
   UserPlus,
   Key,
   CreditCard,
-  LogOut
+  LogOut,
+  ArrowLeft
 } from 'lucide-react';
 
 export default function App() {
@@ -133,19 +134,19 @@ export default function App() {
     loadAllData();
   }, []);
 
-  // Automatic Sign Out on Inactivity (10 Minutes)
+  // Automatic Sign Out on Inactivity (2 Minutes)
   useEffect(() => {
     if (!signedInLandlord && !signedInTenant) return;
 
     let timer: any = null;
-    const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+    const INACTIVITY_TIMEOUT = 2 * 60 * 1000; // 2 minutes (120,000 ms)
 
     const resetInactivityTimer = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         setSignedInLandlord(null);
         setSignedInTenant(null);
-        setInactivityNotice('⚡ You were automatically signed out due to 10 minutes of inactivity for security.');
+        setInactivityNotice('⚡ You were automatically signed out due to 2 minutes of inactivity for security.');
       }, INACTIVITY_TIMEOUT);
     };
 
@@ -209,7 +210,7 @@ export default function App() {
     setActiveRole('tenant');
   };
 
-  const activeLandlord = landlords.find((l) => l.id === activeLandlordId) || landlords[0];
+  const currentLandlord = signedInLandlord || landlords.find((l) => l.id === activeLandlordId) || landlords[0];
 
   const checkLandlordSubscriptionActive = (landlord?: Landlord): boolean => {
     if (!landlord) return true;
@@ -222,7 +223,25 @@ export default function App() {
     return expiryDate >= now;
   };
 
-  const isSubscriptionActive = checkLandlordSubscriptionActive(activeLandlord);
+  // Only trigger subscription lockout screen if a landlord IS signed in AND their subscription is expired
+  const isSignedLandlordSubscriptionExpired = signedInLandlord ? !checkLandlordSubscriptionActive(signedInLandlord) : false;
+  const isSubscriptionActive = checkLandlordSubscriptionActive(currentLandlord);
+
+  // Landlord-scoped datasets for multi-tenant isolation
+  const scopedProperties = properties.filter((p) => p.landlordId === currentLandlord?.id);
+  const scopedUnits = units.filter((u) => scopedProperties.some((p) => p.id === u.propertyId));
+  const scopedTenants = tenants.filter(
+    (t) => t.landlordId === currentLandlord?.id || scopedProperties.some((p) => p.id === t.propertyId)
+  );
+  const scopedInvoices = invoices.filter(
+    (inv) => scopedTenants.some((t) => t.id === inv.tenantId) || scopedProperties.some((p) => p.id === inv.propertyId)
+  );
+  const scopedPayments = payments.filter(
+    (pay) => scopedInvoices.some((inv) => inv.id === pay.invoiceId) || scopedTenants.some((t) => t.id === pay.tenantId)
+  );
+  const scopedMaintenance = maintenance.filter(
+    (m) => scopedTenants.some((t) => t.id === m.tenantId) || scopedProperties.some((p) => p.id === m.propertyId)
+  );
 
   return (
     <AndroidFrame
@@ -234,9 +253,9 @@ export default function App() {
       subscriptionStatus={isSubscriptionActive ? 'Active' : 'Expired'}
     >
       {/* SUBSCRIPTION LOCKOUT GUARD */}
-      {!isSubscriptionActive ? (
+      {isSignedLandlordSubscriptionExpired ? (
         <SubscriptionLockScreen
-          activeLandlord={activeLandlord}
+          activeLandlord={currentLandlord}
           landlords={landlords}
           onSelectLandlord={setActiveLandlordId}
           onSubscriptionRenewed={() => loadAllData()}
@@ -293,7 +312,7 @@ export default function App() {
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
                       }`}
                     >
-                      <Building2 className="w-3.5 h-3.5" /> Properties ({units.length})
+                      <Building2 className="w-3.5 h-3.5" /> Properties ({scopedUnits.length})
                     </button>
 
                     <button
@@ -304,7 +323,7 @@ export default function App() {
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
                       }`}
                     >
-                      <Users className="w-3.5 h-3.5" /> Tenants ({tenants.length})
+                      <Users className="w-3.5 h-3.5" /> Tenants ({scopedTenants.length})
                     </button>
 
                     <button
@@ -337,7 +356,7 @@ export default function App() {
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium'
                       }`}
                     >
-                      <Wrench className="w-3.5 h-3.5" /> Maintenance ({maintenance.length})
+                      <Wrench className="w-3.5 h-3.5" /> Maintenance ({scopedMaintenance.length})
                     </button>
 
                     <button
@@ -360,18 +379,34 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Back to Overview Banner on Sub-tabs */}
+                {landlordTab !== 'dashboard' && (
+                  <div className="bg-slate-100 border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
+                    <button
+                      onClick={() => setLandlordTab('dashboard')}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-blue-500 hover:text-blue-600 text-slate-800 text-xs font-bold shadow-xs transition"
+                    >
+                      <ArrowLeft className="w-4 h-4 text-blue-600" />
+                      Back to Overview Platform
+                    </button>
+                    <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider hidden sm:inline">
+                      Landlord Operations / {landlordTab.replace('-', ' ')}
+                    </span>
+                  </div>
+                )}
+
                 {/* Active Tab View Rendering */}
                 <div className="flex-1 pb-16">
                   {landlordTab === 'dashboard' && (
                     <LandlordDashboard
-                      properties={properties}
-                      units={units}
-                      tenants={tenants}
-                      invoices={invoices}
+                      properties={scopedProperties}
+                      units={scopedUnits}
+                      tenants={scopedTenants}
+                      invoices={scopedInvoices}
                       quotes={quotes}
-                      maintenance={maintenance}
+                      maintenance={scopedMaintenance}
                       emails={emails}
-                      signedInLandlord={signedInLandlord}
+                      signedInLandlord={currentLandlord}
                       onSignOut={() => setSignedInLandlord(null)}
                       onNavigate={(tab) => {
                         if (tab === 'register') setActiveRole('register');
@@ -385,7 +420,7 @@ export default function App() {
                   {landlordTab === 'landlord-accounts' && (
                     <LandlordProfileView
                       landlords={landlords}
-                      activeLandlordId={activeLandlordId}
+                      activeLandlordId={currentLandlord?.id || activeLandlordId}
                       onSelectLandlord={setActiveLandlordId}
                       onLandlordUpdated={() => loadAllData()}
                       onOpenRegisterModal={() => setShowLandlordRegModal(true)}
@@ -394,11 +429,11 @@ export default function App() {
 
                   {landlordTab === 'properties' && (
                     <PropertiesView
-                      properties={properties}
-                      units={units}
+                      properties={scopedProperties}
+                      units={scopedUnits}
                       onAddProperty={async (p) => {
                         try {
-                          await createProperty(p);
+                          await createProperty({ ...p, landlordId: currentLandlord?.id });
                           await loadAllData();
                         } catch (err) {
                           console.error('Failed to create property:', err);
@@ -427,7 +462,7 @@ export default function App() {
 
                   {landlordTab === 'tenants' && (
                     <TenantsLeasesView
-                      tenants={tenants}
+                      tenants={scopedTenants}
                       onNavigateRegister={() => setActiveRole('register')}
                       onOpenInvoiceModal={() => {
                         setLandlordTab('invoices');
@@ -439,10 +474,12 @@ export default function App() {
 
                   {landlordTab === 'invoices' && (
                     <InvoicesQuotesView
-                      invoices={invoices}
+                      invoices={scopedInvoices}
                       quotes={quotes}
-                      tenants={tenants}
-                      units={units}
+                      tenants={scopedTenants}
+                      units={scopedUnits}
+                      landlords={landlords}
+                      signedInLandlord={currentLandlord}
                       onCreateInvoice={handleCreateInvoice}
                       onCreateQuote={handleCreateQuote}
                       showCreateInvoiceModal={showCreateInvoiceModal}
@@ -454,15 +491,15 @@ export default function App() {
 
                   {landlordTab === 'payments' && (
                     <PaymentTrackerView
-                      payments={payments}
-                      invoices={invoices}
+                      payments={scopedPayments}
+                      invoices={scopedInvoices}
                       onRecordPayment={handleRecordPayment}
                     />
                   )}
 
                   {landlordTab === 'maintenance' && (
                     <MaintenanceView
-                      maintenance={maintenance}
+                      maintenance={scopedMaintenance}
                       onUpdateStatus={handleUpdateMaintenance}
                     />
                   )}
@@ -474,9 +511,24 @@ export default function App() {
           {/* TENANT REGISTRATION MODE */}
           {activeRole === 'register' && (
             <div className="flex-1 pb-12">
+              <div className="bg-slate-100 border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    setActiveRole('landlord');
+                    setLandlordTab('dashboard');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-blue-500 hover:text-blue-600 text-slate-800 text-xs font-bold shadow-xs transition"
+                >
+                  <ArrowLeft className="w-4 h-4 text-blue-600" />
+                  Back to Landlord Dashboard
+                </button>
+                <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider hidden sm:inline">
+                  Tenant Registration Module
+                </span>
+              </div>
               <TenantRegistrationView
-                properties={properties}
-                units={units}
+                properties={scopedProperties.length > 0 ? scopedProperties : properties}
+                units={scopedUnits.length > 0 ? scopedUnits : units}
                 onRegistrationComplete={handleRegistrationComplete}
                 onGoToPortal={handleGoToPortalFromRegister}
               />

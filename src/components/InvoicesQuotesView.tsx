@@ -28,6 +28,8 @@ interface InvoicesQuotesViewProps {
   quotes: Quote[];
   tenants: Tenant[];
   units: Unit[];
+  landlords?: Landlord[];
+  signedInLandlord?: Landlord | null;
   onCreateInvoice: (data: any) => void;
   onCreateQuote: (data: any) => void;
   showCreateInvoiceModal: boolean;
@@ -41,6 +43,8 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
   quotes,
   tenants,
   units,
+  landlords = [],
+  signedInLandlord,
   onCreateInvoice,
   onCreateQuote,
   showCreateInvoiceModal,
@@ -995,10 +999,32 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
               )}
 
               {/* Payment Instructions Note */}
-              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-[11px] text-indigo-950">
-                <p className="font-bold mb-0.5">Payment Instructions:</p>
-                <p>M-Pesa Buy Goods Till: <strong>781920</strong> (EstateMaster) or Bank Transfer to Equity Bank A/C <strong>0192830192</strong>.</p>
-              </div>
+              {(() => {
+                const docLandlord = signedInLandlord || landlords.find(l => l.id === selectedDocument?.data?.landlordId) || landlords[0];
+                return (
+                  <div className="bg-indigo-50/80 border border-indigo-100 rounded-xl p-3 text-xs text-indigo-950 space-y-1">
+                    <p className="font-bold text-indigo-900 flex items-center gap-1.5">
+                      💳 Registered Payment Instructions:
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
+                      <div>
+                        <p className="font-bold text-emerald-800">📱 M-Pesa Mobile Money:</p>
+                        <p>Paybill: <strong>{docLandlord?.mpesaPaybill || '247247'}</strong></p>
+                        {docLandlord?.mpesaTillNumber && <p>Till Number: <strong>{docLandlord.mpesaTillNumber}</strong></p>}
+                        {docLandlord?.mpesaPhoneNumber && <p>Phone: <strong>{docLandlord.mpesaPhoneNumber}</strong></p>}
+                        <p className="text-slate-500">Account Ref: <strong>Unit Number / Rent</strong></p>
+                      </div>
+                      <div>
+                        <p className="font-bold text-blue-800">🏦 Bank Transfer:</p>
+                        <p>Bank: <strong>{docLandlord?.bankName || 'Equity Bank Kenya'}</strong></p>
+                        <p>A/C Name: <strong>{docLandlord?.accountName || docLandlord?.companyName || 'EstateMaster Rent'}</strong></p>
+                        <p>A/C Number: <strong>{docLandlord?.accountNumber || '0110293847561'}</strong></p>
+                        {docLandlord?.branchName && <p>Branch: <strong>{docLandlord.branchName}</strong></p>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
