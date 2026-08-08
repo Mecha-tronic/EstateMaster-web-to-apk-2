@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Invoice, Quote, Tenant, Unit } from '../types';
+import { Invoice, Quote, Tenant, Unit, Landlord } from '../types';
 import { formatKSH } from '../lib/formatters';
 import {
   FileText,

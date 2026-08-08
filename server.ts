@@ -1198,15 +1198,89 @@ async function startServer() {
     res.json(maintenanceRequests);
   });
 
+  // AI Maintenance Chatbot Assistant Endpoint
+  app.post('/api/maintenance/ai-chat', async (req, res) => {
+    try {
+      const { message, category, unitNumber, tenantName } = req.body;
+      if (!message || !message.trim()) {
+        return res.status(400).json({ error: 'Message is required' });
+      }
+
+      const ai = getGeminiClient();
+      let aiReply = '';
+
+      if (ai) {
+        try {
+          const systemInstruction = `You are an expert AI Property Maintenance & Safety Assistant for EstateMaster Apartment Tenants.
+Your job is to provide friendly, clear, step-by-step DIY troubleshooting, safety instructions (e.g., water shutoff valves, breaker box safety), and realistic repair cost estimates in Kenyan Shillings (KSh).
+Tenant Name: ${tenantName || 'Resident'}
+Unit: ${unitNumber || 'Apartment'}
+Category: ${category || 'General'}
+
+Keep responses concise, empathetic, well-formatted, and actionable. Include safety warnings if relevant.`;
+
+          const prompt = `Tenant Question / Issue Description: "${message}"\nProvide immediate diagnostic steps, troubleshooting advice, and safety recommendations.`;
+
+          const response = await ai.models.generateContent({
+            model: 'gemini-3.6-flash',
+            contents: prompt,
+            config: { systemInstruction },
+          });
+
+          aiReply = response.text || '';
+        } catch (err) {
+          console.error('Gemini chat maintenance assistant error:', err);
+        }
+      }
+
+      if (!aiReply) {
+        const lower = message.toLowerCase();
+        if (lower.includes('water') || lower.includes('leak') || lower.includes('tap') || lower.includes('sink') || lower.includes('pipe') || lower.includes('drain')) {
+          aiReply = `🔧 **AI Plumbing Diagnostic & Safety Guidance:**\n\n1. **Emergency Shut-Off:** Locate the isolation valve directly under the sink/toilet or turn off the apartment's main stopcock.\n2. **Clear Debris:** Inspect the sink trap for hair or foreign object blockages.\n3. **DIY Tip:** Place a basin under leaking joints to prevent subfloor water damage.\n4. **Estimated Cost:** KSh 2,500 - KSh 6,500 if a plumber is required.\n\n*Submit a ticket below to dispatch a technician.*`;
+        } else if (lower.includes('power') || lower.includes('electric') || lower.includes('spark') || lower.includes('trip') || lower.includes('socket') || lower.includes('light')) {
+          aiReply = `⚡ **AI Electrical Diagnostic & Safety Warning:**\n\n1. **Safety Warning:** Do not touch wet switches or damaged electrical cords.\n2. **Circuit Breaker Check:** Open your apartment's consumer unit (breaker box) and check if any toggle has tripped to "OFF".\n3. **Isolate Appliances:** Unplug recent high-draw appliances (microwave, iron) before resetting the main breaker.\n4. **Estimated Cost:** KSh 2,000 - KSh 5,000.\n\n*If you smell burning, submit an Emergency ticket immediately.*`;
+        } else if (lower.includes('ac') || lower.includes('hvac') || lower.includes('cool') || lower.includes('fan') || lower.includes('heat')) {
+          aiReply = `❄️ **AI Climate Control Diagnostic:**\n\n1. **Air Filter:** Ensure dust filters are clean and air vents are clear.\n2. **Thermostat Check:** Confirm mode is set to "COOL" and temperature is 3°C lower than room temp.\n3. **Power Cycle:** Turn off AC power isolator for 3 minutes and turn back on.\n4. **Estimated Cost:** KSh 3,500 - KSh 8,500.`;
+        } else if (lower.includes('key') || lower.includes('lock') || lower.includes('door') || lower.includes('handle')) {
+          aiReply = `🔑 **AI Lock & Access Troubleshooting:**\n\n1. **Lubrication:** Spray silicone lubricant into keyway; do not force stiff keys.\n2. **Alignment:** Check if door latch bolt aligns smoothly with the strike plate.\n3. **Lockout Assistance:** Contact estate security or landlord for master key access.\n4. **Estimated Cost:** KSh 1,500 - KSh 4,500.`;
+        } else {
+          aiReply = `🛠️ **AI Maintenance Assistant Diagnostic:**\n\nI have reviewed your query regarding "${message}".\n\n1. **Assessment:** Issue logged for Unit ${unitNumber || 'your apartment'} under ${category || 'General Maintenance'}.\n2. **Safety First:** Ensure the area is well-ventilated, dry, and safe.\n3. **Next Action:** Submit the maintenance ticket using the form below for landlord review and dispatch.`;
+        }
+      }
+
+      res.json({ reply: aiReply });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'AI Assistant service unavailable' });
+    }
+  });
+
   app.post('/api/maintenance/create', async (req, res) => {
     try {
       const { tenantId, title, description, category, urgency, photoUrl } = req.body;
       const tenant = tenants.find(t => t.id === tenantId) || tenants[0];
 
-      // Call Gemini for AI triage suggestions if available
-      let aiSummary = 'Standard request logged.';
-      let aiDiy = 'Inspect area and ensure safety.';
-      let aiCost = 'Estimated KSh 5,000 - KSh 15,000';
+      // Smart Default Category Triage
+      let aiSummary = `${category || 'Maintenance'} issue reported for Unit ${tenant?.unitNumber || 'Apartment'}.`;
+      let aiDiy = 'Inspect area safely and keep clear of hazards.';
+      let aiCost = 'Estimated KSh 3,000 - KSh 10,000';
+
+      if (category === 'Plumbing') {
+        aiSummary = 'Plumbing fixture or drainage leak identified.';
+        aiDiy = 'Turn off local water isolation valve under sink/toilet. Wipe up standing water.';
+        aiCost = 'Estimated KSh 2,500 - KSh 7,500';
+      } else if (category === 'Electrical') {
+        aiSummary = 'Electrical circuit or power outlet disruption.';
+        aiDiy = 'Check distribution board breaker switches. Unplug high wattage appliances.';
+        aiCost = 'Estimated KSh 2,000 - KSh 6,000';
+      } else if (category === 'HVAC') {
+        aiSummary = 'Climate control or air circulation failure.';
+        aiDiy = 'Check air filter cleanliness and ensure thermostat battery/power is working.';
+        aiCost = 'Estimated KSh 4,000 - KSh 12,000';
+      } else if (category === 'Locks & Keys') {
+        aiSummary = 'Door lock mechanism or key access malfunction.';
+        aiDiy = 'Apply dry lock lubricant. Ensure latch aligns with door frame strike plate.';
+        aiCost = 'Estimated KSh 1,500 - KSh 4,500';
+      }
 
       const ai = getGeminiClient();
       if (ai) {
@@ -1216,11 +1290,10 @@ Category: ${category || 'General'}
 Title: ${title}
 Description: ${description}
 
-Provide a concise JSON response with:
-1. summary: 1-sentence technical assessment.
-2. diyAdvice: 1-2 helpful troubleshooting steps the tenant can check while waiting.
-3. estimatedCost: estimated repair cost range in Kenyan Shillings (KSh).
-4. suggestedUrgency: "Emergency" | "High" | "Medium" | "Low"`;
+Provide a JSON object with:
+"summary": 1-sentence technical assessment
+"diyAdvice": 1-2 practical troubleshooting steps the tenant can do immediately
+"estimatedCost": repair cost range in Kenyan Shillings (KSh)`;
 
           const genResponse = await ai.models.generateContent({
             model: 'gemini-3.6-flash',
@@ -1230,8 +1303,10 @@ Provide a concise JSON response with:
             },
           });
 
-          if (genResponse.text) {
-            const parsed = JSON.parse(genResponse.text);
+          let rawText = genResponse.text || '';
+          rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+          if (rawText) {
+            const parsed = JSON.parse(rawText);
             if (parsed.summary) aiSummary = parsed.summary;
             if (parsed.diyAdvice) aiDiy = parsed.diyAdvice;
             if (parsed.estimatedCost) aiCost = parsed.estimatedCost;
@@ -1243,12 +1318,12 @@ Provide a concise JSON response with:
 
       const reqObj: MaintenanceRequest = {
         id: `maint-${Date.now()}`,
-        tenantId: tenant.id,
-        tenantName: tenant.fullName,
-        tenantEmail: tenant.email,
-        unitId: tenant.unitId,
-        unitNumber: tenant.unitNumber || 'Unit',
-        propertyName: tenant.propertyName || 'Property',
+        tenantId: tenant ? tenant.id : 'tenant-1',
+        tenantName: tenant ? tenant.fullName : 'Resident',
+        tenantEmail: tenant ? tenant.email : 'tenant@estatemaster.co.ke',
+        unitId: tenant ? tenant.unitId : 'unit-1',
+        unitNumber: tenant ? (tenant.unitNumber || 'Unit') : 'Unit',
+        propertyName: tenant ? (tenant.propertyName || 'Property') : 'Property',
         title,
         description,
         category: category || 'Other',
@@ -1264,7 +1339,7 @@ Provide a concise JSON response with:
       maintenanceRequests.unshift(reqObj);
       res.status(201).json(reqObj);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: err.message || 'Failed to log maintenance request' });
     }
   });
 

@@ -21,9 +21,13 @@ import {
   UserCheck,
   Camera,
   Upload,
-  User
+  User,
+  Bot,
+  MessageSquare,
+  AlertTriangle,
+  HelpCircle
 } from 'lucide-react';
-import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails } from '../lib/api';
+import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails, sendMaintenanceAiChat } from '../lib/api';
 
 interface TenantPortalViewProps {
   tenants: Tenant[];
@@ -66,6 +70,17 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   const [maintDesc, setMaintDesc] = useState('');
   const [maintUrgency, setMaintUrgency] = useState<'Emergency' | 'High' | 'Medium' | 'Low'>('Medium');
   const [isSubmittingMaint, setIsSubmittingMaint] = useState(false);
+
+  // AI Maintenance Chatbot Assistant state
+  const [chatMessages, setChatMessages] = useState<Array<{ sender: 'user' | 'ai'; text: string; time: string }>>([
+    {
+      sender: 'ai',
+      text: '👋 Hello! I am your 24/7 AI Maintenance & Safety Assistant. Describe any problem in your apartment or tap a topic below for instant diagnostic guidance!',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatSending, setIsChatSending] = useState(false);
 
   // Email Inbox state
   const [tenantEmails, setTenantEmails] = useState<EmailLog[]>([]);
@@ -145,6 +160,40 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   const tenantInvoices = invoices.filter((i) => i.tenantId === currentTenant?.id || i.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
   const tenantQuotes = quotes.filter((q) => q.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
   const tenantMaintenance = maintenance.filter((m) => m.tenantId === currentTenant?.id || m.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
+
+  const handleSendAiChat = async (userPrompt?: string) => {
+    const promptToSubmit = userPrompt || chatInput;
+    if (!promptToSubmit.trim() || isChatSending) return;
+
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setChatMessages((prev) => [...prev, { sender: 'user', text: promptToSubmit, time: timeStr }]);
+    if (!userPrompt) setChatInput('');
+    setIsChatSending(true);
+
+    try {
+      const reply = await sendMaintenanceAiChat({
+        message: promptToSubmit,
+        category: maintCategory,
+        unitNumber: currentTenant?.unitNumber || 'Apartment',
+        tenantName: currentTenant?.fullName || 'Resident'
+      });
+      setChatMessages((prev) => [
+        ...prev,
+        { sender: 'ai', text: reply, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+      ]);
+    } catch (err) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          sender: 'ai',
+          text: '🔧 **AI Assistant Note:** Please ensure water or power isolators are secured if leaking or sparking, and fill out the maintenance request form below.',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+    } finally {
+      setIsChatSending(false);
+    }
+  };
 
   const handleCreateMaintenanceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -464,10 +513,119 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
       {/* MAINTENANCE TAB */}
       {portalTab === 'maintenance' && (
         <div className="space-y-6">
+          {/* 24/7 AI Maintenance Assistant Chatbot Widget */}
+          <div className="bg-gradient-to-br from-slate-900 to-blue-950 text-white rounded-2xl p-5 space-y-4 shadow-lg border border-blue-900/50">
+            <div className="flex items-center justify-between border-b border-blue-800/60 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-600/30 text-blue-400 border border-blue-500/30">
+                  <Bot className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-sm flex items-center gap-1.5">
+                    AI Maintenance & Safety Assistant <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                  </h3>
+                  <p className="text-[11px] text-blue-200/80">Instant diagnostic guidance, DIY advice, and safety shutoff instructions</p>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                24/7 Active
+              </span>
+            </div>
+
+            {/* Quick Diagnostic Pill Shortcuts */}
+            <div className="flex flex-wrap gap-1.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => handleSendAiChat('Water leaking under kitchen sink')}
+                className="px-2.5 py-1 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700/50 text-blue-200 transition flex items-center gap-1"
+              >
+                🚿 Leaking Water Tap / Pipe
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendAiChat('Main circuit breaker tripped')}
+                className="px-2.5 py-1 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700/50 text-blue-200 transition flex items-center gap-1"
+              >
+                ⚡ Tripped Circuit Breaker
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendAiChat('Air conditioner blowing warm air')}
+                className="px-2.5 py-1 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700/50 text-blue-200 transition flex items-center gap-1"
+              >
+                ❄️ AC Not Cooling
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendAiChat('Key stuck in front door lock')}
+                className="px-2.5 py-1 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700/50 text-blue-200 transition flex items-center gap-1"
+              >
+                🔑 Door Lock Jammed
+              </button>
+            </div>
+
+            {/* Chat Conversation History */}
+            <div className="bg-slate-950/80 rounded-xl p-3 max-h-56 overflow-y-auto space-y-3 text-xs border border-blue-900/40 font-sans">
+              {chatMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`flex gap-2.5 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  {msg.sender === 'ai' && (
+                    <div className="w-7 h-7 rounded-full bg-blue-600/30 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0 mt-0.5">
+                      <Bot className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                  <div
+                    className={`max-w-[85%] rounded-xl p-3 space-y-1 ${
+                      msg.sender === 'user'
+                        ? 'bg-blue-600 text-white rounded-br-none'
+                        : 'bg-slate-900 text-slate-200 border border-slate-800 rounded-bl-none'
+                    }`}
+                  >
+                    <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
+                    <span className="text-[9px] opacity-60 block text-right">{msg.time}</span>
+                  </div>
+                </div>
+              ))}
+              {isChatSending && (
+                <div className="flex gap-2 items-center text-blue-300 text-xs italic">
+                  <Bot className="w-3.5 h-3.5 animate-spin" />
+                  <span>AI Assistant analyzing maintenance diagnostic...</span>
+                </div>
+              )}
+            </div>
+
+            {/* Input Row */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSendAiChat();
+              }}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask AI Assistant about a repair issue or safety tip..."
+                className="flex-1 bg-slate-900/90 border border-blue-800/60 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="submit"
+                disabled={isChatSending || !chatInput.trim()}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 transition shadow"
+              >
+                <Send className="w-3.5 h-3.5" /> Ask AI
+              </button>
+            </form>
+          </div>
+
           {/* Submit New Request Form */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm text-slate-900">
             <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-              <Wrench className="w-4 h-4 text-rose-600" /> Report Maintenance Request
+              <Wrench className="w-4 h-4 text-rose-600" /> Report Maintenance Request to Landlord
             </h3>
 
             <form onSubmit={handleCreateMaintenanceSubmit} className="space-y-3 text-xs">
@@ -531,33 +689,59 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 disabled={isSubmittingMaint}
                 className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold flex items-center gap-2 transition shadow-sm"
               >
-                <Sparkles className="w-4 h-4" /> Submit & Run AI Safety Diagnosis
+                <Sparkles className="w-4 h-4" /> Submit Request & Trigger AI Safety Diagnosis
               </button>
             </form>
           </div>
 
           {/* List of Previous Requests */}
           <div className="space-y-3">
-            <h3 className="font-bold text-slate-900 text-sm">My Reported Issues</h3>
-            {tenantMaintenance.map((m) => (
-              <div key={m.id} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2 text-xs shadow-sm text-slate-900">
-                <div className="flex justify-between items-start">
-                  <h4 className="font-bold text-slate-900 text-sm">{m.title}</h4>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                    {m.status}
-                  </span>
-                </div>
-                <p className="text-slate-600 font-medium">{m.description}</p>
-                {m.aiSuggestedDiy && (
-                  <div className="bg-blue-50 border border-blue-200 p-2.5 rounded-xl text-blue-900 font-medium">
-                    <strong className="text-blue-700 flex items-center gap-1 mb-0.5">
-                      <Sparkles className="w-3.5 h-3.5 text-blue-600" /> AI DIY Troubleshooting Tip:
-                    </strong>
-                    {m.aiSuggestedDiy}
-                  </div>
-                )}
+            <h3 className="font-bold text-slate-900 text-sm">My Reported Issues ({tenantMaintenance.length})</h3>
+            {tenantMaintenance.length === 0 ? (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 text-center text-xs text-slate-500">
+                No maintenance requests logged yet. Use the form above to submit an issue.
               </div>
-            ))}
+            ) : (
+              tenantMaintenance.map((m) => (
+                <div key={m.id} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 text-xs shadow-sm text-slate-900">
+                  <div className="flex justify-between items-start gap-2">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">{m.title}</h4>
+                      <p className="text-[10px] text-slate-500">Category: {m.category || 'General'} • Urgency: {m.urgency || 'Medium'}</p>
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                      {m.status}
+                    </span>
+                  </div>
+                  <p className="text-slate-700 font-medium leading-relaxed">{m.description}</p>
+                  
+                  {/* AI Triage Diagnosis Card */}
+                  <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 space-y-2 text-blue-950 font-medium">
+                    <div className="flex items-center justify-between text-blue-800 border-b border-blue-200/60 pb-1.5">
+                      <strong className="flex items-center gap-1.5 text-xs">
+                        <Sparkles className="w-3.5 h-3.5 text-blue-600" /> AI Diagnostic Triage Assessment:
+                      </strong>
+                      {m.aiEstimatedCost && (
+                        <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md font-bold">
+                          Cost: {m.aiEstimatedCost}
+                        </span>
+                      )}
+                    </div>
+                    {m.aiTriageSummary && (
+                      <p className="text-[11px] text-blue-900">
+                        <strong>Technical Summary:</strong> {m.aiTriageSummary}
+                      </p>
+                    )}
+                    {m.aiSuggestedDiy && (
+                      <div className="bg-white/90 p-2 rounded-lg border border-blue-200 text-[11px] text-slate-800">
+                        <strong className="text-blue-700 block mb-0.5">💡 Recommended DIY Action / Safety Tip:</strong>
+                        {m.aiSuggestedDiy}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}

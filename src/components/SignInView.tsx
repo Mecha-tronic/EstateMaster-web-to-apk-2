@@ -374,6 +374,16 @@ export const SignInView: React.FC<SignInViewProps> = ({
         {/* --- SIGN IN FORM MODE --- */}
         {mode === 'signin' && (
           <form onSubmit={handleSignInSubmit} className="space-y-4 text-xs font-medium">
+            <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 text-blue-900 flex items-center gap-2.5">
+              <Smartphone className="w-5 h-5 text-blue-600 shrink-0" />
+              <div>
+                <strong className="block text-xs text-blue-950 font-bold">Cross-Device Sign In Active:</strong>
+                <span className="text-[11px] text-blue-800">
+                  You can sign in to your EstateMaster account from any smartphone, tablet, or laptop using your registered Email & Password.
+                </span>
+              </div>
+            </div>
+
             <div>
               <label className="block text-slate-700 font-bold mb-1.5">Email Address</label>
               <div className="relative">

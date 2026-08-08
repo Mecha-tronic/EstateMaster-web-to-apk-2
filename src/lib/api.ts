@@ -845,6 +845,25 @@ export async function fetchMaintenance(): Promise<MaintenanceRequest[]> {
   }
 }
 
+export async function sendMaintenanceAiChat(data: {
+  message: string;
+  category?: string;
+  unitNumber?: string;
+  tenantName?: string;
+}): Promise<string> {
+  try {
+    const res = await fetch(getApiUrl('/api/maintenance/ai-chat'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await handleResponse(res, 'AI Assistant failed');
+    return json.reply || 'AI Assistant could not respond.';
+  } catch (err) {
+    return '🔧 **AI Maintenance Guidance:** Please ensure the affected utility (water valve or power breaker) is safely secured, and submit your maintenance ticket below for landlord dispatch.';
+  }
+}
+
 export async function createMaintenance(data: any): Promise<MaintenanceRequest> {
   try {
     const res = await fetch(getApiUrl('/api/maintenance/create'), {

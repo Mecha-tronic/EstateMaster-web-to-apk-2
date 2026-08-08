@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Unit, Property } from '../types';
 import { formatKSH } from '../lib/formatters';
 import {
@@ -19,7 +19,8 @@ import {
   Camera,
   Upload,
   User,
-  X
+  X,
+  Lock
 } from 'lucide-react';
 import { registerTenant } from '../lib/api';
 
@@ -32,19 +33,27 @@ interface TenantRegistrationViewProps {
 
 export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
   properties,
-  units,
+  units = [],
   onRegistrationComplete,
   onGoToPortal,
 }) => {
   const availableUnits = units.filter((u) => u.status === 'Available');
 
   const [step, setStep] = useState<number>(1);
-  const [selectedUnitId, setSelectedUnitId] = useState<string>(availableUnits[0]?.id || units[0]?.id || '');
+  const [selectedUnitId, setSelectedUnitId] = useState<string>('');
+
+  useEffect(() => {
+    if (!selectedUnitId && units.length > 0) {
+      const avail = units.find((u) => u.status === 'Available') || units[0];
+      if (avail) setSelectedUnitId(avail.id);
+    }
+  }, [units, selectedUnitId]);
 
   // Form State
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('password123');
+  const [phone, setPhone] = useState('+254 ');
   const [idNumber, setIdNumber] = useState('');
   const [occupation, setOccupation] = useState('');
   const [income, setIncome] = useState('3500');
@@ -78,7 +87,7 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
     }
   };
 
-  const selectedUnit = units.find((u) => u.id === selectedUnitId) || units[0];
+  const selectedUnit = units.find((u) => u.id === selectedUnitId) || availableUnits[0] || units[0];
 
   const handleSubmitRegistration = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,16 +95,18 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
     setIsLoading(true);
 
     try {
+      const targetUnitId = selectedUnitId || (availableUnits[0]?.id || units[0]?.id || '');
       const payload = {
-        fullName,
-        email,
-        phone,
-        idNumber,
-        occupation,
-        income,
-        emergencyContactName: emergencyName,
-        emergencyContactPhone: emergencyPhone,
-        unitId: selectedUnitId,
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        password: password.trim() || 'password123',
+        phone: phone.trim(),
+        idNumber: idNumber.trim(),
+        occupation: occupation.trim() || 'Tenant',
+        income: income || '3500',
+        emergencyContactName: emergencyName.trim(),
+        emergencyContactPhone: emergencyPhone.trim(),
+        unitId: targetUnitId,
         moveInDate,
         leaseTermMonths,
         profilePictureUrl: profilePictureUrl || PRESET_TENANT_AVATARS[0],
@@ -103,9 +114,16 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
 
       const result = await registerTenant(payload);
       setRegistrationResult(result);
-      onRegistrationComplete(result);
+      if (onRegistrationComplete) {
+        try {
+          await onRegistrationComplete(result);
+        } catch (callErr) {
+          console.warn('onRegistrationComplete error handled:', callErr);
+        }
+      }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Registration failed');
+      console.error('Registration failed:', err);
+      setErrorMsg(err.message || 'Registration failed. Please check your details.');
     } finally {
       setIsLoading(false);
     }
@@ -302,6 +320,23 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
+                    <label className="block text-slate-700 font-medium mb-1 flex items-center gap-1">
+                      <Lock className="w-3.5 h-3.5 text-blue-600" /> Account Password (for Sign In) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Set your account password"
+                      className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm font-mono text-xs"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-1 block">
+                      Use this password with your email to sign in on any phone.
+                    </span>
+                  </div>
+
+                  <div>
                     <label className="block text-slate-700 font-medium mb-1">Phone Number *</label>
                     <input
                       type="text"
@@ -312,7 +347,9 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
                       className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm"
                     />
                   </div>
+                </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-slate-700 font-medium mb-1">National ID / Passport Number</label>
                     <input
@@ -489,7 +526,7 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
           <div className="space-y-1">
             <h3 className="text-2xl font-black text-slate-900">Registration Successful!</h3>
             <p className="text-slate-600 text-xs sm:text-sm font-medium">
-              Welcome <strong>{registrationResult.tenant.fullName}</strong>! You have been registered for <strong>Unit {registrationResult.tenant.unitNumber}</strong>.
+              Welcome <strong>{registrationResult?.tenant?.fullName || fullName}</strong>! You have been registered for <strong>Unit {registrationResult?.tenant?.unitNumber || selectedUnit?.unitNumber || 'Apartment'}</strong>.
             </p>
           </div>
 
@@ -499,7 +536,7 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
               <Mail className="w-4 h-4 text-emerald-600" /> Documents Dispatched to Personal Email:
             </div>
             <p className="text-slate-800 font-mono text-[11px] bg-white p-2 rounded-lg border border-slate-200">
-              Recipient: {registrationResult.tenant.email}
+              Recipient: {registrationResult?.tenant?.email || email}
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
@@ -507,22 +544,22 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
                 <span className="text-blue-700 font-bold flex items-center gap-1 mb-1">
                   <Tag className="w-3.5 h-3.5" /> Official Rental Quote
                 </span>
-                <p className="text-slate-700 font-medium">Quote #: {registrationResult.quote.quoteNumber}</p>
-                <p className="text-emerald-600 font-extrabold">Move-in Total: {formatKSH(registrationResult.quote.totalMoveInCost)}</p>
+                <p className="text-slate-700 font-medium">Quote #: {registrationResult?.quote?.quoteNumber || 'QTE-GEN'}</p>
+                <p className="text-emerald-600 font-extrabold">Move-in Total: {formatKSH(registrationResult?.quote?.totalMoveInCost || selectedUnit?.monthlyRent || 45000)}</p>
               </div>
 
               <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
                 <span className="text-blue-700 font-bold flex items-center gap-1 mb-1">
                   <FileText className="w-3.5 h-3.5" /> First Month Invoice
                 </span>
-                <p className="text-slate-700 font-medium">Invoice #: {registrationResult.invoice.invoiceNumber}</p>
-                <p className="text-emerald-600 font-extrabold">Total Due: {formatKSH(registrationResult.invoice.totalAmount)}</p>
+                <p className="text-slate-700 font-medium">Invoice #: {registrationResult?.invoice?.invoiceNumber || 'INV-GEN'}</p>
+                <p className="text-emerald-600 font-extrabold">Total Due: {formatKSH(registrationResult?.invoice?.totalAmount || selectedUnit?.monthlyRent || 45000)}</p>
               </div>
             </div>
           </div>
 
           <button
-            onClick={() => onGoToPortal(registrationResult.tenant.email)}
+            onClick={() => onGoToPortal(registrationResult?.tenant?.email || email)}
             className="w-full py-3 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition flex items-center justify-center gap-2"
           >
             Open Tenant Portal & Check Personal Email Inbox <ArrowRight className="w-4 h-4" />
