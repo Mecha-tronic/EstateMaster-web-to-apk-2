@@ -49,16 +49,24 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
 
   useEffect(() => {
     if (!unitPropId && properties.length > 0) {
-      setUnitPropId(properties[0].id);
+      setUnitPropId(selectedPropertyId !== 'all' ? selectedPropertyId : properties[0].id);
     }
-  }, [properties, unitPropId]);
+  }, [properties, unitPropId, selectedPropertyId]);
+
+  const selectedProperty = properties.find((p) => p.id === selectedPropertyId);
 
   const filteredUnits =
     selectedPropertyId === 'all'
       ? units
-      : units.filter((u) => u.propertyId === selectedPropertyId);
-
-  const selectedProperty = properties.find((p) => p.id === selectedPropertyId);
+      : units.filter((u) => {
+          if (u.propertyId === selectedPropertyId) return true;
+          if (
+            selectedProperty &&
+            u.propertyName &&
+            u.propertyName.trim().toLowerCase() === selectedProperty.name.trim().toLowerCase()
+          ) return true;
+          return false;
+        });
 
   // Default preset property photos
   const PRESET_PROPERTY_PHOTOS = [
@@ -116,10 +124,21 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
     }
   };
 
+  const openAddUnitModal = (propertyId?: string) => {
+    if (propertyId) {
+      setUnitPropId(propertyId);
+    } else if (selectedPropertyId !== 'all') {
+      setUnitPropId(selectedPropertyId);
+    } else if (properties.length > 0) {
+      setUnitPropId(properties[0].id);
+    }
+    setShowUnitModal(true);
+  };
+
   const handleCreateUnit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!unitNumber) return;
-    const targetPropId = unitPropId || properties[0]?.id || 'prop-1';
+    const targetPropId = unitPropId || (selectedPropertyId !== 'all' ? selectedPropertyId : properties[0]?.id || 'prop-1');
     const prop = properties.find((p) => p.id === targetPropId);
     onAddUnit({
       propertyId: targetPropId,
@@ -135,6 +154,9 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
     });
     setUnitNumber('');
     setShowUnitModal(false);
+    if (targetPropId) {
+      setSelectedPropertyId(targetPropId);
+    }
   };
 
   const handleConfirmDelete = () => {
@@ -180,7 +202,7 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
             <Plus className="w-4 h-4 text-blue-600" /> Add Property
           </button>
           <button
-            onClick={() => setShowUnitModal(true)}
+            onClick={() => openAddUnitModal()}
             className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium shadow-xs transition flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" /> Add Apartment Unit
@@ -210,12 +232,16 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {properties.map((prop) => {
-              const propUnits = units.filter((u) => u.propertyId === prop.id);
+              const propUnits = units.filter((u) => u.propertyId === prop.id || (u.propertyName && u.propertyName.trim().toLowerCase() === prop.name.trim().toLowerCase()));
               const occupiedCount = propUnits.filter((u) => u.status === 'Occupied').length;
+              const isSelected = selectedPropertyId === prop.id;
               return (
                 <div
                   key={prop.id}
-                  className="bg-white border border-rose-200 rounded-xl overflow-hidden shadow-xs space-y-3 flex flex-col justify-between"
+                  onClick={() => setSelectedPropertyId(prop.id)}
+                  className={`bg-white border rounded-xl overflow-hidden shadow-xs space-y-3 flex flex-col justify-between transition cursor-pointer ${
+                    isSelected ? 'ring-2 ring-blue-600 border-blue-600' : 'border-rose-200 hover:border-blue-400'
+                  }`}
                 >
                   <div>
                     {/* Property Cover / Profile Photo */}
@@ -226,7 +252,8 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
                         className="w-full h-full object-cover"
                       />
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setPropertyToEditPhoto(prop);
                           setEditPhotoUrl(prop.imageUrl || PRESET_PROPERTY_PHOTOS[0]);
                         }}
@@ -261,12 +288,24 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-4 pt-0">
+                  <div className="p-4 pt-0 flex gap-2">
                     <button
-                      onClick={() => setPropertyToDelete(prop)}
-                      className="w-full py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center justify-center gap-1.5"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openAddUnitModal(prop.id);
+                      }}
+                      className="flex-1 py-1.5 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-[11px] rounded-lg border border-blue-200 transition flex items-center justify-center gap-1"
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> Remove Property
+                      <Plus className="w-3 h-3" /> Add Unit
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPropertyToDelete(prop);
+                      }}
+                      className="py-1.5 px-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-lg shadow-xs transition flex items-center justify-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" /> Remove
                     </button>
                   </div>
                 </div>
@@ -312,19 +351,25 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => openAddUnitModal(selectedProperty.id)}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition flex items-center gap-1.5 shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add Unit to {selectedProperty.name}
+            </button>
+            <button
               onClick={() => {
                 setPropertyToEditPhoto(selectedProperty);
                 setEditPhotoUrl(selectedProperty.imageUrl || PRESET_PROPERTY_PHOTOS[0]);
               }}
               className="px-3 py-1.5 rounded-lg bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 font-semibold text-xs transition flex items-center gap-1.5 shadow-xs"
             >
-              <Camera className="w-3.5 h-3.5" /> Change Cover Photo
+              <Camera className="w-3.5 h-3.5" /> Photo
             </button>
             <button
               onClick={() => setPropertyToDelete(selectedProperty)}
               className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-xs"
             >
-              <Trash2 className="w-3.5 h-3.5" /> Delete {selectedProperty.name}
+              <Trash2 className="w-3.5 h-3.5" /> Delete Property
             </button>
           </div>
         </div>
@@ -334,32 +379,67 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
       <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
         <button
           onClick={() => setSelectedPropertyId('all')}
-          className={`px-3.5 py-2 rounded-lg font-medium transition whitespace-nowrap ${
+          className={`px-3.5 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-1.5 ${
             selectedPropertyId === 'all'
-              ? 'bg-blue-600 text-white shadow-sm'
+              ? 'bg-blue-600 text-white shadow-sm font-semibold'
               : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
           }`}
         >
-          All Units ({units.length})
+          <Building2 className="w-3.5 h-3.5" />
+          <span>All Units</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${selectedPropertyId === 'all' ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-600'}`}>
+            {units.length}
+          </span>
         </button>
-        {properties.map((prop) => (
-          <button
-            key={prop.id}
-            onClick={() => setSelectedPropertyId(prop.id)}
-            className={`px-3.5 py-2 rounded-lg font-medium transition whitespace-nowrap ${
-              selectedPropertyId === prop.id
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            {prop.name}
-          </button>
-        ))}
+        {properties.map((prop) => {
+          const propUnitCount = units.filter((u) => u.propertyId === prop.id || (u.propertyName && u.propertyName.trim().toLowerCase() === prop.name.trim().toLowerCase())).length;
+          const isSelected = selectedPropertyId === prop.id;
+          return (
+            <button
+              key={prop.id}
+              onClick={() => setSelectedPropertyId(prop.id)}
+              className={`px-3.5 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-1.5 ${
+                isSelected
+                  ? 'bg-blue-600 text-white shadow-sm font-semibold'
+                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>{prop.name}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${isSelected ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                {propUnitCount}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Units Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredUnits.map((unit) => {
+        {filteredUnits.length === 0 ? (
+          <div className="col-span-full bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-8 text-center space-y-3">
+            <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+              <Home className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-900 text-sm">No Apartment Units Found</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+                {selectedProperty
+                  ? `There are currently no apartment units registered under ${selectedProperty.name}.`
+                  : 'No apartment units match the selected property filter.'}
+              </p>
+            </div>
+            {selectedProperty && (
+              <button
+                onClick={() => openAddUnitModal(selectedProperty.id)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+              >
+                <Plus className="w-4 h-4" /> Add First Unit to {selectedProperty.name}
+              </button>
+            )}
+          </div>
+        ) : (
+          filteredUnits.map((unit) => {
           const isOccupied = unit.status === 'Occupied';
           return (
             <div
@@ -426,7 +506,7 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
               )}
             </div>
           );
-        })}
+        }))}
       </div>
 
       {/* Property Removal Confirmation Modal */}
