@@ -25,7 +25,12 @@ import {
   Bot,
   MessageSquare,
   AlertTriangle,
-  HelpCircle
+  HelpCircle,
+  Copy,
+  Check,
+  Smartphone,
+  Building2,
+  CreditCard
 } from 'lucide-react';
 import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails, sendMaintenanceAiChat } from '../lib/api';
 
@@ -91,6 +96,15 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<'M-Pesa' | 'Bank Transfer' | 'Credit Card'>('M-Pesa');
   const [payRef, setPayRef] = useState('MPESA-92810');
   const [isProcessingPay, setIsProcessingPay] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopy = (text: string, label: string) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedKey(label);
+      setTimeout(() => setCopiedKey(null), 2500);
+    }
+  };
 
   // Tenant Profile Photo state
   const [showPhotoModal, setShowPhotoModal] = useState(false);
@@ -156,6 +170,18 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   }
 
   const currentTenant = signedInTenant;
+
+  const activeLandlord = landlords.find((l) => l.id === currentTenant?.landlordId) || landlords[0];
+
+  const landlordMpesaTill = activeLandlord?.mpesaTillNumber || '781920';
+  const landlordMpesaPaybill = activeLandlord?.mpesaPaybill || '247247';
+  const landlordMpesaPhone = activeLandlord?.mpesaPhoneNumber || activeLandlord?.phone || '+254 712 345 678';
+
+  const landlordBankName = activeLandlord?.bankName || 'Equity Bank Kenya';
+  const landlordAccountName = activeLandlord?.accountName || activeLandlord?.companyName || activeLandlord?.name || 'Mwangi Premier Estates Ltd';
+  const landlordAccountNumber = activeLandlord?.accountNumber || '0110293847561';
+  const landlordBranchName = activeLandlord?.branchName || 'Kilimani Branch';
+  const landlordSwiftCode = activeLandlord?.swiftCode || 'EQBLKENX';
 
   const tenantInvoices = invoices.filter((i) => i.tenantId === currentTenant?.id || i.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
   const tenantQuotes = quotes.filter((q) => q.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
@@ -432,13 +458,140 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
 
       {/* INVOICES & PAYMENTS TAB */}
       {portalTab === 'invoices' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* LANDLORD SHARED PAYMENT OPTIONS BANNER */}
+          <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-2xl p-5 shadow-md border border-blue-900/60 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-800/60 pb-3">
+              <div>
+                <h3 className="font-bold text-white text-base flex items-center gap-2">
+                  <CreditCard className="w-5 h-5 text-emerald-400" /> Landlord Payment Accounts & Billing Channels
+                </h3>
+                <p className="text-xs text-blue-200/80">
+                  Official payment details configured by <strong className="text-white">{activeLandlord?.companyName || activeLandlord?.name || 'Landlord'}</strong> for fast rent & utilities payment.
+                </p>
+              </div>
+              {copiedKey && (
+                <span className="px-3 py-1 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 shadow-sm">
+                  <Check className="w-3.5 h-3.5" /> Copied {copiedKey}!
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              {/* M-PESA CHANNEL */}
+              <div className="bg-slate-900/90 border border-emerald-500/30 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
+                  <span className="font-extrabold text-emerald-400 flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                    <Smartphone className="w-4 h-4" /> M-Pesa Mobile Money
+                  </span>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded border border-emerald-500/30">
+                    Instant Till / Paybill
+                  </span>
+                </div>
+
+                <div className="space-y-2 text-slate-200 font-medium text-[11px]">
+                  {landlordMpesaTill && (
+                    <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Buy Goods Till Number:</span>
+                        <strong className="text-white text-sm font-mono">{landlordMpesaTill}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(landlordMpesaTill, 'Till Number')}
+                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" /> Copy
+                      </button>
+                    </div>
+                  )}
+
+                  {landlordMpesaPaybill && (
+                    <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">M-Pesa Paybill Number:</span>
+                        <strong className="text-white text-sm font-mono">{landlordMpesaPaybill}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(landlordMpesaPaybill, 'Paybill')}
+                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" /> Copy
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Account Reference:</span>
+                      <strong className="text-emerald-300 font-mono text-xs">Unit {currentTenant.unitNumber}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(`Unit ${currentTenant.unitNumber}`, 'Account Ref')}
+                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" /> Copy Ref
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* BANK TRANSFER CHANNEL */}
+              <div className="bg-slate-900/90 border border-blue-500/30 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-blue-500/20 pb-2">
+                  <span className="font-extrabold text-blue-400 flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                    <Building2 className="w-4 h-4" /> Bank Account Details
+                  </span>
+                  <span className="text-[10px] bg-blue-500/20 text-blue-300 font-bold px-2 py-0.5 rounded border border-blue-500/30">
+                    Direct Wire / EFT
+                  </span>
+                </div>
+
+                <div className="space-y-2 text-slate-200 font-medium text-[11px]">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">Bank Name:</span>
+                      <strong className="text-white">{landlordBankName}</strong>
+                    </div>
+                    <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">Branch Name:</span>
+                      <strong className="text-white">{landlordBranchName}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Account Name:</span>
+                      <strong className="text-white text-xs">{landlordAccountName}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Account Number:</span>
+                      <strong className="text-blue-300 text-sm font-mono">{landlordAccountNumber}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(landlordAccountNumber, 'Account Number')}
+                      className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" /> Copy A/C
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <h3 className="font-bold text-slate-900 text-sm">My Monthly Invoices</h3>
           <div className="space-y-3">
             {tenantInvoices.map((inv) => {
               const isPaid = inv.status === 'Paid';
               const prop = properties.find((p) => p.id === inv.propertyId || p.name === inv.propertyName);
-              const targetLandlord = landlords.find((l) => l.id === (inv.landlordId || currentTenant?.landlordId || prop?.landlordId)) || landlords[0];
+              const targetLandlord = landlords.find((l) => l.id === (inv.landlordId || currentTenant?.landlordId || prop?.landlordId)) || activeLandlord;
 
               return (
                 <div
@@ -474,39 +627,63 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                       {!isPaid && (
                         <button
                           onClick={() => setPayingInvoice(inv)}
-                          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5"
+                          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
                         >
-                          <DollarSign className="w-4 h-4" /> Pay Now
+                          <DollarSign className="w-4 h-4" /> Pay Bill Now
                         </button>
                       )}
                     </div>
                   </div>
 
-                  {/* Registered Landlord Payment Instructions */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1 text-slate-700">
-                    <p className="font-bold text-slate-900 flex items-center gap-1.5">
-                      💳 Landlord Rent Payment Instructions
-                    </p>
-                    {targetLandlord ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
-                        <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                          <p className="font-bold text-emerald-700 mb-0.5">📱 M-Pesa Mobile Money:</p>
-                          {targetLandlord.mpesaPaybill && <p>Paybill: <strong className="text-slate-900">{targetLandlord.mpesaPaybill}</strong></p>}
-                          {targetLandlord.mpesaTillNumber && <p>Till No: <strong className="text-slate-900">{targetLandlord.mpesaTillNumber}</strong></p>}
-                          {targetLandlord.mpesaPhoneNumber && <p>Phone: <strong className="text-slate-900">{targetLandlord.mpesaPhoneNumber}</strong></p>}
-                          <p className="text-slate-500 mt-0.5">Account Ref: <strong className="text-slate-800">Unit {inv.unitNumber || currentTenant?.unitNumber || 'Rent'}</strong></p>
-                        </div>
-                        <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                          <p className="font-bold text-blue-700 mb-0.5">🏦 Bank Account Details:</p>
-                          {targetLandlord.bankName && <p>Bank: <strong className="text-slate-900">{targetLandlord.bankName}</strong></p>}
-                          {targetLandlord.accountName && <p>A/C Name: <strong className="text-slate-900">{targetLandlord.accountName}</strong></p>}
-                          {targetLandlord.accountNumber && <p>A/C No: <strong className="text-slate-900">{targetLandlord.accountNumber}</strong></p>}
-                          {targetLandlord.branchName && <p>Branch: <strong className="text-slate-900">{targetLandlord.branchName}</strong></p>}
-                        </div>
+                  {/* Quick Payment Options Bar */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-2 text-slate-700">
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                        💳 Direct Payment Options for Invoice {inv.invoiceNumber}:
+                      </p>
+                      {!isPaid && (
+                        <button
+                          type="button"
+                          onClick={() => setPayingInvoice(inv)}
+                          className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1"
+                        >
+                          Open Checkout <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                      <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
+                        <p className="font-bold text-emerald-700 flex items-center justify-between">
+                          <span>📱 M-Pesa Express</span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(targetLandlord?.mpesaTillNumber || landlordMpesaTill, 'Till')}
+                            className="text-[10px] text-emerald-600 hover:underline flex items-center gap-0.5 font-bold"
+                          >
+                            <Copy className="w-2.5 h-2.5" /> Copy Till
+                          </button>
+                        </p>
+                        <p className="text-slate-600">Till Number: <strong className="text-slate-900 font-mono">{targetLandlord?.mpesaTillNumber || landlordMpesaTill}</strong></p>
+                        <p className="text-slate-600">Paybill: <strong className="text-slate-900 font-mono">{targetLandlord?.mpesaPaybill || landlordMpesaPaybill}</strong></p>
+                        <p className="text-slate-500 text-[10px]">Account Ref: <strong className="text-slate-800">Unit {currentTenant.unitNumber}</strong></p>
                       </div>
-                    ) : (
-                      <p className="text-[11px] text-slate-500">Pay directly to landlord account via M-Pesa or Bank transfer.</p>
-                    )}
+
+                      <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
+                        <p className="font-bold text-blue-700 flex items-center justify-between">
+                          <span>Banking Options</span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(targetLandlord?.accountNumber || landlordAccountNumber, 'Bank Account')}
+                            className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5 font-bold"
+                          >
+                            <Copy className="w-2.5 h-2.5" /> Copy A/C
+                          </button>
+                        </p>
+                        <p className="text-slate-600">{targetLandlord?.bankName || landlordBankName} &bull; <strong className="text-slate-900 font-mono">{targetLandlord?.accountNumber || landlordAccountNumber}</strong></p>
+                        <p className="text-slate-600">A/C Name: <strong className="text-slate-800">{targetLandlord?.accountName || landlordAccountName}</strong></p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
@@ -814,53 +991,152 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
       {payingInvoice && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-5 space-y-4 text-xs shadow-xl text-slate-900">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
               <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-emerald-600" /> Rent Payment Checkout
+                <DollarSign className="w-5 h-5 text-emerald-600" /> Rent & Bill Payment Checkout
               </h3>
-              <button onClick={() => setPayingInvoice(null)} className="text-slate-400 hover:text-slate-700">
+              <button onClick={() => setPayingInvoice(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1 text-slate-700 font-medium">
-              <p>Invoice #: <strong className="text-slate-900">{payingInvoice.invoiceNumber}</strong></p>
+              <div className="flex items-center justify-between">
+                <span>Invoice #: <strong className="text-slate-900 font-mono">{payingInvoice.invoiceNumber}</strong></span>
+                <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">Unit {currentTenant.unitNumber}</span>
+              </div>
               <p>Period: <strong className="text-slate-900">{payingInvoice.periodMonth}</strong></p>
-              <p className="text-base font-extrabold text-emerald-600">
+              <p className="text-base font-extrabold text-emerald-600 pt-0.5">
                 Amount Due: {formatKSH(payingInvoice.totalAmount)}
               </p>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-slate-700 font-medium mb-1">Payment Method</label>
+                <label className="block text-slate-700 font-bold mb-1">Select Payment Method</label>
                 <select
                   value={paymentMethod}
                   onChange={(e) => setPaymentMethod(e.target.value as any)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm font-semibold"
                 >
                   <option value="M-Pesa">M-Pesa Mobile Money</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
+                  <option value="Bank Transfer">Bank Transfer / EFT</option>
                   <option value="Credit Card">Credit / Debit Card</option>
                 </select>
               </div>
 
+              {/* Dynamic Landlord Account Information Box for Selected Method */}
+              {paymentMethod === 'M-Pesa' && (
+                <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 space-y-2 text-slate-800 text-[11px]">
+                  <p className="font-bold text-emerald-900 flex items-center gap-1.5 text-xs">
+                    <Smartphone className="w-4 h-4 text-emerald-600" /> Landlord M-Pesa Receiving Channels:
+                  </p>
+                  
+                  {landlordMpesaTill && (
+                    <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200">
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Buy Goods Till No:</span>
+                        <strong className="text-slate-900 font-mono text-xs">{landlordMpesaTill}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(landlordMpesaTill, 'Till Number')}
+                        className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" /> Copy Till
+                      </button>
+                    </div>
+                  )}
+
+                  {landlordMpesaPaybill && (
+                    <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200">
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">M-Pesa Paybill No:</span>
+                        <strong className="text-slate-900 font-mono text-xs">{landlordMpesaPaybill}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(landlordMpesaPaybill, 'Paybill')}
+                        className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" /> Copy Paybill
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200">
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Account Reference:</span>
+                      <strong className="text-emerald-700 font-mono text-xs">Unit {currentTenant.unitNumber}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(`Unit ${currentTenant.unitNumber}`, 'Ref')}
+                      className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" /> Copy Ref
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {paymentMethod === 'Bank Transfer' && (
+                <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 space-y-2 text-slate-800 text-[11px]">
+                  <p className="font-bold text-blue-900 flex items-center gap-1.5 text-xs">
+                    <Building2 className="w-4 h-4 text-blue-600" /> Landlord Bank Receiving Details:
+                  </p>
+                  
+                  <div className="bg-white p-2 rounded-lg border border-blue-200 space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 text-[10px]">Bank:</span>
+                      <strong className="text-slate-900">{landlordBankName}</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 text-[10px]">A/C Name:</span>
+                      <strong className="text-slate-900">{landlordAccountName}</strong>
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Account Number:</span>
+                        <strong className="text-blue-700 font-mono text-xs">{landlordAccountNumber}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(landlordAccountNumber, 'Account Number')}
+                        className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" /> Copy A/C
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
-                <label className="block text-slate-700 font-medium mb-1">M-Pesa Code / Reference</label>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {paymentMethod === 'M-Pesa' ? 'Enter M-Pesa Transaction Code' : 'Payment Confirmation Reference'}
+                </label>
                 <input
                   type="text"
                   value={payRef}
                   onChange={(e) => setPayRef(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
+                  placeholder="e.g. QJK812930A or EFT-78192"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm font-mono uppercase"
                 />
               </div>
 
               <button
                 onClick={handlePayInvoice}
                 disabled={isProcessingPay}
-                className="w-full py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 font-bold text-white shadow-sm transition"
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-bold text-white shadow-sm transition flex items-center justify-center gap-2 text-sm cursor-pointer"
               >
-                {isProcessingPay ? 'Processing Payment...' : `Complete Payment of ${formatKSH(payingInvoice.totalAmount)}`}
+                {isProcessingPay ? (
+                  'Confirming Transaction...'
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" /> Settle {formatKSH(payingInvoice.totalAmount)}
+                  </>
+                )}
               </button>
             </div>
           </div>

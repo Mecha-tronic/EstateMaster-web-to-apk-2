@@ -553,6 +553,9 @@ export default function App() {
                   {landlordTab === 'maintenance' && (
                     <MaintenanceView
                       maintenance={scopedMaintenance}
+                      tenants={scopedTenants.length > 0 ? scopedTenants : tenants}
+                      units={scopedUnits.length > 0 ? scopedUnits : units}
+                      properties={scopedProperties.length > 0 ? scopedProperties : properties}
                       onUpdateStatus={handleUpdateMaintenance}
                     />
                   )}
