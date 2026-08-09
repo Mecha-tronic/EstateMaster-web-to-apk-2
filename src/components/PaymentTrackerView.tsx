@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Payment, Invoice } from '../types';
+import { Payment, Invoice, Tenant } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { triggerMpesaStkPush } from '../lib/api';
 import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw, Users, Search, Building } from 'lucide-react';
@@ -7,6 +7,7 @@ import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone,
 interface PaymentTrackerViewProps {
   payments: Payment[];
   invoices: Invoice[];
+  tenants?: Tenant[];
   onRecordPayment: (data: any) => void;
   onPaymentProcessed?: () => void;
 }
@@ -14,6 +15,7 @@ interface PaymentTrackerViewProps {
 export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   payments,
   invoices,
+  tenants = [],
   onRecordPayment,
   onPaymentProcessed
 }) => {
@@ -33,32 +35,47 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
 
   const unpaidInvoices = invoices.filter((i) => i.status !== 'Paid');
 
-  // Collect unique tenants for grouping
+  // Collect unique registered tenants for single tenant ledgers
   const tenantMap = new Map<string, { id: string; name: string; unitNumber: string; propertyName: string }>();
 
-  payments.forEach((p) => {
-    const key = p.tenantName.toLowerCase();
-    if (!tenantMap.has(key)) {
-      tenantMap.set(key, {
-        id: p.tenantId || `tenant-${key}`,
-        name: p.tenantName,
-        unitNumber: p.unitNumber || '',
-        propertyName: p.propertyName || ''
-      });
-    }
-  });
+  if (tenants && tenants.length > 0) {
+    // Strictly list ONLY registered tenants
+    tenants.forEach((t) => {
+      const key = t.fullName.toLowerCase().trim();
+      if (!tenantMap.has(key)) {
+        tenantMap.set(key, {
+          id: t.id,
+          name: t.fullName,
+          unitNumber: t.unitNumber || '',
+          propertyName: t.propertyName || ''
+        });
+      }
+    });
+  } else {
+    payments.forEach((p) => {
+      const key = p.tenantName.toLowerCase().trim();
+      if (!tenantMap.has(key)) {
+        tenantMap.set(key, {
+          id: p.tenantId || `tenant-${key}`,
+          name: p.tenantName,
+          unitNumber: p.unitNumber || '',
+          propertyName: p.propertyName || ''
+        });
+      }
+    });
 
-  invoices.forEach((inv) => {
-    const key = inv.tenantName.toLowerCase();
-    if (!tenantMap.has(key)) {
-      tenantMap.set(key, {
-        id: inv.tenantId || `tenant-${key}`,
-        name: inv.tenantName,
-        unitNumber: inv.unitNumber || '',
-        propertyName: inv.propertyName || ''
-      });
-    }
-  });
+    invoices.forEach((inv) => {
+      const key = inv.tenantName.toLowerCase().trim();
+      if (!tenantMap.has(key)) {
+        tenantMap.set(key, {
+          id: inv.tenantId || `tenant-${key}`,
+          name: inv.tenantName,
+          unitNumber: inv.unitNumber || '',
+          propertyName: inv.propertyName || ''
+        });
+      }
+    });
+  }
 
   const tenantGroups = Array.from(tenantMap.values()).filter((t) => {
     if (!searchQuery.trim()) return true;

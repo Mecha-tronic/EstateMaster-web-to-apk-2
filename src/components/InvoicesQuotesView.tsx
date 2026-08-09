@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Invoice, Quote, Tenant, Unit, Landlord } from '../types';
+import { Invoice, Quote, Tenant, Unit, Landlord, Property } from '../types';
 import { formatKSH } from '../lib/formatters';
 import {
   FileText,
@@ -28,6 +28,7 @@ interface InvoicesQuotesViewProps {
   quotes: Quote[];
   tenants: Tenant[];
   units: Unit[];
+  properties?: Property[];
   landlords?: Landlord[];
   signedInLandlord?: Landlord | null;
   onCreateInvoice: (data: any) => void;
@@ -43,6 +44,7 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
   quotes,
   tenants,
   units,
+  properties = [],
   landlords = [],
   signedInLandlord,
   onCreateInvoice,
@@ -897,63 +899,86 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
 
             {/* Document Body (Printable Statement Letterhead) */}
             <div className="space-y-5 p-1">
-              {/* Company Header */}
-              <div className="flex justify-between items-start border-b pb-4 border-slate-200">
-                <div>
-                  <h1 className="text-lg sm:text-xl font-black text-indigo-950 uppercase tracking-wide">
-                    EstateMaster Property Management
-                  </h1>
-                  <p className="text-slate-500 text-[11px]">452 Elm Street &bull; Nairobi, Kenya</p>
-                  <p className="text-slate-500 text-[11px]">Email: management@estatemaster.com &bull; Tel: +254 700 112 233</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-xl sm:text-2xl font-black text-slate-800 tracking-wider">
-                    {selectedDocument.type === 'invoice' ? 'INVOICE' : 'RENTAL QUOTE'}
-                  </span>
-                  <p className="font-mono text-indigo-600 font-bold mt-1">
-                    #{selectedDocument.data.invoiceNumber || selectedDocument.data.quoteNumber}
-                  </p>
-                </div>
-              </div>
-
-              {/* Recipient & Property Street Address Info */}
               {(() => {
-                const docTenant = tenants.find((t) => t.fullName?.toLowerCase() === selectedDocument.data.tenantName?.toLowerCase() || t.id === selectedDocument.data.tenantId);
-                const docUnit = units.find((u) => u.id === (docTenant?.unitId || selectedDocument.data.unitId) || u.unitNumber === selectedDocument.data.unitNumber);
-                const docProp = units.find((u) => u.id === docUnit?.id)?.propertyName || docTenant?.propertyName || selectedDocument.data.propertyName || 'Kilimani Palms Heights';
-                
+                const docTenant = tenants.find(
+                  (t) => t.fullName?.toLowerCase() === selectedDocument.data.tenantName?.toLowerCase() || t.id === selectedDocument.data.tenantId
+                );
+                const docUnit = units.find(
+                  (u) => u.id === (docTenant?.unitId || selectedDocument.data.unitId) || u.unitNumber === selectedDocument.data.unitNumber
+                );
+                const docPropObj = properties.find(
+                  (p) => p.id === (docUnit?.propertyId || docTenant?.propertyId) || p.name === selectedDocument.data.propertyName
+                );
+                const docPropName = docPropObj?.name || docTenant?.propertyName || selectedDocument.data.propertyName || 'Property Premises';
+
+                const docLandlord = signedInLandlord || landlords.find(
+                  (l) => l.id === (docPropObj?.landlordId || selectedDocument?.data?.landlordId || docTenant?.landlordId)
+                ) || landlords[0];
+
+                const landlordCompanyName = docLandlord?.companyName || docLandlord?.name || 'EstateMaster Property Management';
+                const landlordEmail = docLandlord?.email || 'management@estatemaster.com';
+                const landlordPhone = docLandlord?.phone || docLandlord?.mpesaPhoneNumber || '+254 700 112 233';
+
+                const propertyStreetAddress = docPropObj?.address
+                  ? `${docPropObj.address}${docPropObj.city ? `, ${docPropObj.city}` : ''}`
+                  : docPropObj?.location
+                  ? `${docPropObj.location}${docPropObj.city ? `, ${docPropObj.city}` : ''}`
+                  : `${docPropName}, Nairobi, Kenya`;
+
                 return (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tenant & Occupied Premises</p>
-                      <p className="font-bold text-slate-900 text-sm">{selectedDocument.data.tenantName}</p>
-                      <p className="text-slate-600 font-medium">{selectedDocument.data.tenantEmail || docTenant?.email || 'tenant@example.com'}</p>
-                      <div className="pt-1 space-y-0.5 text-slate-700">
-                        <p><strong className="text-slate-900">Building / Property:</strong> {docProp}</p>
-                        <p><strong className="text-slate-900">Unit Occupied:</strong> Unit {selectedDocument.data.unitNumber || docTenant?.unitNumber || 'N/A'}</p>
-                        <p><strong className="text-slate-900">Street Address:</strong> Argwings Kodhek Road, Kilimani, Nairobi, Kenya</p>
+                  <>
+                    {/* Company Header */}
+                    <div className="flex justify-between items-start border-b pb-4 border-slate-200">
+                      <div>
+                        <h1 className="text-lg sm:text-xl font-black text-indigo-950 uppercase tracking-wide">
+                          {landlordCompanyName}
+                        </h1>
+                        <p className="text-slate-600 font-medium text-[11px]">{propertyStreetAddress}</p>
+                        <p className="text-slate-500 text-[11px]">Email: {landlordEmail} &bull; Tel: {landlordPhone}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xl sm:text-2xl font-black text-slate-800 tracking-wider">
+                          {selectedDocument.type === 'invoice' ? 'INVOICE' : 'RENTAL QUOTE'}
+                        </span>
+                        <p className="font-mono text-indigo-600 font-bold mt-1">
+                          #{selectedDocument.data.invoiceNumber || selectedDocument.data.quoteNumber}
+                        </p>
                       </div>
                     </div>
 
-                    <div className="text-left sm:text-right space-y-1 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200">
-                      <div>
-                        <span className="text-slate-400">Issue Date: </span>
-                        <span className="font-semibold text-slate-800">
-                          {selectedDocument.data.issueDate || selectedDocument.data.createdAt?.split('T')[0] || '2026-08-01'}
-                        </span>
+                    {/* Recipient & Property Street Address Info */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tenant & Occupied Premises</p>
+                        <p className="font-bold text-slate-900 text-sm">{selectedDocument.data.tenantName || docTenant?.fullName || 'Tenant'}</p>
+                        <p className="text-slate-600 font-medium">{selectedDocument.data.tenantEmail || docTenant?.email || 'tenant@example.com'}</p>
+                        <div className="pt-1 space-y-0.5 text-slate-700">
+                          <p><strong className="text-slate-900">Building / Property:</strong> {docPropName}</p>
+                          <p><strong className="text-slate-900">Unit Occupied:</strong> Unit {selectedDocument.data.unitNumber || docTenant?.unitNumber || 'N/A'}</p>
+                          <p><strong className="text-slate-900">Street Address:</strong> {propertyStreetAddress}</p>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-slate-400">Due / Valid Until: </span>
-                        <span className="font-semibold text-slate-800">
-                          {selectedDocument.data.dueDate || selectedDocument.data.validUntil || '2026-08-10'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Status: </span>
-                        <span className="font-extrabold uppercase text-indigo-600">{selectedDocument.data.status}</span>
+
+                      <div className="text-left sm:text-right space-y-1 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200">
+                        <div>
+                          <span className="text-slate-400">Issue Date: </span>
+                          <span className="font-semibold text-slate-800">
+                            {selectedDocument.data.issueDate || selectedDocument.data.createdAt?.split('T')[0] || '2026-08-01'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Due / Valid Until: </span>
+                          <span className="font-semibold text-slate-800">
+                            {selectedDocument.data.dueDate || selectedDocument.data.validUntil || '2026-08-10'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Status: </span>
+                          <span className="font-extrabold uppercase text-indigo-600">{selectedDocument.data.status}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </>
                 );
               })()}
 

@@ -531,6 +531,7 @@ export default function App() {
                       quotes={quotes}
                       tenants={scopedTenants}
                       units={scopedUnits}
+                      properties={scopedProperties}
                       landlords={landlords}
                       signedInLandlord={currentLandlord}
                       onCreateInvoice={handleCreateInvoice}
@@ -546,6 +547,7 @@ export default function App() {
                     <PaymentTrackerView
                       payments={scopedPayments}
                       invoices={scopedInvoices}
+                      tenants={scopedTenants}
                       onRecordPayment={handleRecordPayment}
                     />
                   )}

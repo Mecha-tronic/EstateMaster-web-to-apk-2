@@ -1014,8 +1014,8 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 <span>Invoice #: <strong className="text-slate-900 font-mono">{payingInvoice.invoiceNumber}</strong></span>
                 <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">Unit {currentTenant.unitNumber}</span>
               </div>
-              <p><strong>Building / Property:</strong> {currentTenant.propertyName || 'Kilimani Palms Heights'}</p>
-              <p><strong>Street Address:</strong> Argwings Kodhek Road, Kilimani, Nairobi, Kenya</p>
+              <p><strong>Building / Property:</strong> {currentTenant.propertyName || 'Property Premises'}</p>
+              <p><strong>Street Address:</strong> {currentTenant.propertyName ? `${currentTenant.propertyName}, Nairobi, Kenya` : 'Nairobi, Kenya'}</p>
               <p>Period: <strong className="text-slate-900">{payingInvoice.periodMonth}</strong></p>
               <p className="text-base font-extrabold text-emerald-600 pt-1">
                 Total Amount Due: {formatKSH(payingInvoice.totalAmount)}
