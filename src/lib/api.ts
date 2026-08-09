@@ -992,12 +992,16 @@ export async function createMaintenance(data: any): Promise<MaintenanceRequest> 
       tenantId: data.tenantId || 'tenant-1',
       tenantName: data.tenantName || 'Mercy Chebet',
       unitNumber: data.unitNumber || 'A101',
-      propertyName: 'Kilimani Palms Heights',
+      propertyName: data.propertyName || 'Kilimani Palms Heights',
+      title: data.title || `${data.category || 'Maintenance'} Request`,
       category: data.category || 'Plumbing',
       description: data.description || 'Maintenance request',
       urgency: data.urgency || 'Medium',
-      status: 'Pending',
-      createdAt: new Date().toISOString()
+      status: 'Open',
+      submittedAt: new Date().toISOString(),
+      aiTriageSummary: `Technical triage: ${data.category || 'General'} issue (${data.title || 'Reported Issue'}) logged for Unit ${data.unitNumber || 'A101'}.`,
+      aiSuggestedDiy: 'Isolate local supply lines safely and keep area well-ventilated.',
+      aiEstimatedCost: 'Estimated KSh 2,500 - KSh 6,500'
     };
     const maint = getLocalData<MaintenanceRequest[]>(STORAGE_KEYS.MAINTENANCE, []);
     maint.unshift(req);

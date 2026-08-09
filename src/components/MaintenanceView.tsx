@@ -99,8 +99,18 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                     </span>
                   </div>
 
-                  <h3 className="font-bold text-slate-900 text-base leading-snug">{m.title}</h3>
-                  <p className="text-xs text-slate-600">{m.description}</p>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/90 space-y-1.5 my-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                      <span className="text-blue-700 font-extrabold uppercase text-[10px] bg-blue-100 px-2 py-0.5 rounded border border-blue-200 shrink-0">
+                        Issue Title:
+                      </span>
+                      <span>{m.title || `${m.category || 'Maintenance'} Request`}</span>
+                    </div>
+                    <div className="text-xs text-slate-700 leading-relaxed pt-1 border-t border-slate-200/60">
+                      <strong className="text-slate-900 font-bold">Issue Description: </strong>
+                      <span>{m.description}</span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">

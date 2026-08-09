@@ -1250,23 +1250,27 @@ async function startServer() {
 
       if (ai) {
         try {
-          const systemInstruction = `You are EstateMaster's 24/7 AI Property Assistant for tenants.
-Your job is to provide friendly, accurate, step-by-step guidance for apartment maintenance issues, safety procedures, DIY fixes, rent payment instructions (M-Pesa Till/Paybill, Equity Bank), lease terms, and estate rules in Kenya.
+          const systemInstruction = `You are EstateMaster's 24/7 AI Property Maintenance & Living Assistant for tenants in Kenya.
+Your primary role is to give clear, expert, direct, step-by-step guidance for apartment repairs, emergency safety protocols, DIY troubleshooting, rent payment channels (M-Pesa Paybill/Till, Bank Transfer), lease terms, and estate rules.
 
 Tenant Name: ${tenantName || 'Resident'}
-Unit: ${unitNumber || 'Apartment'}
-Category: ${category || 'General'}
+Unit Number: ${unitNumber || 'Apartment Unit'}
+Category Context: ${category || 'General Inquiry'}
 
-Guidelines:
-1. Format responses clearly with bold section titles, numbered steps, and bullet points.
-2. For maintenance issues, provide immediate DIY/safety steps and realistic repair cost estimates in Kenyan Shillings (KSh).
-3. For payment questions, state that rent can be paid via M-Pesa Express or Bank Transfer on the Tenant Portal.
-4. Keep the tone professional, helpful, and empathetic.`;
+Formatting & Tone Instructions:
+1. Always give a direct, thorough, and highly practical answer to the tenant's question.
+2. Structure your response with clear bold headings, numbered action steps, and bullet points.
+3. For physical/maintenance issues, include immediate safety isolation procedures and realistic repair cost estimates in Kenyan Shillings (KSh).
+4. For rent or payment questions, state clearly that rent can be paid via:
+   - M-Pesa Paybill: Business No 247247 (Account Number: Unit ${unitNumber || 'A101'})
+   - M-Pesa Till: 781920 (EstateMaster Rent)
+   - Equity Bank Account: 0110293847561
+5. Remain empathetic, concise, and actionable.`;
 
-          const prompt = `Tenant Question / Request: "${message}"\nProvide clear diagnostic advice, safety guidance, or relevant property instructions.`;
+          const prompt = `Tenant Question / Maintenance Query: "${message}"\nProvide immediate, accurate diagnostic advice, safety guidance, or clear property instructions.`;
 
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.6-flash',
             contents: prompt,
             config: { systemInstruction },
           });
@@ -1279,20 +1283,18 @@ Guidelines:
 
       if (!aiReply) {
         const lower = message.toLowerCase();
-        if (lower.includes('water') || lower.includes('leak') || lower.includes('tap') || lower.includes('sink') || lower.includes('pipe') || lower.includes('drain') || lower.includes('shower') || lower.includes('toilet')) {
-          aiReply = `🔧 **AI Plumbing & Water Diagnostic:**\n\n1. **Emergency Isolation:** Turn off the local shutoff valve under the sink/toilet or main apartment stopcock immediately.\n2. **Prevent Damage:** Place a basin or dry towels under active leaks to protect flooring.\n3. **Clear Minor Clogs:** Pour hot water and mild detergent down sluggish drains.\n4. **Estimated Repair Cost:** KSh 2,500 - KSh 6,500.\n\n*Submit a ticket below to request landlord technician dispatch.*`;
-        } else if (lower.includes('power') || lower.includes('electric') || lower.includes('spark') || lower.includes('trip') || lower.includes('socket') || lower.includes('light') || lower.includes('fuse')) {
-          aiReply = `⚡ **AI Electrical Safety & Troubleshooting:**\n\n1. **Safety First:** Never touch wet switches or damaged cables. Keep children clear.\n2. **Breaker Box Check:** Open your consumer unit board and check if any toggle switch has tripped to "OFF".\n3. **Isolate Appliance:** Unplug high-wattage items (iron, heater) before flipping the breaker back to "ON".\n4. **Estimated Repair Cost:** KSh 2,000 - KSh 5,500.\n\n*If you smell burning, submit an Emergency Maintenance Ticket immediately!*`;
-        } else if (lower.includes('pay') || lower.includes('rent') || lower.includes('mpesa') || lower.includes('till') || lower.includes('paybill') || lower.includes('bank') || lower.includes('invoice') || lower.includes('receipt')) {
-          aiReply = `💳 **Rent Payment & Billing Information:**\n\n1. **M-Pesa STK Push:** You can initiate instant rent settlement directly from the **Invoices & Receipts** tab in your Tenant Portal.\n2. **M-Pesa Till Number:** 781920 (EstateMaster Property Management).\n3. **M-Pesa Paybill:** 247247 (Account Number: Your Unit Number e.g. A101).\n4. **Equity Bank Account:** 0110293847561 (Mwangi Premier Estates Ltd).\n5. **Automated Receipts:** An official payment receipt is generated and emailed to your address immediately upon payment.`;
-        } else if (lower.includes('ac') || lower.includes('hvac') || lower.includes('cool') || lower.includes('fan') || lower.includes('heat') || lower.includes('air')) {
-          aiReply = `❄️ **AI Climate Control & AC Guidance:**\n\n1. **Filter Cleaning:** Check if air intake filters are clogged with dust.\n2. **Thermostat Setting:** Ensure mode is set to "COOL" at 21°C - 23°C.\n3. **Power Cycle:** Turn off the main AC isolator switch for 3 minutes and turn back on.\n4. **Estimated Cost:** KSh 3,500 - KSh 8,500.`;
-        } else if (lower.includes('key') || lower.includes('lock') || lower.includes('door') || lower.includes('gate') || lower.includes('handle')) {
-          aiReply = `🔑 **AI Lock & Door Access Guidance:**\n\n1. **Stiff Locks:** Apply silicone spray or graphite lubricant into the keyway.\n2. **Latch Alignment:** Ensure the door bolt aligns cleanly with the frame strike plate.\n3. **Emergency Lockout:** Contact estate caretaker or security for master key verification.\n4. **Estimated Replacement:** KSh 1,500 - KSh 4,500.`;
-        } else if (lower.includes('garbage') || lower.includes('trash') || lower.includes('waste') || lower.includes('noise') || lower.includes('parking')) {
-          aiReply = `🏢 **Estate Living & Facility Guidelines:**\n\n1. **Garbage Collection:** Collected every Monday, Wednesday, and Friday morning from the designated bins.\n2. **Quiet Hours:** Observed from 10:00 PM to 6:00 AM daily.\n3. **Parking:** Please park strictly in your assigned unit bay.\n4. **Questions:** Submit a notice to your landlord using the form below.`;
+        if (lower.includes('water') || lower.includes('leak') || lower.includes('tap') || lower.includes('sink') || lower.includes('pipe') || lower.includes('drain') || lower.includes('shower') || lower.includes('toilet') || lower.includes('flood')) {
+          aiReply = `🔧 **AI Plumbing & Water Diagnostic Guidance:**\n\n1. **Emergency Water Isolation:** Immediately turn off the local isolation valve beneath the sink/toilet or shut off the main stopcock for Unit ${unitNumber || 'your apartment'}.\n2. **Contain Water:** Place a bucket or dry towels under active leaks to protect subflooring and cabinetry.\n3. **Clog Clearance:** For slow drains, pour boiling water mixed with mild dish soap down the drain line.\n4. **Estimated Repair Cost:** KSh 2,500 - KSh 6,500.\n\n*Submit a ticket using the form below to dispatch an estate plumber.*`;
+        } else if (lower.includes('power') || lower.includes('electric') || lower.includes('spark') || lower.includes('trip') || lower.includes('socket') || lower.includes('light') || lower.includes('fuse') || lower.includes('breaker') || lower.includes('shock')) {
+          aiReply = `⚡ **AI Electrical Safety & Diagnostic Protocol:**\n\n1. **Immediate Safety:** Do NOT touch wet switches, loose wires, or damaged wall sockets. Keep hands dry.\n2. **Consumer Unit Check:** Locate your apartment breaker board and inspect for switches flipped to "OFF".\n3. **Isolate High Load Appliance:** Unplug heaters, microwave, or iron before resetting the breaker switch back to "ON".\n4. **Estimated Repair Cost:** KSh 2,000 - KSh 5,500.\n\n*If you see active sparks or burning smells, submit an Emergency Ticket below immediately!*`;
+        } else if (lower.includes('pay') || lower.includes('rent') || lower.includes('mpesa') || lower.includes('till') || lower.includes('paybill') || lower.includes('bank') || lower.includes('invoice') || lower.includes('receipt') || lower.includes('bill')) {
+          aiReply = `💳 **Rent & Utility Payment Details:**\n\n1. **M-Pesa STK Direct Push:** Click **Settle Payment** on your unpaid invoice in the **Invoices & Receipts** tab.\n2. **M-Pesa Paybill:**\n   - **Business No:** \`247247\`\n   - **Account No:** \`Unit ${unitNumber || 'A101'}\`\n3. **M-Pesa Till No:** \`781920\` (Buy Goods)\n4. **Bank Transfer (Equity Bank):** Account \`0110293847561\` (EstateMaster Rent)\n5. **Instant Receipt:** Payment receipts are automatically issued and emailed to you upon settlement.`;
+        } else if (lower.includes('ac') || lower.includes('hvac') || lower.includes('cool') || lower.includes('fan') || lower.includes('heat') || lower.includes('air') || lower.includes('climate')) {
+          aiReply = `❄️ **AI Climate Control & AC Diagnostics:**\n\n1. **Filter Cleaning:** Remove dust from the front washable mesh filter.\n2. **Thermostat Setting:** Set mode to "COOL" at 21°C - 23°C.\n3. **Isolator Reset:** Power down the main AC wall switch for 3 minutes and power back on.\n4. **Estimated Cost:** KSh 3,500 - KSh 8,500.`;
+        } else if (lower.includes('key') || lower.includes('lock') || lower.includes('door') || lower.includes('gate') || lower.includes('handle') || lower.includes('latch')) {
+          aiReply = `🔑 **AI Lock & Access Control Diagnostic:**\n\n1. **Stiff Cylinders:** Spray silicone lubricant into keyway mechanism.\n2. **Latch Misalignment:** Tighten hinge screws if door sags against frame strike plate.\n3. **Emergency Lockout:** Notify estate caretaker or security for master key verification.\n4. **Estimated Cost:** KSh 1,500 - KSh 4,500.`;
         } else {
-          aiReply = `🛠️ **AI Property Assistant Diagnostic:**\n\nHello ${tenantName || 'Resident'}! I have logged your query regarding "${message}".\n\n1. **Assessment:** Issue noted for Unit ${unitNumber || 'your apartment'}.\n2. **Safety Tip:** Ensure the area is safe, dry, and secure.\n3. **Next Step:** You can submit a formal maintenance ticket using the form below to alert your landlord and arrange a technician visit.`;
+          aiReply = `🛠️ **AI Property Assistant Diagnostic:**\n\nHello ${tenantName || 'Resident'}! I have analyzed your request regarding: "${message}".\n\n1. **Initial Assessment:** Query logged for Unit ${unitNumber || 'your unit'}.\n2. **Safety Guidelines:** Keep the area clear, dry, and secure.\n3. **Next Steps:** Submit a formal maintenance request using the form below so your landlord can arrange prompt repair dispatch.`;
         }
       }
 
@@ -1321,43 +1323,44 @@ Guidelines:
       const resolvedPropertyName = matchedTenant ? matchedTenant.propertyName : (propertyName || 'Apartment Complex');
 
       // Smart Default Category Triage
-      let aiSummary = `${category || 'Maintenance'} issue reported for Unit ${resolvedUnitNumber}.`;
-      let aiDiy = 'Inspect area safely and keep clear of hazards.';
-      let aiCost = 'Estimated KSh 3,000 - KSh 10,000';
+      let aiSummary = `${category || 'Maintenance'} issue (${title || 'Reported Issue'}) logged for Unit ${resolvedUnitNumber}.`;
+      let aiDiy = 'Isolate local supply lines safely and keep area ventilated.';
+      let aiCost = 'Estimated KSh 3,000 - KSh 8,500';
 
       if (category === 'Plumbing') {
-        aiSummary = 'Plumbing fixture or drainage leak identified.';
-        aiDiy = 'Turn off local water isolation valve under sink/toilet. Wipe up standing water.';
-        aiCost = 'Estimated KSh 2,500 - KSh 7,500';
+        aiSummary = `Plumbing leak or drainage disruption (${title}).`;
+        aiDiy = 'Turn off water shutoff valve under sink or main stopcock. Wipe standing water to protect flooring.';
+        aiCost = 'Estimated KSh 2,500 - KSh 6,500';
       } else if (category === 'Electrical') {
-        aiSummary = 'Electrical circuit or power outlet disruption.';
-        aiDiy = 'Check distribution board breaker switches. Unplug high wattage appliances.';
-        aiCost = 'Estimated KSh 2,000 - KSh 6,000';
+        aiSummary = `Electrical circuit or fixture disruption (${title}).`;
+        aiDiy = 'Check breaker switches on consumer unit. Unplug high-wattage devices before resetting switch.';
+        aiCost = 'Estimated KSh 2,000 - KSh 5,500';
       } else if (category === 'HVAC') {
-        aiSummary = 'Climate control or air circulation failure.';
-        aiDiy = 'Check air filter cleanliness and ensure thermostat battery/power is working.';
-        aiCost = 'Estimated KSh 4,000 - KSh 12,000';
+        aiSummary = `Air conditioning or ventilation issue (${title}).`;
+        aiDiy = 'Inspect air intake filter for dust clogging and verify thermostat battery.';
+        aiCost = 'Estimated KSh 4,000 - KSh 10,000';
       } else if (category === 'Locks & Keys') {
-        aiSummary = 'Door lock mechanism or key access malfunction.';
-        aiDiy = 'Apply dry lock lubricant. Ensure latch aligns with door frame strike plate.';
-        aiCost = 'Estimated KSh 1,500 - KSh 4,500';
+        aiSummary = `Door lock cylinder or latch malfunction (${title}).`;
+        aiDiy = 'Apply dry graphite lubricant to keyway. Ensure door hinges align with strike plate.';
+        aiCost = 'Estimated KSh 1,500 - KSh 4,000';
       }
 
       const ai = getGeminiClient();
       if (ai) {
         try {
-          const prompt = `You are an AI Property Maintenance Assistant for a real estate landlord. Analyze this tenant maintenance request:
+          const prompt = `You are an expert AI Property Maintenance Triage Assistant. Analyze this maintenance request:
 Category: ${category || 'General'}
 Title: ${title}
 Description: ${description}
+Unit: ${resolvedUnitNumber} (${resolvedPropertyName})
 
 Provide a JSON object with:
-"summary": 1-sentence technical assessment
-"diyAdvice": 1-2 practical troubleshooting steps the tenant can do immediately
+"summary": 1-sentence technical assessment of the issue
+"diyAdvice": 1-2 practical troubleshooting steps or safety precautions for the tenant
 "estimatedCost": repair cost range in Kenyan Shillings (KSh)`;
 
           const genResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.6-flash',
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -1385,7 +1388,7 @@ Provide a JSON object with:
         unitId: resolvedUnitId,
         unitNumber: resolvedUnitNumber,
         propertyName: resolvedPropertyName,
-        title,
+        title: title || 'Maintenance Request',
         description,
         category: category || 'Other',
         urgency: urgency || 'Medium',

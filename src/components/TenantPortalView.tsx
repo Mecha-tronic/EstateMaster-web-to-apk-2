@@ -886,16 +886,25 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
             ) : (
               tenantMaintenance.map((m) => (
                 <div key={m.id} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 text-xs shadow-sm text-slate-900">
-                  <div className="flex justify-between items-start gap-2">
-                    <div>
-                      <h4 className="font-bold text-slate-900 text-sm">{m.title}</h4>
-                      <p className="text-[10px] text-slate-500">Category: {m.category || 'General'} • Urgency: {m.urgency || 'Medium'}</p>
-                    </div>
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-[10px] text-slate-500 font-medium">Category: {m.category || 'General'} • Urgency: {m.urgency || 'Medium'}</span>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
                       {m.status}
                     </span>
                   </div>
-                  <p className="text-slate-700 font-medium leading-relaxed">{m.description}</p>
+
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/90 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                      <span className="text-blue-700 font-extrabold uppercase text-[10px] bg-blue-100 px-2 py-0.5 rounded border border-blue-200 shrink-0">
+                        Issue Title:
+                      </span>
+                      <span>{m.title || `${m.category || 'Maintenance'} Request`}</span>
+                    </div>
+                    <div className="text-xs text-slate-700 leading-relaxed pt-1 border-t border-slate-200/60">
+                      <strong className="text-slate-900 font-bold">Issue Description: </strong>
+                      <span>{m.description}</span>
+                    </div>
+                  </div>
                   
                   {/* AI Triage Diagnosis Card */}
                   <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 space-y-2 text-blue-950 font-medium">
@@ -989,8 +998,8 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
 
       {/* PAYMENT CHECKOUT MODAL */}
       {payingInvoice && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-5 space-y-4 text-xs shadow-xl text-slate-900">
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 overflow-y-auto p-2 sm:p-4 flex items-start sm:items-center justify-center">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full my-auto p-4 sm:p-5 space-y-4 text-xs shadow-xl text-slate-900 max-h-[92vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
               <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
                 <DollarSign className="w-5 h-5 text-emerald-600" /> Rent & Bill Payment Checkout
@@ -1000,14 +1009,16 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
               </button>
             </div>
 
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1 text-slate-700 font-medium">
-              <div className="flex items-center justify-between">
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1 text-slate-700 font-medium text-xs">
+              <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5">
                 <span>Invoice #: <strong className="text-slate-900 font-mono">{payingInvoice.invoiceNumber}</strong></span>
                 <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">Unit {currentTenant.unitNumber}</span>
               </div>
+              <p><strong>Building / Property:</strong> {currentTenant.propertyName || 'Kilimani Palms Heights'}</p>
+              <p><strong>Street Address:</strong> Argwings Kodhek Road, Kilimani, Nairobi, Kenya</p>
               <p>Period: <strong className="text-slate-900">{payingInvoice.periodMonth}</strong></p>
-              <p className="text-base font-extrabold text-emerald-600 pt-0.5">
-                Amount Due: {formatKSH(payingInvoice.totalAmount)}
+              <p className="text-base font-extrabold text-emerald-600 pt-1">
+                Total Amount Due: {formatKSH(payingInvoice.totalAmount)}
               </p>
             </div>
 
@@ -1051,12 +1062,12 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                   {landlordMpesaPaybill && (
                     <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200">
                       <div>
-                        <span className="text-slate-500 block text-[10px]">M-Pesa Paybill No:</span>
+                        <span className="text-slate-500 block text-[10px] font-semibold">M-Pesa Paybill Business No:</span>
                         <strong className="text-slate-900 font-mono text-xs">{landlordMpesaPaybill}</strong>
                       </div>
                       <button
                         type="button"
-                        onClick={() => handleCopy(landlordMpesaPaybill, 'Paybill')}
+                        onClick={() => handleCopy(landlordMpesaPaybill, 'Paybill Business No')}
                         className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
                       >
                         <Copy className="w-3 h-3" /> Copy Paybill
@@ -1066,15 +1077,15 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
 
                   <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200">
                     <div>
-                      <span className="text-slate-500 block text-[10px]">Account Reference:</span>
+                      <span className="text-slate-500 block text-[10px] font-semibold">M-Pesa Account No (Unit Number):</span>
                       <strong className="text-emerald-700 font-mono text-xs">Unit {currentTenant.unitNumber}</strong>
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleCopy(`Unit ${currentTenant.unitNumber}`, 'Ref')}
-                      className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                      onClick={() => handleCopy(`Unit ${currentTenant.unitNumber}`, 'Account Number')}
+                      className="px-2 py-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold text-[10px] flex items-center gap-1 cursor-pointer border border-emerald-300"
                     >
-                      <Copy className="w-3 h-3" /> Copy Ref
+                      <Copy className="w-3 h-3" /> Copy Account No
                     </button>
                   </div>
                 </div>

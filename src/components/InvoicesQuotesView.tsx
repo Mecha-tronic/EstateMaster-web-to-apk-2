@@ -868,12 +868,12 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
 
       {/* PRINTABLE DOCUMENT PREVIEW MODAL */}
       {selectedDocument && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white text-slate-900 rounded-2xl max-w-2xl w-full p-6 space-y-6 shadow-2xl relative font-sans text-xs">
-            {/* Modal Control Bar (Screen only) */}
-            <div className="flex items-center justify-between border-b pb-4 border-slate-200">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 overflow-y-auto p-2 sm:p-4 flex items-start sm:items-center justify-center">
+          <div className="bg-white text-slate-900 rounded-2xl max-w-2xl w-full my-auto p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-2xl relative font-sans text-xs max-h-[92vh] overflow-y-auto">
+            {/* Modal Control Bar (Screen only - Sticky Top) */}
+            <div className="sticky top-0 bg-white z-20 pb-3 pt-1 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="font-bold text-slate-800 text-base">Official Document Preview</span>
+                <span className="font-bold text-slate-800 text-sm sm:text-base">Official Statement Preview</span>
                 <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
                   {selectedDocument.type}
                 </span>
@@ -882,13 +882,13 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   onClick={handlePrintDocument}
-                  className="px-3.5 py-1.5 rounded-xl bg-slate-800 text-white hover:bg-slate-700 font-semibold flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 text-white hover:bg-slate-700 font-semibold flex items-center gap-1.5 text-xs shadow-sm cursor-pointer"
                 >
-                  <Printer className="w-4 h-4" /> Print / Save PDF
+                  <Printer className="w-3.5 h-3.5" /> Print / Save PDF
                 </button>
                 <button
                   onClick={() => setSelectedDocument(null)}
-                  className="p-1.5 rounded-xl text-slate-500 hover:text-slate-800"
+                  className="p-1.5 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -896,18 +896,18 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
             </div>
 
             {/* Document Body (Printable Statement Letterhead) */}
-            <div className="space-y-6 p-2">
+            <div className="space-y-5 p-1">
               {/* Company Header */}
               <div className="flex justify-between items-start border-b pb-4 border-slate-200">
                 <div>
-                  <h1 className="text-xl font-black text-indigo-950 uppercase tracking-wide">
+                  <h1 className="text-lg sm:text-xl font-black text-indigo-950 uppercase tracking-wide">
                     EstateMaster Property Management
                   </h1>
                   <p className="text-slate-500 text-[11px]">452 Elm Street &bull; Nairobi, Kenya</p>
                   <p className="text-slate-500 text-[11px]">Email: management@estatemaster.com &bull; Tel: +254 700 112 233</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-2xl font-black text-slate-800 tracking-wider">
+                  <span className="text-xl sm:text-2xl font-black text-slate-800 tracking-wider">
                     {selectedDocument.type === 'invoice' ? 'INVOICE' : 'RENTAL QUOTE'}
                   </span>
                   <p className="font-mono text-indigo-600 font-bold mt-1">
@@ -916,126 +916,142 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                 </div>
               </div>
 
-              {/* Recipient & Dates Info */}
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bill To / Recipient</p>
-                  <p className="font-bold text-slate-800 text-sm">{selectedDocument.data.tenantName}</p>
-                  <p className="text-slate-600">{selectedDocument.data.tenantEmail}</p>
-                  <p className="text-slate-600">
-                    Unit {selectedDocument.data.unitNumber} - {selectedDocument.data.propertyName}
-                  </p>
-                </div>
+              {/* Recipient & Property Street Address Info */}
+              {(() => {
+                const docTenant = tenants.find((t) => t.fullName?.toLowerCase() === selectedDocument.data.tenantName?.toLowerCase() || t.id === selectedDocument.data.tenantId);
+                const docUnit = units.find((u) => u.id === (docTenant?.unitId || selectedDocument.data.unitId) || u.unitNumber === selectedDocument.data.unitNumber);
+                const docProp = units.find((u) => u.id === docUnit?.id)?.propertyName || docTenant?.propertyName || selectedDocument.data.propertyName || 'Kilimani Palms Heights';
+                
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tenant & Occupied Premises</p>
+                      <p className="font-bold text-slate-900 text-sm">{selectedDocument.data.tenantName}</p>
+                      <p className="text-slate-600 font-medium">{selectedDocument.data.tenantEmail || docTenant?.email || 'tenant@example.com'}</p>
+                      <div className="pt-1 space-y-0.5 text-slate-700">
+                        <p><strong className="text-slate-900">Building / Property:</strong> {docProp}</p>
+                        <p><strong className="text-slate-900">Unit Occupied:</strong> Unit {selectedDocument.data.unitNumber || docTenant?.unitNumber || 'N/A'}</p>
+                        <p><strong className="text-slate-900">Street Address:</strong> Argwings Kodhek Road, Kilimani, Nairobi, Kenya</p>
+                      </div>
+                    </div>
 
-                <div className="text-right space-y-1">
-                  <div>
-                    <span className="text-slate-400">Issue Date: </span>
-                    <span className="font-semibold text-slate-800">
-                      {selectedDocument.data.issueDate || selectedDocument.data.createdAt?.split('T')[0]}
-                    </span>
+                    <div className="text-left sm:text-right space-y-1 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200">
+                      <div>
+                        <span className="text-slate-400">Issue Date: </span>
+                        <span className="font-semibold text-slate-800">
+                          {selectedDocument.data.issueDate || selectedDocument.data.createdAt?.split('T')[0] || '2026-08-01'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Due / Valid Until: </span>
+                        <span className="font-semibold text-slate-800">
+                          {selectedDocument.data.dueDate || selectedDocument.data.validUntil || '2026-08-10'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Status: </span>
+                        <span className="font-extrabold uppercase text-indigo-600">{selectedDocument.data.status}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-slate-400">Due / Valid Until: </span>
-                    <span className="font-semibold text-slate-800">
-                      {selectedDocument.data.dueDate || selectedDocument.data.validUntil}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Status: </span>
-                    <span className="font-bold uppercase text-indigo-600">{selectedDocument.data.status}</span>
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Line Items Table */}
               {selectedDocument.type === 'invoice' ? (
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-300 text-slate-500 text-[11px] uppercase">
-                      <th className="py-2">Description</th>
-                      <th className="py-2 text-right">Amount (KSh)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 text-slate-700">
-                    <tr>
-                      <td className="py-2.5 font-medium">Monthly Base Rent ({selectedDocument.data.periodMonth})</td>
-                      <td className="py-2.5 text-right font-mono">{formatKSH(selectedDocument.data.rentAmount)}</td>
-                    </tr>
-                    {selectedDocument.data.waterFee > 0 && (
-                      <tr>
-                        <td className="py-2">Water & Drainage Utility</td>
-                        <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.waterFee)}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[320px]">
+                    <thead>
+                      <tr className="border-b border-slate-300 text-slate-500 text-[11px] uppercase">
+                        <th className="py-2">Description</th>
+                        <th className="py-2 text-right">Amount (KSh)</th>
                       </tr>
-                    )}
-                    {selectedDocument.data.trashFee > 0 && (
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-slate-700">
                       <tr>
-                        <td className="py-2">Trash & Waste Collection</td>
-                        <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.trashFee)}</td>
+                        <td className="py-2.5 font-medium">Monthly Base Rent ({selectedDocument.data.periodMonth})</td>
+                        <td className="py-2.5 text-right font-mono">{formatKSH(selectedDocument.data.rentAmount)}</td>
                       </tr>
-                    )}
-                    {selectedDocument.data.maintenanceFee > 0 && (
-                      <tr>
-                        <td className="py-2">Service Charge / Maintenance</td>
-                        <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.maintenanceFee)}</td>
+                      {selectedDocument.data.waterFee > 0 && (
+                        <tr>
+                          <td className="py-2">Water & Drainage Utility</td>
+                          <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.waterFee)}</td>
+                        </tr>
+                      )}
+                      {selectedDocument.data.trashFee > 0 && (
+                        <tr>
+                          <td className="py-2">Trash & Waste Collection</td>
+                          <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.trashFee)}</td>
+                        </tr>
+                      )}
+                      {selectedDocument.data.maintenanceFee > 0 && (
+                        <tr>
+                          <td className="py-2">Service Charge / Maintenance</td>
+                          <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.maintenanceFee)}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-800 font-bold text-slate-900 text-sm">
+                        <td className="py-3">TOTAL AMOUNT DUE</td>
+                        <td className="py-3 text-right font-mono text-indigo-600">{formatKSH(selectedDocument.data.totalAmount)}</td>
                       </tr>
-                    )}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-slate-800 font-bold text-slate-900 text-sm">
-                      <td className="py-3">TOTAL AMOUNT DUE</td>
-                      <td className="py-3 text-right font-mono text-indigo-600">{formatKSH(selectedDocument.data.totalAmount)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+                    </tfoot>
+                  </table>
+                </div>
               ) : (
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-300 text-slate-500 text-[11px] uppercase">
-                      <th className="py-2">Quoted Item</th>
-                      <th className="py-2 text-right">Amount (KSh)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 text-slate-700">
-                    <tr>
-                      <td className="py-2.5 font-medium">Monthly Rent Rate ({selectedDocument.data.leaseTermMonths} Months Lease)</td>
-                      <td className="py-2.5 text-right font-mono">{formatKSH(selectedDocument.data.monthlyRentQuote)}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2">Security Deposit (Refundable)</td>
-                      <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.depositQuote)}</td>
-                    </tr>
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-slate-800 font-bold text-slate-900 text-sm">
-                      <td className="py-3">ESTIMATED MOVE-IN TOTAL</td>
-                      <td className="py-3 text-right font-mono text-emerald-600">{formatKSH(selectedDocument.data.totalMoveInCost)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[320px]">
+                    <thead>
+                      <tr className="border-b border-slate-300 text-slate-500 text-[11px] uppercase">
+                        <th className="py-2">Quoted Item</th>
+                        <th className="py-2 text-right">Amount (KSh)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                      <tr>
+                        <td className="py-2.5 font-medium">Monthly Rent Rate ({selectedDocument.data.leaseTermMonths} Months Lease)</td>
+                        <td className="py-2.5 text-right font-mono">{formatKSH(selectedDocument.data.monthlyRentQuote)}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2">Security Deposit (Refundable)</td>
+                        <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.depositQuote)}</td>
+                      </tr>
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-800 font-bold text-slate-900 text-sm">
+                        <td className="py-3">ESTIMATED MOVE-IN TOTAL</td>
+                        <td className="py-3 text-right font-mono text-emerald-600">{formatKSH(selectedDocument.data.totalMoveInCost)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               )}
 
               {/* Payment Instructions Note */}
               {(() => {
                 const docLandlord = signedInLandlord || landlords.find(l => l.id === selectedDocument?.data?.landlordId) || landlords[0];
+                const unitRef = selectedDocument.data.unitNumber ? `Unit ${selectedDocument.data.unitNumber}` : 'Unit A101';
+                
                 return (
-                  <div className="bg-indigo-50/80 border border-indigo-100 rounded-xl p-3 text-xs text-indigo-950 space-y-1">
-                    <p className="font-bold text-indigo-900 flex items-center gap-1.5">
-                      💳 Registered Payment Instructions:
+                  <div className="bg-indigo-50/80 border border-indigo-100 rounded-xl p-3.5 text-xs text-indigo-950 space-y-2">
+                    <p className="font-bold text-indigo-900 flex items-center gap-1.5 text-xs">
+                      💳 Official Registered Rent & Utility Payment Channels:
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
-                      <div>
-                        <p className="font-bold text-emerald-800">📱 M-Pesa Mobile Money:</p>
-                        <p>Paybill: <strong>{docLandlord?.mpesaPaybill || '247247'}</strong></p>
-                        {docLandlord?.mpesaTillNumber && <p>Till Number: <strong>{docLandlord.mpesaTillNumber}</strong></p>}
-                        {docLandlord?.mpesaPhoneNumber && <p>Phone: <strong>{docLandlord.mpesaPhoneNumber}</strong></p>}
-                        <p className="text-slate-500">Account Ref: <strong>Unit Number / Rent</strong></p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px] pt-1">
+                      <div className="bg-white p-2.5 rounded-lg border border-indigo-200/70 space-y-1">
+                        <p className="font-bold text-emerald-800 text-xs">📱 M-Pesa Mobile Payment:</p>
+                        <p><span className="text-slate-500">Paybill Business No:</span> <strong className="font-mono text-slate-900">{docLandlord?.mpesaPaybill || '247247'}</strong></p>
+                        <p><span className="text-slate-500">M-Pesa Account No:</span> <strong className="font-mono text-emerald-700">{unitRef}</strong></p>
+                        {docLandlord?.mpesaTillNumber && (
+                          <p><span className="text-slate-500">Buy Goods Till No:</span> <strong className="font-mono text-slate-900">{docLandlord.mpesaTillNumber}</strong></p>
+                        )}
                       </div>
-                      <div>
-                        <p className="font-bold text-blue-800">🏦 Bank Transfer:</p>
-                        <p>Bank: <strong>{docLandlord?.bankName || 'Equity Bank Kenya'}</strong></p>
-                        <p>A/C Name: <strong>{docLandlord?.accountName || docLandlord?.companyName || 'EstateMaster Rent'}</strong></p>
-                        <p>A/C Number: <strong>{docLandlord?.accountNumber || '0110293847561'}</strong></p>
-                        {docLandlord?.branchName && <p>Branch: <strong>{docLandlord.branchName}</strong></p>}
+                      <div className="bg-white p-2.5 rounded-lg border border-indigo-200/70 space-y-1">
+                        <p className="font-bold text-blue-800 text-xs">🏦 Bank Transfer Details:</p>
+                        <p><span className="text-slate-500">Bank Name:</span> <strong>{docLandlord?.bankName || 'Equity Bank Kenya'}</strong></p>
+                        <p><span className="text-slate-500">Account Name:</span> <strong>{docLandlord?.accountName || docLandlord?.companyName || 'EstateMaster Rent'}</strong></p>
+                        <p><span className="text-slate-500">Account No:</span> <strong className="font-mono text-blue-700">{docLandlord?.accountNumber || '0110293847561'}</strong></p>
                       </div>
                     </div>
                   </div>
