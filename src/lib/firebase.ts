@@ -1,6 +1,15 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import defaultConfig from '../../firebase-applet-config.json';
+
+const defaultConfig = {
+  projectId: "horizontal-disk-2ds98",
+  appId: "1:968222331530:web:c3c8996c7c417bc6601373",
+  apiKey: "AIzaSyAMgfDYZ9vrFKbxfj3QzBKWRczSpvCWCbc",
+  authDomain: "horizontal-disk-2ds98.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-estatemasterwebt-68079c9a-d004-4a14-abfd-07d4b87adab1",
+  storageBucket: "horizontal-disk-2ds98.firebasestorage.app",
+  messagingSenderId: "968222331530"
+};
 
 function getFirebaseConfig() {
   if (typeof process !== 'undefined' && process.env?.FIREBASE_CONFIG) {
