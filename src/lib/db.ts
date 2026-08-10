@@ -329,6 +329,15 @@ export async function seedDbIfEmpty(
       for (const l of initialLandlords) {
         await saveLandlordToDb(l);
       }
+    } else {
+      // Ensure key seed landlords (like Allan (Raha)) are always present
+      for (const l of initialLandlords) {
+        const found = existingLandlords.some(e => e.email.trim().toLowerCase() === l.email.trim().toLowerCase() || e.id === l.id);
+        if (!found) {
+          console.log(`⚡ Syncing missing seed landlord (${l.name} - ${l.email}) to Firestore...`);
+          await saveLandlordToDb(l);
+        }
+      }
     }
 
     // Check properties
@@ -337,6 +346,13 @@ export async function seedDbIfEmpty(
       console.log('⚡ Seeding initial properties to Firestore...');
       for (const p of initialProperties) {
         await savePropertyToDb(p);
+      }
+    } else {
+      for (const p of initialProperties) {
+        const found = existingProps.some(ep => ep.id === p.id);
+        if (!found) {
+          await savePropertyToDb(p);
+        }
       }
     }
 

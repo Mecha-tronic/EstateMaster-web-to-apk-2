@@ -126,6 +126,27 @@ const landlords: Landlord[] = [
     accountNumber: '7729102938',
     branchName: 'Upperhill Branch',
     swiftCode: 'CBAFKENA'
+  },
+  {
+    id: 'landlord-raha',
+    name: 'Allan (Raha)',
+    companyName: 'Raha Estate Management',
+    email: 'mk@gmail.com',
+    phone: '+254 712 000 111',
+    password: 'password123',
+    idNumber: 'ID-38291049',
+    subscriptionStatus: 'Active',
+    subscriptionExpiry: '2027-08-01',
+    subscriptionPlan: 'EstateMaster Annual License (KSH 20,000/yr)',
+    registeredAt: '2026-08-01T08:00:00.000Z',
+    mpesaPaybill: '247247',
+    mpesaTillNumber: '882910',
+    mpesaPhoneNumber: '+254 712 000 111',
+    bankName: 'Equity Bank Kenya',
+    accountName: 'Raha Estate Management',
+    accountNumber: '0110992837410',
+    branchName: 'Nairobi Main Branch',
+    swiftCode: 'EQBLKENA'
   }
 ];
 
@@ -154,6 +175,18 @@ const properties: Property[] = [
     imageUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80',
     description: 'Luxury high-rise apartments overlooking the river with private balconies and concierge service.',
     amenities: ['Concierge', 'Rooftop Lounge', 'Covered Parking', 'Solar Heating', 'Smart Lock']
+  },
+  {
+    id: 'prop-raha',
+    landlordId: 'landlord-raha',
+    name: 'Raha Executive Residency',
+    address: '540 Ngong Road, Kilimani',
+    city: 'Nairobi',
+    type: 'Apartment Complex',
+    totalUnits: 6,
+    imageUrl: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+    description: 'Executive modern residences featuring high-speed fiber internet, 24/7 manned security gate, borehole water, and automatic backup generator.',
+    amenities: ['Elevator', '24/7 Security', 'Parking', 'Fiber Wi-Fi', 'Borehole Water']
   }
 ];
 

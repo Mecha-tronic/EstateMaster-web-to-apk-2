@@ -30,6 +30,7 @@ interface LandlordDashboardProps {
   onNavigate: (tab: string) => void;
   onOpenNewInvoice: () => void;
   onOpenNewQuote: () => void;
+  onSeedSampleData?: () => void;
 }
 
 export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
@@ -45,6 +46,7 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
   onNavigate,
   onOpenNewInvoice,
   onOpenNewQuote,
+  onSeedSampleData,
 }) => {
   // Calculate total units and occupied units based on unit status and registered tenants
   const totalUnitsCount = units.length > 0 ? units.length : Math.max(tenants.length, 1);
@@ -201,30 +203,63 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {properties.map((prop) => (
-                <div
-                  key={prop.id}
-                  onClick={() => onNavigate('properties')}
-                  className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl hover:border-blue-500 transition cursor-pointer flex gap-3 items-center"
-                >
-                  <img
-                    src={prop.imageUrl}
-                    alt={prop.name}
-                    className="w-16 h-16 rounded-lg object-cover bg-slate-200"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-bold text-slate-900 text-sm truncate">{prop.name}</h4>
-                    <p className="text-xs text-slate-500 truncate">{prop.address}, {prop.city}</p>
-                    <div className="mt-1.5 flex items-center gap-2 text-[11px] text-blue-600 font-medium">
-                      <span>{prop.totalUnits} Units</span>
-                      <span>&bull;</span>
-                      <span className="capitalize">{prop.type}</span>
+            {properties.length === 0 ? (
+              <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 text-center space-y-3">
+                <p className="text-xs text-blue-950 font-bold">
+                  You haven't added any properties to your estate portfolio yet.
+                </p>
+                <p className="text-[11px] text-blue-800">
+                  EstateMaster provides isolated multi-tenant accounts. Click below to add your real property or populate sample estate data for testing:
+                </p>
+                <div className="flex flex-wrap justify-center gap-2 pt-1">
+                  <button
+                    onClick={() => onNavigate('properties')}
+                    className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition"
+                  >
+                    + Add New Property
+                  </button>
+                  <button
+                    onClick={() => onNavigate('register')}
+                    className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition"
+                  >
+                    + Register Tenant
+                  </button>
+                  {onSeedSampleData && (
+                    <button
+                      onClick={onSeedSampleData}
+                      className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-xs transition"
+                    >
+                      ⚡ Load Sample Demo Estate
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {properties.map((prop) => (
+                  <div
+                    key={prop.id}
+                    onClick={() => onNavigate('properties')}
+                    className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl hover:border-blue-500 transition cursor-pointer flex gap-3 items-center"
+                  >
+                    <img
+                      src={prop.imageUrl}
+                      alt={prop.name}
+                      className="w-16 h-16 rounded-lg object-cover bg-slate-200"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-bold text-slate-900 text-sm truncate">{prop.name}</h4>
+                      <p className="text-xs text-slate-500 truncate">{prop.address}, {prop.city}</p>
+                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-blue-600 font-medium">
+                        <span>{prop.totalUnits} Units</span>
+                        <span>&bull;</span>
+                        <span className="capitalize">{prop.type}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Active Tenants List Preview */}
@@ -241,29 +276,41 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
               </button>
             </div>
 
-            <div className="space-y-2.5">
-              {tenants.map((tenant) => (
-                <div
-                  key={tenant.id}
-                  className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center justify-between gap-3 text-xs"
+            {tenants.length === 0 ? (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2">
+                <p className="text-xs text-slate-700 font-bold">No active tenants registered under your account yet.</p>
+                <button
+                  onClick={() => onNavigate('register')}
+                  className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center border border-emerald-200">
-                      {tenant.fullName.charAt(0)}
+                  + Register First Tenant
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {tenants.map((tenant) => (
+                  <div
+                    key={tenant.id}
+                    className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center border border-emerald-200">
+                        {tenant.fullName.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900">{tenant.fullName}</p>
+                        <p className="text-slate-500">{tenant.propertyName} - Unit {tenant.unitNumber}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-bold text-slate-900">{tenant.fullName}</p>
-                      <p className="text-slate-500">{tenant.propertyName} - Unit {tenant.unitNumber}</p>
-                    </div>
-                  </div>
 
-                  <div className="text-right">
-                    <p className="font-bold text-emerald-600">{formatKSH(tenant.monthlyRent)}/mo</p>
-                    <p className="text-[10px] text-slate-500">{tenant.email}</p>
+                    <div className="text-right">
+                      <p className="font-bold text-emerald-600">{formatKSH(tenant.monthlyRent)}/mo</p>
+                      <p className="text-[10px] text-slate-500">{tenant.email}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

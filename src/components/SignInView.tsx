@@ -84,7 +84,26 @@ export const SignInView: React.FC<SignInViewProps> = ({
   const [paymentPhone, setPaymentPhone] = useState('+254 ');
   const [paymentMethod, setPaymentMethod] = useState<'M-Pesa Express' | 'Bank Transfer'>('M-Pesa Express');
 
-  const availableUnits = units.filter((u) => u.status === 'Available');
+  const sortedLandlords = (() => {
+    const list = [...landlords];
+    if (!list.some(l => l.email.trim().toLowerCase() === 'mk@gmail.com')) {
+      list.unshift({
+        id: 'landlord-raha',
+        name: 'Allan (Raha)',
+        companyName: 'Raha Estate Management',
+        email: 'mk@gmail.com',
+        phone: '+254 712 000 111',
+        password: 'password123',
+        subscriptionPaid: true,
+        subscriptionStatus: 'Active'
+      } as Landlord);
+    }
+    return list.sort((a, b) => {
+      if (a.email.trim().toLowerCase() === 'mk@gmail.com') return -1;
+      if (b.email.trim().toLowerCase() === 'mk@gmail.com') return 1;
+      return 0;
+    });
+  })();
 
   // Handle standard Sign In
   const handleSignInSubmit = async (e: React.FormEvent) => {
@@ -358,9 +377,33 @@ export const SignInView: React.FC<SignInViewProps> = ({
         )}
 
         {errorMessage && (
-          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2.5">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-            <span>{errorMessage}</span>
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex flex-col gap-2 shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>{errorMessage}</span>
+            </div>
+            {errorMessage.toLowerCase().includes('no registered') && (
+              <div className="mt-1 pt-2 border-t border-rose-200/80 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMessage(null);
+                    setMode('signup');
+                    if (errorMessage.toLowerCase().includes('landlord')) {
+                      setActiveTab('landlord');
+                      if (email) setLandlordName(email.split('@')[0]);
+                    } else {
+                      setActiveTab('tenant');
+                      if (email) setTenantFullName(email.split('@')[0]);
+                    }
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  Create {activeTab === 'landlord' ? 'Landlord' : 'Tenant'} Account for "{email || 'your email'}"
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -445,8 +488,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
                 Quick Demo Sign In (Click any account to auto-fill & login):
               </span>
               {activeTab === 'landlord' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {landlords.slice(0, 2).map((l) => (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
+                  {sortedLandlords.map((l) => (
                     <button
                       key={l.id}
                       type="button"
@@ -454,8 +497,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
                       className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100/80 text-left transition text-xs group"
                     >
                       <div className="font-extrabold text-blue-900 group-hover:text-blue-950 flex items-center justify-between">
-                        <span>{l.name}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-200 text-blue-800">Landlord</span>
+                        <span className="truncate pr-1">{l.name}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-200 text-blue-800 shrink-0">Landlord</span>
                       </div>
                       <div className="text-[11px] text-blue-700 truncate font-mono">{l.email}</div>
                       <div className="text-[10px] text-slate-500">Password: <code className="font-bold">password123</code></div>
@@ -463,8 +506,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
                   ))}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {tenants.slice(0, 2).map((t) => (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
+                  {tenants.map((t) => (
                     <button
                       key={t.id}
                       type="button"
@@ -472,8 +515,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
                       className="p-2.5 rounded-xl border border-sky-200 bg-sky-50/60 hover:bg-sky-100/80 text-left transition text-xs group"
                     >
                       <div className="font-extrabold text-sky-900 group-hover:text-sky-950 flex items-center justify-between">
-                        <span>{t.fullName}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-sky-200 text-sky-800">Tenant ({t.unitNumber})</span>
+                        <span className="truncate pr-1">{t.fullName}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-sky-200 text-sky-800 shrink-0">Tenant ({t.unitNumber})</span>
                       </div>
                       <div className="text-[11px] text-sky-700 truncate font-mono">{t.email}</div>
                       <div className="text-[10px] text-slate-500">Password: <code className="font-bold">password123</code></div>

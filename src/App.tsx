@@ -24,6 +24,7 @@ import {
   fetchUnits,
   createUnit,
   fetchTenants,
+  registerTenant,
   fetchInvoices,
   fetchQuotes,
   fetchPayments,
@@ -250,6 +251,55 @@ export default function App() {
     navigateRole('landlord', 'tenants');
   };
 
+  const handleSeedSampleDataForLandlord = async () => {
+    if (!currentLandlord) return;
+    try {
+      const newProp = await createProperty({
+        landlordId: currentLandlord.id,
+        name: `${currentLandlord.name.split(' ')[0]}'s Crest Heights`,
+        address: '540 Ngong Road, Kilimani',
+        city: 'Nairobi',
+        type: 'Apartment Complex',
+        totalUnits: 6,
+        imageUrl: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+        description: 'Modern executive apartments with high-speed fiber internet, 24/7 manned security gate, borehole, and automatic generator.',
+        amenities: ['Elevator', '24/7 Security', 'Parking', 'Fiber Wi-Fi', 'Borehole Water']
+      });
+
+      const u1 = await createUnit({
+        propertyId: newProp.id,
+        propertyName: newProp.name,
+        unitNumber: 'A-101',
+        bedrooms: 2,
+        bathrooms: 2,
+        sqft: 850,
+        monthlyRent: 55000,
+        depositAmount: 55000,
+        status: 'Occupied',
+        features: ['Master En-suite', 'Spacious Balcony', 'Granite Tops']
+      });
+
+      await registerTenant({
+        landlordId: currentLandlord.id,
+        fullName: 'Grace Wambui',
+        email: `grace.wambui.${Math.floor(100 + Math.random() * 900)}@example.com`,
+        phone: '+254 712 998 877',
+        unitId: u1.id,
+        propertyId: newProp.id,
+        propertyName: newProp.name,
+        unitNumber: u1.unitNumber,
+        monthlyRent: 55000,
+        depositAmount: 55000,
+        moveInDate: new Date().toISOString().split('T')[0],
+        leaseTermMonths: '12'
+      });
+
+      await loadAllData();
+    } catch (err) {
+      console.error('Error seeding sample estate data:', err);
+    }
+  };
+
   const currentLandlord = signedInLandlord || landlords.find((l) => l.id === activeLandlordId) || landlords[0];
 
   const checkLandlordSubscriptionActive = (landlord?: Landlord): boolean => {
@@ -463,6 +513,7 @@ export default function App() {
                         navigateTab('invoices');
                         setShowCreateQuoteModal(true);
                       }}
+                      onSeedSampleData={handleSeedSampleDataForLandlord}
                     />
                   )}
 
