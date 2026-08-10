@@ -481,50 +481,6 @@ export const SignInView: React.FC<SignInViewProps> = ({
                 </>
               )}
             </button>
-
-            {/* Quick Demo Sign In Shortcut */}
-            <div className="pt-2 border-t border-slate-100">
-              <span className="block text-[11px] font-bold text-slate-500 mb-2">
-                Quick Demo Sign In (Click any account to auto-fill & login):
-              </span>
-              {activeTab === 'landlord' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
-                  {sortedLandlords.map((l) => (
-                    <button
-                      key={l.id}
-                      type="button"
-                      onClick={() => handleQuickLandlordLogin(l)}
-                      className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100/80 text-left transition text-xs group"
-                    >
-                      <div className="font-extrabold text-blue-900 group-hover:text-blue-950 flex items-center justify-between">
-                        <span className="truncate pr-1">{l.name}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-200 text-blue-800 shrink-0">Landlord</span>
-                      </div>
-                      <div className="text-[11px] text-blue-700 truncate font-mono">{l.email}</div>
-                      <div className="text-[10px] text-slate-500">Password: <code className="font-bold">password123</code></div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
-                  {tenants.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => handleQuickTenantLogin(t)}
-                      className="p-2.5 rounded-xl border border-sky-200 bg-sky-50/60 hover:bg-sky-100/80 text-left transition text-xs group"
-                    >
-                      <div className="font-extrabold text-sky-900 group-hover:text-sky-950 flex items-center justify-between">
-                        <span className="truncate pr-1">{t.fullName}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-sky-200 text-sky-800 shrink-0">Tenant ({t.unitNumber})</span>
-                      </div>
-                      <div className="text-[11px] text-sky-700 truncate font-mono">{t.email}</div>
-                      <div className="text-[10px] text-slate-500">Password: <code className="font-bold">password123</code></div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           </form>
         )}
 
