@@ -34,7 +34,16 @@ import {
   createQuote,
   recordPayment,
   updateMaintenanceStatus,
-  getApiUrl
+  getApiUrl,
+  subscribeToLandlords,
+  subscribeToTenants,
+  subscribeToProperties,
+  subscribeToUnits,
+  subscribeToInvoices,
+  subscribeToQuotes,
+  subscribeToPayments,
+  subscribeToMaintenance,
+  subscribeToEmails
 } from './lib/api';
 
 import {
@@ -174,6 +183,29 @@ export default function App() {
 
   useEffect(() => {
     loadAllData();
+
+    // Attach Firestore real-time cloud sync listeners (instant multi-device/multi-phone updates)
+    const unsubL = subscribeToLandlords((data) => { if (data && data.length > 0) setLandlords(data); });
+    const unsubP = subscribeToProperties((data) => { if (data) setProperties(data); });
+    const unsubU = subscribeToUnits((data) => { if (data) setUnits(data); });
+    const unsubT = subscribeToTenants((data) => { if (data) setTenants(data); });
+    const unsubI = subscribeToInvoices((data) => { if (data) setInvoices(data); });
+    const unsubQ = subscribeToQuotes((data) => { if (data) setQuotes(data); });
+    const unsubPay = subscribeToPayments((data) => { if (data) setPayments(data); });
+    const unsubM = subscribeToMaintenance((data) => { if (data) setMaintenance(data); });
+    const unsubE = subscribeToEmails((data) => { if (data) setEmails(data); });
+
+    return () => {
+      unsubL();
+      unsubP();
+      unsubU();
+      unsubT();
+      unsubI();
+      unsubQ();
+      unsubPay();
+      unsubM();
+      unsubE();
+    };
   }, []);
 
   // Automatic Sign Out on Inactivity (2 Minutes)

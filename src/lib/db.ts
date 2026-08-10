@@ -7,7 +7,8 @@ import {
   updateDoc,
   deleteDoc,
   query,
-  where
+  where,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from './firebase';
 import {
@@ -422,3 +423,36 @@ export async function seedDbIfEmpty(
     console.error('Error seeding database:', err);
   }
 }
+
+// --- REAL-TIME LISTENERS (SYNC ACROSS PHONES/DEVICES) ---
+function subscribeToCol<T>(collectionName: string, onData: (data: T[]) => void): () => void {
+  try {
+    const colRef = collection(db, collectionName);
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const items = snapshot.docs.map((d) => d.data() as T);
+          onData(items);
+        }
+      },
+      (err) => {
+        console.warn(`Firestore real-time sync notice (${collectionName}):`, err);
+      }
+    );
+  } catch (err) {
+    console.error(`Error subscribing to collection ${collectionName}:`, err);
+    return () => {};
+  }
+}
+
+export function subscribeToLandlords(onData: (data: Landlord[]) => void) { return subscribeToCol<Landlord>(COLLECTIONS.LANDLORDS, onData); }
+export function subscribeToTenants(onData: (data: Tenant[]) => void) { return subscribeToCol<Tenant>(COLLECTIONS.TENANTS, onData); }
+export function subscribeToProperties(onData: (data: Property[]) => void) { return subscribeToCol<Property>(COLLECTIONS.PROPERTIES, onData); }
+export function subscribeToUnits(onData: (data: Unit[]) => void) { return subscribeToCol<Unit>(COLLECTIONS.UNITS, onData); }
+export function subscribeToInvoices(onData: (data: Invoice[]) => void) { return subscribeToCol<Invoice>(COLLECTIONS.INVOICES, onData); }
+export function subscribeToQuotes(onData: (data: Quote[]) => void) { return subscribeToCol<Quote>(COLLECTIONS.QUOTES, onData); }
+export function subscribeToPayments(onData: (data: Payment[]) => void) { return subscribeToCol<Payment>(COLLECTIONS.PAYMENTS, onData); }
+export function subscribeToMaintenance(onData: (data: MaintenanceRequest[]) => void) { return subscribeToCol<MaintenanceRequest>(COLLECTIONS.MAINTENANCE, onData); }
+export function subscribeToEmails(onData: (data: EmailLog[]) => void) { return subscribeToCol<EmailLog>(COLLECTIONS.EMAILS, onData); }
+
