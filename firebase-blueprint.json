@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "landlords": {
+      "title": "Landlords",
+      "description": "Registered property owners and estate managers",
+      "fields": {
+        "id": { "type": "string", "description": "Unique landlord ID" },
+        "name": { "type": "string", "description": "Full name" },
+        "companyName": { "type": "string", "description": "Company / Estate name" },
+        "email": { "type": "string", "description": "Login email address" },
+        "phone": { "type": "string", "description": "Contact phone number" },
+        "password": { "type": "string", "description": "Hashed/encrypted password" }
+      }
+    },
+    "tenants": {
+      "title": "Tenants",
+      "description": "Registered tenants",
+      "fields": {
+        "id": { "type": "string", "description": "Unique tenant ID" },
+        "fullName": { "type": "string", "description": "Tenant full name" },
+        "email": { "type": "string", "description": "Tenant login email address" },
+        "phone": { "type": "string", "description": "Phone number" },
+        "password": { "type": "string", "description": "Tenant password" },
+        "propertyId": { "type": "string", "description": "Assigned property ID" },
+        "unitId": { "type": "string", "description": "Assigned unit ID" },
+        "unitNumber": { "type": "string", "description": "Unit number" }
+      }
+    },
+    "properties": {
+      "title": "Properties",
+      "description": "Real estate properties and estates",
+      "fields": {
+        "id": { "type": "string", "description": "Property ID" },
+        "landlordId": { "type": "string", "description": "Landlord owner ID" },
+        "name": { "type": "string", "description": "Property name" },
+        "address": { "type": "string", "description": "Physical address" }
+      }
+    },
+    "units": {
+      "title": "Units",
+      "description": "Rental units",
+      "fields": {
+        "id": { "type": "string", "description": "Unit ID" },
+        "propertyId": { "type": "string", "description": "Property ID" },
+        "unitNumber": { "type": "string", "description": "Unit number" },
+        "monthlyRent": { "type": "number", "description": "Monthly rent amount" }
+      }
+    },
+    "invoices": {
+      "title": "Invoices",
+      "description": "Rent and utility invoices",
+      "fields": {
+        "id": { "type": "string", "description": "Invoice ID" },
+        "tenantId": { "type": "string", "description": "Tenant ID" },
+        "invoiceNumber": { "type": "string", "description": "Invoice number" },
+        "totalAmount": { "type": "number", "description": "Total amount due" }
+      }
+    },
+    "quotes": {
+      "title": "Quotes",
+      "description": "Rental quotes",
+      "fields": {
+        "id": { "type": "string", "description": "Quote ID" },
+        "quoteNumber": { "type": "string", "description": "Quote number" },
+        "tenantName": { "type": "string", "description": "Tenant name" }
+      }
+    },
+    "payments": {
+      "title": "Payments",
+      "description": "Payment records",
+      "fields": {
+        "id": { "type": "string", "description": "Payment ID" },
+        "tenantId": { "type": "string", "description": "Tenant ID" },
+        "amount": { "type": "number", "description": "Payment amount" }
+      }
+    },
+    "maintenance": {
+      "title": "Maintenance",
+      "description": "Maintenance tickets",
+      "fields": {
+        "id": { "type": "string", "description": "Ticket ID" },
+        "tenantId": { "type": "string", "description": "Tenant ID" },
+        "title": { "type": "string", "description": "Ticket summary" }
+      }
+    },
+    "emails": {
+      "title": "Emails",
+      "description": "Sent email logs",
+      "fields": {
+        "id": { "type": "string", "description": "Log ID" },
+        "recipientEmail": { "type": "string", "description": "Recipient email" }
+      }
+    }
+  }
+}

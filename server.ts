@@ -14,6 +14,35 @@ import {
   EmailLog,
   Landlord
 } from './src/types.js';
+import {
+  getLandlordsFromDb,
+  saveLandlordToDb,
+  updateLandlordInDb,
+  getTenantsFromDb,
+  saveTenantToDb,
+  updateTenantInDb,
+  deleteTenantFromDb,
+  getPropertiesFromDb,
+  savePropertyToDb,
+  updatePropertyInDb,
+  deletePropertyFromDb,
+  getUnitsFromDb,
+  saveUnitToDb,
+  updateUnitInDb,
+  getInvoicesFromDb,
+  saveInvoiceToDb,
+  updateInvoiceInDb,
+  getQuotesFromDb,
+  saveQuoteToDb,
+  getPaymentsFromDb,
+  savePaymentToDb,
+  getMaintenanceFromDb,
+  saveMaintenanceToDb,
+  updateMaintenanceInDb,
+  getEmailsFromDb,
+  saveEmailToDb,
+  seedDbIfEmpty
+} from './src/lib/db.js';
 
 dotenv.config();
 
@@ -408,6 +437,9 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+  // Seed Firestore if empty on startup
+  await seedDbIfEmpty(landlords, properties, units, tenants, invoices, quotes, payments, maintenanceRequests, emailLogs);
+
   // CORS Middleware for Mobile (Capacitor / Android) & Cross-Origin API Requests
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
@@ -427,7 +459,7 @@ async function startServer() {
   });
 
   // Authentication Sign In Endpoint (Tenant & Landlord)
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', async (req, res) => {
     try {
       const { email, password, role } = req.body;
       if (!email || !email.toString().trim()) {
@@ -440,8 +472,11 @@ async function startServer() {
       const cleanEmail = email.toString().trim().toLowerCase();
       const cleanPassword = password.toString().trim();
 
+      const currentTenants = await getTenantsFromDb();
+      const currentLandlords = await getLandlordsFromDb();
+
       if (role === 'tenant') {
-        const tenant = tenants.find((t) => t.email.trim().toLowerCase() === cleanEmail);
+        const tenant = currentTenants.find((t) => t.email && t.email.trim().toLowerCase() === cleanEmail);
         if (!tenant) {
           return res.status(401).json({ error: 'No tenant account found with this email address.' });
         }
@@ -450,7 +485,7 @@ async function startServer() {
         }
         return res.json({ success: true, role: 'tenant', user: tenant });
       } else if (role === 'landlord') {
-        const landlord = landlords.find((l) => l.email.trim().toLowerCase() === cleanEmail);
+        const landlord = currentLandlords.find((l) => l.email && l.email.trim().toLowerCase() === cleanEmail);
         if (!landlord) {
           return res.status(401).json({ error: 'No landlord account found with this email address.' });
         }
@@ -460,7 +495,7 @@ async function startServer() {
         return res.json({ success: true, role: 'landlord', user: landlord });
       } else {
         // Auto-detect role by email
-        const tenant = tenants.find((t) => t.email.trim().toLowerCase() === cleanEmail);
+        const tenant = currentTenants.find((t) => t.email && t.email.trim().toLowerCase() === cleanEmail);
         if (tenant) {
           if (tenant.password && tenant.password.trim() !== cleanPassword) {
             return res.status(401).json({ error: 'Invalid password.' });
@@ -468,7 +503,7 @@ async function startServer() {
           return res.json({ success: true, role: 'tenant', user: tenant });
         }
 
-        const landlord = landlords.find((l) => l.email.trim().toLowerCase() === cleanEmail);
+        const landlord = currentLandlords.find((l) => l.email && l.email.trim().toLowerCase() === cleanEmail);
         if (landlord) {
           if (landlord.password && landlord.password.trim() !== cleanPassword) {
             return res.status(401).json({ error: 'Invalid password.' });
@@ -484,11 +519,16 @@ async function startServer() {
   });
 
   // Landlords Endpoints
-  app.get('/api/landlords', (req, res) => {
-    res.json(landlords);
+  app.get('/api/landlords', async (req, res) => {
+    try {
+      const data = await getLandlordsFromDb();
+      res.json(data);
+    } catch {
+      res.json(landlords);
+    }
   });
 
-  app.post('/api/landlords/register', (req, res) => {
+  app.post('/api/landlords/register', async (req, res) => {
     try {
       const {
         name,
@@ -515,8 +555,8 @@ async function startServer() {
       const cleanEmail = email.toString().trim().toLowerCase();
       const cleanPassword = password ? password.toString().trim() : 'password123';
 
-      // Check if email already registered
-      const existing = landlords.find(l => l.email.trim().toLowerCase() === cleanEmail);
+      const currentLandlords = await getLandlordsFromDb();
+      const existing = currentLandlords.find(l => l.email && l.email.trim().toLowerCase() === cleanEmail);
       if (existing) {
         return res.status(400).json({ error: 'A landlord account with this email address already exists on EstateMaster.' });
       }
@@ -548,9 +588,8 @@ async function startServer() {
         swiftCode: swiftCode || 'EQBLKENA'
       };
 
-      landlords.unshift(newLandlord);
+      await saveLandlordToDb(newLandlord);
 
-      // Create Subscription Receipt Email
       const emailLog: EmailLog = {
         id: `email-sub-${Date.now()}`,
         recipientEmail: email,
@@ -588,7 +627,7 @@ async function startServer() {
         sentAt: new Date().toISOString(),
         readStatus: false
       };
-      emailLogs.unshift(emailLog);
+      await saveEmailToDb(emailLog);
 
       res.status(201).json({
         landlord: newLandlord,
@@ -600,18 +639,20 @@ async function startServer() {
     }
   });
 
-  app.patch('/api/landlords/:id', (req, res) => {
-    const { id } = req.params;
-    const landlord = landlords.find((l) => l.id === id);
-    if (!landlord) {
-      return res.status(404).json({ error: 'Landlord not found' });
+  app.patch('/api/landlords/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await updateLandlordInDb(id, req.body);
+      const landlordsList = await getLandlordsFromDb();
+      const landlord = landlordsList.find((l) => l.id === id);
+      res.json(landlord || req.body);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-    Object.assign(landlord, req.body);
-    res.json(landlord);
   });
 
   // M-Pesa Express STK Push Simulation Endpoint
-  app.post('/api/payments/stk-push', (req, res) => {
+  app.post('/api/payments/stk-push', async (req, res) => {
     try {
       const { phone, amount, invoiceId, accountRef } = req.body;
       if (!phone || !amount) {
@@ -621,7 +662,8 @@ async function startServer() {
       const payAmt = Number(amount);
       const receiptCode = `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
 
-      const inv = invoiceId ? invoices.find((i) => i.id === invoiceId) : undefined;
+      const currentInvoices = await getInvoicesFromDb();
+      const inv = invoiceId ? currentInvoices.find((i) => i.id === invoiceId) : undefined;
 
       const pay: Payment = {
         id: `pay-${Date.now()}`,
@@ -636,19 +678,18 @@ async function startServer() {
         status: 'Completed',
         notes: `M-Pesa Express STK Push completed for phone ${phone}. Acc: ${accountRef || (inv ? inv.unitNumber : 'EstateMaster Subscription')}`
       };
-      payments.unshift(pay);
+      await savePaymentToDb(pay);
 
       if (inv) {
-        // Update invoice state
         inv.amountPaid = (inv.amountPaid || 0) + payAmt;
         if (inv.amountPaid >= inv.totalAmount) {
           inv.status = 'Paid';
         } else {
           inv.status = 'Partial';
         }
+        await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
 
         if (inv.tenantEmail) {
-          // Dispatch instant M-Pesa SMS / Email payment receipt
           const receiptEmailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #10b981; border-radius: 12px; background: #fff;">
               <div style="background-color: #065f46; color: white; padding: 16px; border-radius: 8px 8px 0 0; text-align: center;">
@@ -676,7 +717,7 @@ async function startServer() {
             </div>
           `;
 
-          emailLogs.unshift({
+          await saveEmailToDb({
             id: `email-${Date.now()}`,
             recipientEmail: inv.tenantEmail,
             recipientName: inv.tenantName,
@@ -704,70 +745,89 @@ async function startServer() {
   });
 
   // Properties & Units
-  app.get('/api/properties', (req, res) => {
-    res.json(properties);
-  });
-
-  app.get('/api/units', (req, res) => {
-    res.json(units);
-  });
-
-  app.post('/api/properties', (req, res) => {
-    const newProp: Property = {
-      id: `prop-${Date.now()}`,
-      ...req.body
-    };
-    properties.push(newProp);
-    res.status(201).json(newProp);
-  });
-
-  app.patch('/api/properties/:id', (req, res) => {
-    const { id } = req.params;
-    const property = properties.find((p) => p.id === id);
-    if (!property) {
-      return res.status(404).json({ error: 'Property not found' });
+  app.get('/api/properties', async (req, res) => {
+    try {
+      res.json(await getPropertiesFromDb());
+    } catch {
+      res.json(properties);
     }
-    Object.assign(property, req.body);
-    res.json(property);
   });
 
-  app.delete('/api/properties/:id', (req, res) => {
-    const { id } = req.params;
-    const index = properties.findIndex((p) => p.id === id);
-    if (index === -1) {
-      return res.status(404).json({ error: 'Property not found' });
+  app.get('/api/units', async (req, res) => {
+    try {
+      res.json(await getUnitsFromDb());
+    } catch {
+      res.json(units);
     }
-    const removed = properties.splice(index, 1)[0];
-    // Also optional: remove associated units if any
-    const remainingUnits = units.filter((u) => u.propertyId !== id);
-    units.length = 0;
-    units.push(...remainingUnits);
-
-    res.json({ message: 'Property removed successfully', property: removed });
   });
 
-  app.post('/api/units', (req, res) => {
-    const newUnit: Unit = {
-      id: `unit-${Date.now()}`,
-      ...req.body
-    };
-    units.push(newUnit);
-    res.status(201).json(newUnit);
+  app.post('/api/properties', async (req, res) => {
+    try {
+      const newProp: Property = {
+        id: `prop-${Date.now()}`,
+        ...req.body
+      };
+      await savePropertyToDb(newProp);
+      res.status(201).json(newProp);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/properties/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await updatePropertyInDb(id, req.body);
+      const allProps = await getPropertiesFromDb();
+      const property = allProps.find((p) => p.id === id);
+      res.json(property || req.body);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/properties/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await deletePropertyFromDb(id);
+      res.json({ message: 'Property removed successfully', id });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/units', async (req, res) => {
+    try {
+      const newUnit: Unit = {
+        id: `unit-${Date.now()}`,
+        ...req.body
+      };
+      await saveUnitToDb(newUnit);
+      res.status(201).json(newUnit);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Tenants
-  app.get('/api/tenants', (req, res) => {
-    res.json(tenants);
+  app.get('/api/tenants', async (req, res) => {
+    try {
+      res.json(await getTenantsFromDb());
+    } catch {
+      res.json(tenants);
+    }
   });
 
-  app.patch('/api/tenants/:id', (req, res) => {
-    const { id } = req.params;
-    const tenant = tenants.find((t) => t.id === id);
-    if (!tenant) {
-      return res.status(404).json({ error: 'Tenant not found' });
+  app.patch('/api/tenants/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await updateTenantInDb(id, req.body);
+      const currentTenants = await getTenantsFromDb();
+      const tenant = currentTenants.find((t) => t.id === id);
+      res.json(tenant || req.body);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-    Object.assign(tenant, req.body);
-    res.json(tenant);
   });
 
   app.delete('/api/tenants/:id', (req, res) => {
@@ -812,12 +872,16 @@ async function startServer() {
         return res.status(400).json({ error: 'Full name, email, and selected unit are required.' });
       }
 
-      const selectedUnit = units.find(u => u.id === unitId) || units.find(u => u.unitNumber === unitId);
+      const allUnits = await getUnitsFromDb();
+      const allProps = await getPropertiesFromDb();
+      const allLandlords = await getLandlordsFromDb();
+
+      const selectedUnit = allUnits.find(u => u.id === unitId) || allUnits.find(u => u.unitNumber === unitId);
       if (!selectedUnit) {
         return res.status(400).json({ error: 'Selected apartment unit not found.' });
       }
 
-      const selectedProp = properties.find(p => p.id === selectedUnit.propertyId);
+      const selectedProp = allProps.find(p => p.id === selectedUnit.propertyId);
 
       // 1. Create Tenant Record
       const newTenantId = `tenant-${Date.now()}`;
@@ -828,7 +892,7 @@ async function startServer() {
 
       const newTenant: Tenant = {
         id: newTenantId,
-        landlordId: selectedProp?.landlordId || (landlords[0]?.id || 'landlord-1'),
+        landlordId: selectedProp?.landlordId || (allLandlords[0]?.id || 'landlord-1'),
         propertyId: selectedUnit.propertyId,
         unitId: selectedUnit.id,
         propertyName: selectedUnit.propertyName || selectedProp?.name || 'Apartment',
@@ -852,16 +916,21 @@ async function startServer() {
         registeredAt: new Date().toISOString()
       };
 
-      // Mark unit as occupied and attach tenant details directly
-      selectedUnit.status = 'Occupied';
-      selectedUnit.currentTenantName = fullName;
-      selectedUnit.currentTenantEmail = email;
+      // Save tenant doc to Firestore
+      await saveTenantToDb(newTenant);
+
+      // Mark unit as occupied in Firestore
+      await updateUnitInDb(selectedUnit.id, {
+        status: 'Occupied',
+        currentTenantName: fullName,
+        currentTenantEmail: email
+      });
 
       if (selectedProp) {
-        selectedProp.occupiedUnits = units.filter(u => u.propertyId === selectedProp.id && u.status === 'Occupied').length;
+        const updatedUnits = await getUnitsFromDb();
+        const occupiedCount = updatedUnits.filter(u => u.propertyId === selectedProp.id && u.status === 'Occupied').length;
+        await updatePropertyInDb(selectedProp.id, { occupiedUnits: occupiedCount });
       }
-
-      tenants.unshift(newTenant);
 
       // 2. Automatically Generate Rental Quote for the registered tenant
       const quoteId = `q-${Date.now()}`;
@@ -895,7 +964,7 @@ async function startServer() {
         emailedToTenant: true,
         emailSentAt: new Date().toISOString()
       };
-      quotes.push(newQuote);
+      await saveQuoteToDb(newQuote);
 
       // 3. Automatically Generate First Month Invoice for the registered tenant
       const invoiceId = `inv-${Date.now()}`;
@@ -933,7 +1002,7 @@ async function startServer() {
         emailedToTenant: true,
         emailSentAt: new Date().toISOString()
       };
-      invoices.push(newInvoice);
+      await saveInvoiceToDb(newInvoice);
 
       // 4. Send Automated Registration Welcome & Lease Email to Personal Email
       const welcomeEmailBody = `
@@ -993,7 +1062,7 @@ async function startServer() {
         readStatus: false,
         documentId: newInvoice.id
       };
-      emailLogs.push(welcomeEmail);
+      await saveEmailToDb(welcomeEmail);
 
       res.status(201).json({
         success: true,
@@ -1012,229 +1081,260 @@ async function startServer() {
   });
 
   // Invoices & Quotes CRUD
-  app.get('/api/invoices', (req, res) => {
-    res.json(invoices);
-  });
-
-  app.post('/api/invoices/generate', (req, res) => {
-    const { tenantId, periodMonth, waterFee = 25, trashFee = 15, maintenanceFee = 0, discount = 0, notes } = req.body;
-    const tenant = tenants.find(t => t.id === tenantId);
-    if (!tenant) {
-      return res.status(404).json({ error: 'Tenant not found' });
+  app.get('/api/invoices', async (req, res) => {
+    try {
+      res.json(await getInvoicesFromDb());
+    } catch {
+      res.json(invoices);
     }
-
-    const total = tenant.monthlyRent + Number(waterFee) + Number(trashFee) + Number(maintenanceFee) - Number(discount);
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 5);
-
-    const matchedUnit = units.find(u => u.id === tenant.unitId);
-    const matchedProp = properties.find(p => p.id === tenant.propertyId || p.id === matchedUnit?.propertyId);
-
-    const unitNum = tenant.unitNumber || matchedUnit?.unitNumber || 'Unit';
-    const propName = tenant.propertyName || matchedUnit?.propertyName || matchedProp?.name || 'Property';
-
-    const inv: Invoice = {
-      id: `inv-${Date.now()}`,
-      invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
-      tenantId: tenant.id,
-      tenantName: tenant.fullName,
-      tenantEmail: tenant.email,
-      unitId: tenant.unitId || matchedUnit?.id || '',
-      unitNumber: unitNum,
-      propertyName: propName,
-      issueDate: new Date().toISOString().split('T')[0],
-      dueDate: dueDate.toISOString().split('T')[0],
-      periodMonth: periodMonth || 'Current Month',
-      rentAmount: tenant.monthlyRent,
-      waterFee: Number(waterFee),
-      trashFee: Number(trashFee),
-      maintenanceFee: Number(maintenanceFee),
-      taxAmount: 0,
-      discount: Number(discount),
-      totalAmount: total,
-      status: 'Unpaid',
-      amountPaid: 0,
-      notes: notes || `Monthly rent statement for ${periodMonth}`,
-      emailedToTenant: true,
-      emailSentAt: new Date().toISOString()
-    };
-    invoices.push(inv);
-
-    // Send invoice email notification to tenant's personal email
-    const invoiceEmailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff;">
-        <h2 style="color: #1e293b; margin-top: 0;">New Monthly Rent Invoice Dispatched</h2>
-        <p>Dear ${tenant.fullName},</p>
-        <p>A new rental invoice for <strong>${inv.periodMonth}</strong> has been generated for your unit <strong>${inv.unitNumber}</strong>.</p>
-        <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; margin: 16px 0;">
-          <p style="margin: 4px 0;"><strong>Invoice Number:</strong> ${inv.invoiceNumber}</p>
-          <p style="margin: 4px 0;"><strong>Due Date:</strong> ${inv.dueDate}</p>
-          <p style="margin: 4px 0;"><strong>Base Rent:</strong> $${inv.rentAmount}</p>
-          <p style="margin: 4px 0;"><strong>Water & Trash:</strong> $${inv.waterFee + inv.trashFee}</p>
-          <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 8px 0;"/>
-          <p style="margin: 4px 0; font-size: 16px; color: #1e293b;"><strong>Total Amount Due: $${inv.totalAmount}</strong></p>
-        </div>
-        <p>Please log in to your EstateMaster Tenant Mobile App to complete payment or view details.</p>
-      </div>
-    `;
-
-    emailLogs.push({
-      id: `email-${Date.now()}`,
-      recipientEmail: tenant.email,
-      recipientName: tenant.fullName,
-      subject: `📄 Monthly Rent Invoice #${inv.invoiceNumber} (${inv.periodMonth})`,
-      bodyHtml: invoiceEmailHtml,
-      emailType: 'Invoice',
-      sentAt: new Date().toISOString(),
-      readStatus: false,
-      documentId: inv.id
-    });
-
-    res.status(201).json(inv);
   });
 
-  app.get('/api/quotes', (req, res) => {
-    res.json(quotes);
+  app.post('/api/invoices/generate', async (req, res) => {
+    try {
+      const { tenantId, periodMonth, waterFee = 25, trashFee = 15, maintenanceFee = 0, discount = 0, notes } = req.body;
+      const allTenants = await getTenantsFromDb();
+      const tenant = allTenants.find(t => t.id === tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: 'Tenant not found' });
+      }
+
+      const total = tenant.monthlyRent + Number(waterFee) + Number(trashFee) + Number(maintenanceFee) - Number(discount);
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 5);
+
+      const allUnits = await getUnitsFromDb();
+      const allProps = await getPropertiesFromDb();
+
+      const matchedUnit = allUnits.find(u => u.id === tenant.unitId);
+      const matchedProp = allProps.find(p => p.id === tenant.propertyId || p.id === matchedUnit?.propertyId);
+
+      const unitNum = tenant.unitNumber || matchedUnit?.unitNumber || 'Unit';
+      const propName = tenant.propertyName || matchedUnit?.propertyName || matchedProp?.name || 'Property';
+
+      const inv: Invoice = {
+        id: `inv-${Date.now()}`,
+        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        tenantId: tenant.id,
+        tenantName: tenant.fullName,
+        tenantEmail: tenant.email,
+        unitId: tenant.unitId || matchedUnit?.id || '',
+        unitNumber: unitNum,
+        propertyName: propName,
+        issueDate: new Date().toISOString().split('T')[0],
+        dueDate: dueDate.toISOString().split('T')[0],
+        periodMonth: periodMonth || 'Current Month',
+        rentAmount: tenant.monthlyRent,
+        waterFee: Number(waterFee),
+        trashFee: Number(trashFee),
+        maintenanceFee: Number(maintenanceFee),
+        taxAmount: 0,
+        discount: Number(discount),
+        totalAmount: total,
+        status: 'Unpaid',
+        amountPaid: 0,
+        notes: notes || `Monthly rent statement for ${periodMonth}`,
+        emailedToTenant: true,
+        emailSentAt: new Date().toISOString()
+      };
+      await saveInvoiceToDb(inv);
+
+      const invoiceEmailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff;">
+          <h2 style="color: #1e293b; margin-top: 0;">New Monthly Rent Invoice Dispatched</h2>
+          <p>Dear ${tenant.fullName},</p>
+          <p>A new rental invoice for <strong>${inv.periodMonth}</strong> has been generated for your unit <strong>${inv.unitNumber}</strong>.</p>
+          <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; margin: 16px 0;">
+            <p style="margin: 4px 0;"><strong>Invoice Number:</strong> ${inv.invoiceNumber}</p>
+            <p style="margin: 4px 0;"><strong>Due Date:</strong> ${inv.dueDate}</p>
+            <p style="margin: 4px 0;"><strong>Base Rent:</strong> ${inv.rentAmount}</p>
+            <p style="margin: 4px 0;"><strong>Water & Trash:</strong> ${inv.waterFee + inv.trashFee}</p>
+            <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 8px 0;"/>
+            <p style="margin: 4px 0; font-size: 16px; color: #1e293b;"><strong>Total Amount Due: ${inv.totalAmount}</strong></p>
+          </div>
+          <p>Please log in to your EstateMaster Tenant Mobile App to complete payment or view details.</p>
+        </div>
+      `;
+
+      await saveEmailToDb({
+        id: `email-${Date.now()}`,
+        recipientEmail: tenant.email,
+        recipientName: tenant.fullName,
+        subject: `📄 Monthly Rent Invoice #${inv.invoiceNumber} (${inv.periodMonth})`,
+        bodyHtml: invoiceEmailHtml,
+        emailType: 'Invoice',
+        sentAt: new Date().toISOString(),
+        readStatus: false,
+        documentId: inv.id
+      });
+
+      res.status(201).json(inv);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  app.post('/api/quotes/generate', (req, res) => {
-    const { tenantName, tenantEmail, tenantPhone, unitId, monthlyRentQuote, depositQuote, leaseTermMonths = 12, notes } = req.body;
-    const unit = units.find(u => u.id === unitId);
+  app.get('/api/quotes', async (req, res) => {
+    try {
+      res.json(await getQuotesFromDb());
+    } catch {
+      res.json(quotes);
+    }
+  });
 
-    const rent = Number(monthlyRentQuote) || unit?.monthlyRent || 500;
-    const deposit = Number(depositQuote) || unit?.depositAmount || rent;
-    const moveInCost = rent + deposit;
+  app.post('/api/quotes/generate', async (req, res) => {
+    try {
+      const { tenantName, tenantEmail, tenantPhone, unitId, monthlyRentQuote, depositQuote, leaseTermMonths = 12, notes } = req.body;
+      const allUnits = await getUnitsFromDb();
+      const unit = allUnits.find(u => u.id === unitId);
 
-    const validUntil = new Date();
-    validUntil.setDate(validUntil.getDate() + 14);
+      const rent = Number(monthlyRentQuote) || unit?.monthlyRent || 500;
+      const deposit = Number(depositQuote) || unit?.depositAmount || rent;
+      const moveInCost = rent + deposit;
 
-    const qte: Quote = {
-      id: `q-${Date.now()}`,
-      quoteNumber: `QTE-${Date.now().toString().slice(-6)}`,
-      tenantName: tenantName || 'Prospect',
-      tenantEmail: tenantEmail || 'tenant@example.com',
-      tenantPhone: tenantPhone || 'N/A',
-      unitId: unit?.id || 'unit-1',
-      unitNumber: unit?.unitNumber || 'A1',
-      propertyName: unit?.propertyName || 'Apartments',
-      monthlyRentQuote: rent,
-      depositQuote: deposit,
-      leaseTermMonths: Number(leaseTermMonths),
-      validUntil: validUntil.toISOString().split('T')[0],
-      estimatedUtilities: 40,
-      specialDiscount: 0,
-      totalMoveInCost: moveInCost,
-      notes: notes || 'Official lease quotation from landlord.',
-      status: 'Sent',
-      createdAt: new Date().toISOString(),
-      emailedToTenant: true,
-      emailSentAt: new Date().toISOString()
-    };
-    quotes.push(qte);
+      const validUntil = new Date();
+      validUntil.setDate(validUntil.getDate() + 14);
 
-    // Send email log
-    const quoteEmailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff;">
-        <h2 style="color: #0f172a; margin-top: 0;">Official Rental Quote Offer</h2>
-        <p>Dear ${qte.tenantName},</p>
-        <p>Thank you for your interest in <strong>Unit ${qte.unitNumber}</strong> at <strong>${qte.propertyName}</strong>.</p>
-        <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 16px 0;">
-          <p style="margin: 4px 0;"><strong>Quote #:</strong> ${qte.quoteNumber}</p>
-          <p style="margin: 4px 0;"><strong>Quoted Monthly Rent:</strong> $${qte.monthlyRentQuote}</p>
-          <p style="margin: 4px 0;"><strong>Security Deposit:</strong> $${qte.depositQuote}</p>
-          <p style="margin: 4px 0;"><strong>Lease Duration:</strong> ${qte.leaseTermMonths} Months</p>
-          <p style="margin: 4px 0; font-size: 16px; color: #0284c7;"><strong>Total Move-in Cost: $${qte.totalMoveInCost}</strong></p>
-          <p style="margin: 4px 0; color: #64748b; font-size: 12px;">Valid Until: ${qte.validUntil}</p>
+      const qte: Quote = {
+        id: `q-${Date.now()}`,
+        quoteNumber: `QTE-${Date.now().toString().slice(-6)}`,
+        tenantName: tenantName || 'Prospect',
+        tenantEmail: tenantEmail || 'tenant@example.com',
+        tenantPhone: tenantPhone || 'N/A',
+        unitId: unit?.id || 'unit-1',
+        unitNumber: unit?.unitNumber || 'A1',
+        propertyName: unit?.propertyName || 'Apartments',
+        monthlyRentQuote: rent,
+        depositQuote: deposit,
+        leaseTermMonths: Number(leaseTermMonths),
+        validUntil: validUntil.toISOString().split('T')[0],
+        estimatedUtilities: 40,
+        specialDiscount: 0,
+        totalMoveInCost: moveInCost,
+        notes: notes || 'Official lease quotation from landlord.',
+        status: 'Sent',
+        createdAt: new Date().toISOString(),
+        emailedToTenant: true,
+        emailSentAt: new Date().toISOString()
+      };
+      await saveQuoteToDb(qte);
+
+      const quoteEmailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff;">
+          <h2 style="color: #0f172a; margin-top: 0;">Official Rental Quote Offer</h2>
+          <p>Dear ${qte.tenantName},</p>
+          <p>Thank you for your interest in <strong>Unit ${qte.unitNumber}</strong> at <strong>${qte.propertyName}</strong>.</p>
+          <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 16px 0;">
+            <p style="margin: 4px 0;"><strong>Quote #:</strong> ${qte.quoteNumber}</p>
+            <p style="margin: 4px 0;"><strong>Quoted Monthly Rent:</strong> ${qte.monthlyRentQuote}</p>
+            <p style="margin: 4px 0;"><strong>Security Deposit:</strong> ${qte.depositQuote}</p>
+            <p style="margin: 4px 0;"><strong>Lease Duration:</strong> ${qte.leaseTermMonths} Months</p>
+            <p style="margin: 4px 0; font-size: 16px; color: #0284c7;"><strong>Total Move-in Cost: ${qte.totalMoveInCost}</strong></p>
+            <p style="margin: 4px 0; color: #64748b; font-size: 12px;">Valid Until: ${qte.validUntil}</p>
+          </div>
         </div>
-      </div>
-    `;
+      `;
 
-    emailLogs.push({
-      id: `email-${Date.now()}`,
-      recipientEmail: qte.tenantEmail,
-      recipientName: qte.tenantName,
-      subject: `🏷️ Rental Quotation #${qte.quoteNumber} - Unit ${qte.unitNumber}`,
-      bodyHtml: quoteEmailHtml,
-      emailType: 'Quote',
-      sentAt: new Date().toISOString(),
-      readStatus: false,
-      documentId: qte.id
-    });
+      await saveEmailToDb({
+        id: `email-${Date.now()}`,
+        recipientEmail: qte.tenantEmail,
+        recipientName: qte.tenantName,
+        subject: `🏷️ Rental Quotation #${qte.quoteNumber} - Unit ${qte.unitNumber}`,
+        bodyHtml: quoteEmailHtml,
+        emailType: 'Quote',
+        sentAt: new Date().toISOString(),
+        readStatus: false,
+        documentId: qte.id
+      });
 
-    res.status(201).json(qte);
+      res.status(201).json(qte);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Payments
-  app.get('/api/payments', (req, res) => {
-    res.json(payments);
+  app.get('/api/payments', async (req, res) => {
+    try {
+      res.json(await getPaymentsFromDb());
+    } catch {
+      res.json(payments);
+    }
   });
 
-  app.post('/api/payments/record', (req, res) => {
-    const { invoiceId, amount, paymentMethod, referenceCode, notes } = req.body;
-    const inv = invoices.find(i => i.id === invoiceId);
-    if (!inv) {
-      return res.status(404).json({ error: 'Invoice not found' });
-    }
+  app.post('/api/payments/record', async (req, res) => {
+    try {
+      const { invoiceId, amount, paymentMethod, referenceCode, notes } = req.body;
+      const allInvoices = await getInvoicesFromDb();
+      const inv = allInvoices.find(i => i.id === invoiceId);
+      if (!inv) {
+        return res.status(404).json({ error: 'Invoice not found' });
+      }
 
-    const payAmt = Number(amount) || inv.totalAmount;
-    const pay: Payment = {
-      id: `pay-${Date.now()}`,
-      invoiceId,
-      tenantId: inv.tenantId,
-      tenantName: inv.tenantName,
-      unitNumber: inv.unitNumber,
-      amount: payAmt,
-      paymentMethod: paymentMethod || 'M-Pesa',
-      referenceCode: referenceCode || `REF-${Math.floor(Math.random() * 899999 + 100000)}`,
-      paymentDate: new Date().toISOString(),
-      status: 'Completed',
-      notes
-    };
-    payments.push(pay);
+      const payAmt = Number(amount) || inv.totalAmount;
+      const pay: Payment = {
+        id: `pay-${Date.now()}`,
+        invoiceId,
+        tenantId: inv.tenantId,
+        tenantName: inv.tenantName,
+        unitNumber: inv.unitNumber,
+        amount: payAmt,
+        paymentMethod: paymentMethod || 'M-Pesa',
+        referenceCode: referenceCode || `REF-${Math.floor(Math.random() * 899999 + 100000)}`,
+        paymentDate: new Date().toISOString(),
+        status: 'Completed',
+        notes
+      };
+      await savePaymentToDb(pay);
 
-    // Update invoice status
-    inv.amountPaid = (inv.amountPaid || 0) + payAmt;
-    if (inv.amountPaid >= inv.totalAmount) {
-      inv.status = 'Paid';
-    } else if (inv.amountPaid > 0) {
-      inv.status = 'Partial';
-    }
+      inv.amountPaid = (inv.amountPaid || 0) + payAmt;
+      if (inv.amountPaid >= inv.totalAmount) {
+        inv.status = 'Paid';
+      } else if (inv.amountPaid > 0) {
+        inv.status = 'Partial';
+      }
+      await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
 
-    // Dispatch payment receipt email
-    const receiptEmailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff;">
-        <h2 style="color: #166534; margin-top: 0;">Payment Received Confirmation</h2>
-        <p>Dear ${inv.tenantName},</p>
-        <p>We have successfully received your payment of <strong>$${payAmt.toFixed(2)}</strong> for Invoice <strong>#${inv.invoiceNumber}</strong>.</p>
-        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
-          <p style="margin: 4px 0;"><strong>Receipt ID:</strong> ${pay.id}</p>
-          <p style="margin: 4px 0;"><strong>Payment Method:</strong> ${pay.paymentMethod}</p>
-          <p style="margin: 4px 0;"><strong>Reference Code:</strong> ${pay.referenceCode}</p>
-          <p style="margin: 4px 0;"><strong>Date:</strong> ${new Date(pay.paymentDate).toLocaleDateString()}</p>
-          <p style="margin: 4px 0; color: #15803d; font-size: 16px;"><strong>Invoice Paid In Full: $${inv.amountPaid.toFixed(2)} / $${inv.totalAmount.toFixed(2)}</strong></p>
+      const receiptEmailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff;">
+          <h2 style="color: #166534; margin-top: 0;">Payment Received Confirmation</h2>
+          <p>Dear ${inv.tenantName},</p>
+          <p>We have successfully received your payment of <strong>${payAmt.toFixed(2)}</strong> for Invoice <strong>#${inv.invoiceNumber}</strong>.</p>
+          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
+            <p style="margin: 4px 0;"><strong>Receipt ID:</strong> ${pay.id}</p>
+            <p style="margin: 4px 0;"><strong>Payment Method:</strong> ${pay.paymentMethod}</p>
+            <p style="margin: 4px 0;"><strong>Reference Code:</strong> ${pay.referenceCode}</p>
+            <p style="margin: 4px 0;"><strong>Date:</strong> ${new Date(pay.paymentDate).toLocaleDateString()}</p>
+            <p style="margin: 4px 0; color: #15803d; font-size: 16px;"><strong>Invoice Paid In Full: ${inv.amountPaid.toFixed(2)} / ${inv.totalAmount.toFixed(2)}</strong></p>
+          </div>
+          <p>Thank you for choosing EstateMaster Property Management.</p>
         </div>
-        <p>Thank you for choosing EstateMaster Property Management.</p>
-      </div>
-    `;
+      `;
 
-    emailLogs.push({
-      id: `email-${Date.now()}`,
-      recipientEmail: inv.tenantEmail,
-      recipientName: inv.tenantName,
-      subject: `✅ Payment Receipt for Invoice #${inv.invoiceNumber} ($${payAmt})`,
-      bodyHtml: receiptEmailHtml,
-      emailType: 'Payment Receipt',
-      sentAt: new Date().toISOString(),
-      readStatus: false,
-      documentId: pay.id
-    });
+      await saveEmailToDb({
+        id: `email-${Date.now()}`,
+        recipientEmail: inv.tenantEmail,
+        recipientName: inv.tenantName,
+        subject: `✅ Payment Receipt for Invoice #${inv.invoiceNumber} (${payAmt})`,
+        bodyHtml: receiptEmailHtml,
+        emailType: 'Payment Receipt',
+        sentAt: new Date().toISOString(),
+        readStatus: false,
+        documentId: pay.id
+      });
 
-    res.status(201).json({ payment: pay, invoice: inv });
+      res.status(201).json({ payment: pay, invoice: inv });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Maintenance Requests
-  app.get('/api/maintenance', (req, res) => {
-    res.json(maintenanceRequests);
+  app.get('/api/maintenance', async (req, res) => {
+    try {
+      res.json(await getMaintenanceFromDb());
+    } catch {
+      res.json(maintenanceRequests);
+    }
   });
 
   // AI Maintenance Chatbot Assistant Endpoint
@@ -1308,8 +1408,9 @@ Formatting & Tone Instructions:
     try {
       const { tenantId, tenantName, tenantEmail, unitNumber, propertyName, title, description, category, urgency, photoUrl } = req.body;
       
+      const allTenants = await getTenantsFromDb();
       // Match registered tenant accurately by ID, Email, or Name
-      const matchedTenant = tenants.find((t) =>
+      const matchedTenant = allTenants.find((t) =>
         (tenantId && t.id === tenantId) ||
         (tenantEmail && t.email?.toLowerCase() === tenantEmail.toLowerCase()) ||
         (tenantName && t.fullName?.toLowerCase() === tenantName.toLowerCase())
@@ -1400,35 +1501,43 @@ Provide a JSON object with:
         photoUrl
       };
 
-      maintenanceRequests.unshift(reqObj);
+      await saveMaintenanceToDb(reqObj);
       res.status(201).json(reqObj);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to log maintenance request' });
     }
   });
 
-  app.patch('/api/maintenance/:id', (req, res) => {
-    const { id } = req.params;
-    const reqObj = maintenanceRequests.find(m => m.id === id);
-    if (!reqObj) {
-      return res.status(404).json({ error: 'Request not found' });
+  app.patch('/api/maintenance/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates: Partial<MaintenanceRequest> = {};
+      if (req.body.status) updates.status = req.body.status;
+      if (req.body.assignedTechnician) updates.assignedTechnician = req.body.assignedTechnician;
+      if (req.body.status === 'Completed') updates.resolvedAt = new Date().toISOString();
+
+      await updateMaintenanceInDb(id, updates);
+      const allMaint = await getMaintenanceFromDb();
+      const updated = allMaint.find(m => m.id === id);
+      res.json(updated || req.body);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-
-    if (req.body.status) reqObj.status = req.body.status;
-    if (req.body.assignedTechnician) reqObj.assignedTechnician = req.body.assignedTechnician;
-    if (req.body.status === 'Completed') reqObj.resolvedAt = new Date().toISOString();
-
-    res.json(reqObj);
   });
 
   // Email Logs
-  app.get('/api/emails', (req, res) => {
-    const { recipientEmail } = req.query;
-    if (recipientEmail) {
-      const filtered = emailLogs.filter(e => e.recipientEmail.toLowerCase() === (recipientEmail as string).toLowerCase());
-      return res.json(filtered);
+  app.get('/api/emails', async (req, res) => {
+    try {
+      const allEmails = await getEmailsFromDb();
+      const { recipientEmail } = req.query;
+      if (recipientEmail) {
+        const filtered = allEmails.filter(e => e.recipientEmail.toLowerCase() === (recipientEmail as string).toLowerCase());
+        return res.json(filtered);
+      }
+      res.json(allEmails);
+    } catch {
+      res.json(emailLogs);
     }
-    res.json(emailLogs);
   });
 
   // AI GEMINI POWERED ENDPOINTS
