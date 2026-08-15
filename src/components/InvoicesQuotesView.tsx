@@ -200,11 +200,59 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
         margin: [8, 8, 8, 8],
         filename: filename,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          onclone: (clonedDoc: Document) => {
+            // Remove / convert oklch in cloned styles to prevent html2canvas oklch parsing error
+            const styleTags = clonedDoc.querySelectorAll('style');
+            styleTags.forEach((style) => {
+              if (style.innerHTML && style.innerHTML.includes('oklch')) {
+                style.innerHTML = style.innerHTML.replace(/oklch\([^)]+\)/gi, '#4f46e5');
+              }
+            });
+
+            // Normalize inline & computed styles for printable-document nodes
+            const clonedEl = clonedDoc.getElementById('printable-document');
+            const origEl = document.getElementById('printable-document');
+            if (clonedEl && origEl) {
+              const origNodes = [origEl, ...Array.from(origEl.querySelectorAll('*'))];
+              const clonedNodes = [clonedEl, ...Array.from(clonedEl.querySelectorAll('*'))];
+
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+
+              const sanitizeColor = (colorStr: string) => {
+                if (!colorStr || !colorStr.includes('oklch')) return colorStr;
+                if (!ctx) return '#334155';
+                return colorStr.replace(/oklch\([^)]+\)/gi, (match) => {
+                  try {
+                    ctx.fillStyle = '#000000';
+                    ctx.fillStyle = match;
+                    return ctx.fillStyle !== '#000000' ? ctx.fillStyle : '#334155';
+                  } catch (e) {
+                    return '#334155';
+                  }
+                });
+              };
+
+              origNodes.forEach((origNode, idx) => {
+                const targetNode = clonedNodes[idx] as HTMLElement;
+                if (targetNode && origNode instanceof HTMLElement) {
+                  const computed = window.getComputedStyle(origNode);
+                  targetNode.style.color = sanitizeColor(computed.color);
+                  targetNode.style.backgroundColor = sanitizeColor(computed.backgroundColor);
+                  targetNode.style.borderColor = sanitizeColor(computed.borderColor);
+                }
+              });
+            }
+          }
+        },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      await html2pdf().set(opt).from(element).save();
+      await (html2pdf as any)().set(opt).from(element).save();
     } catch (err) {
       console.error('PDF generation error, falling back to window.print:', err);
       window.print();

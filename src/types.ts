@@ -1,4 +1,4 @@
-export type PropertyType = 'Apartment Building' | 'Single Family' | 'Duplex' | 'Condo' | 'Commercial' | 'Residential Apartments' | 'Commercial Office Space';
+export type PropertyType = 'Apartment Building' | 'Apartment Complex' | 'Single Family' | 'Duplex' | 'Condo' | 'Commercial' | 'Residential Apartments' | 'Commercial Office Space';
 
 export interface Landlord {
   id: string;

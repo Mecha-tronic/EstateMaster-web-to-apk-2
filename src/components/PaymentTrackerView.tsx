@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Payment, Invoice, Tenant } from '../types';
 import { formatKSH } from '../lib/formatters';
+import { calculateTenantArrears } from '../lib/arrears';
 import { triggerMpesaStkPush } from '../lib/api';
-import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw, Users, Search, Building } from 'lucide-react';
+import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw, Users, Search, Building, AlertTriangle, TrendingDown } from 'lucide-react';
 
 interface PaymentTrackerViewProps {
   payments: Payment[];
@@ -124,25 +125,61 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
     }
   };
 
+  const portfolioArrearsList = tenantGroups.map((g) => {
+    const matchedTenant = tenants.find((t) => t.id === g.id || t.fullName.toLowerCase() === g.name.toLowerCase());
+    const tenantObj = matchedTenant || { id: g.id, fullName: g.name, email: '' };
+    return {
+      group: g,
+      arrears: calculateTenantArrears(tenantObj, invoices, payments)
+    };
+  });
+
+  const totalPortfolioArrears = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalArrears, 0);
+  const totalPortfolioBilled = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalInvoiced, 0);
+  const totalPortfolioPaid = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalPaid, 0);
+
   return (
     <div className="p-4 sm:p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <DollarSign className="w-6 h-6 text-emerald-600" /> Rental Payment Ledger (KSh)
+            <DollarSign className="w-6 h-6 text-emerald-600" /> Rent Collection & Arrears Ledger
           </h2>
           <p className="text-xs sm:text-sm text-slate-500">
-            Track all incoming rental payments, trigger M-Pesa Express STK pushes, and dispatch receipts.
+            Real-time tracking of rent collection, partial payments, tenant arrears balances, and M-Pesa STK pushes.
           </p>
         </div>
 
         <button
           onClick={() => setShowRecordModal(true)}
-          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
         >
           <Plus className="w-4 h-4" /> Record / Trigger Payment
         </button>
+      </div>
+
+      {/* Portfolio Arrears & Rent Collection KPI Banner */}
+      <div className="bg-slate-900 text-white rounded-2xl p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 shadow-md">
+        <div className="space-y-1">
+          <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Outstanding Arrears</span>
+          <p className={`text-2xl font-black ${totalPortfolioArrears > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+            {formatKSH(totalPortfolioArrears)}
+          </p>
+          <p className="text-[11px] text-slate-400">Arrears balance due across all active tenant accounts</p>
+        </div>
+
+        <div className="space-y-1 sm:border-l border-slate-800 sm:pl-4">
+          <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Rent Billed</span>
+          <p className="text-xl font-bold text-white">{formatKSH(totalPortfolioBilled)}</p>
+          <p className="text-[11px] text-slate-400">Total invoice billing generated to date</p>
+        </div>
+
+        <div className="space-y-1 sm:border-l border-slate-800 sm:pl-4">
+          <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Collected to Date</span>
+          <p className="text-xl font-bold text-emerald-400">{formatKSH(totalPortfolioPaid)}</p>
+          <p className="text-[11px] text-slate-400">Settled rent & utility payments received</p>
+        </div>
       </div>
 
       {/* Sub Tabs Toggle */}
@@ -191,13 +228,15 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
             </div>
           ) : (
             tenantGroups.map((group) => {
+              const matchedTenant = tenants.find((t) => t.id === group.id || t.fullName.toLowerCase() === group.name.toLowerCase());
+              const tenantObj = matchedTenant || { id: group.id, fullName: group.name, email: '' };
+              const arrearsData = calculateTenantArrears(tenantObj, invoices, payments);
+
               const groupPayments = payments.filter(
                 (p) =>
                   p.tenantName.toLowerCase() === group.name.toLowerCase() ||
                   (p.tenantId && p.tenantId === group.id)
               );
-
-              const totalPaid = groupPayments.reduce((sum, p) => sum + p.amount, 0);
 
               return (
                 <div
@@ -221,16 +260,34 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                               <Building className="w-3 h-3 text-slate-400" /> {group.propertyName}
                             </span>
                           )}
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            arrearsData.status === 'Up-To-Date' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                            arrearsData.status === 'Partial Arrears' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                            'bg-rose-100 text-rose-800 border border-rose-200'
+                          }`}>
+                            {arrearsData.status}
+                          </span>
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          {groupPayments.length} Payment Transaction{groupPayments.length === 1 ? '' : 's'} Recorded
+                          {groupPayments.length} Transaction{groupPayments.length === 1 ? '' : 's'} | Total Billed: {formatKSH(arrearsData.totalInvoiced)}
                         </p>
                       </div>
                     </div>
 
-                    <div className="bg-white border border-emerald-200 rounded-xl p-2.5 text-center sm:text-right shadow-2xs">
-                      <p className="text-[10px] text-emerald-600 font-medium">Total Rent Collected</p>
-                      <p className="text-base font-extrabold text-emerald-700">{formatKSH(totalPaid)}</p>
+                    <div className="flex items-center gap-3">
+                      <div className={`border rounded-xl p-2.5 text-center sm:text-right shadow-2xs ${
+                        arrearsData.totalArrears > 0 ? 'bg-amber-50 border-amber-300' : 'bg-emerald-50 border-emerald-200'
+                      }`}>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase">Current Arrears</p>
+                        <p className={`text-base font-black ${arrearsData.totalArrears > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                          {formatKSH(arrearsData.totalArrears)}
+                        </p>
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl p-2.5 text-center sm:text-right shadow-2xs">
+                        <p className="text-[10px] text-slate-500 font-bold uppercase">Total Collected</p>
+                        <p className="text-base font-bold text-emerald-700">{formatKSH(arrearsData.totalPaid)}</p>
+                      </div>
                     </div>
                   </div>
 

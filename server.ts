@@ -1673,6 +1673,12 @@ Return JSON:
     }
   });
 
+  // Explicit route for Android Digital Asset Links verification
+  app.get('/.well-known/assetlinks.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.sendFile(path.join(process.cwd(), 'public', '.well-known', 'assetlinks.json'));
+  });
+
   // Catch-all 404 handler for API routes to guarantee JSON response
   app.all('/api/*', (req, res) => {
     res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });

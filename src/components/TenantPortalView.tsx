@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Tenant, Invoice, Quote, MaintenanceRequest, EmailLog, Landlord, Unit, Property } from '../types';
+import { Tenant, Invoice, Payment, Quote, MaintenanceRequest, EmailLog, Landlord, Unit, Property } from '../types';
 import { formatKSH } from '../lib/formatters';
+import { calculateTenantArrears } from '../lib/arrears';
 import { SignInView } from './SignInView';
 import {
   Key,
@@ -30,7 +31,10 @@ import {
   Check,
   Smartphone,
   Building2,
-  CreditCard
+  CreditCard,
+  Receipt,
+  TrendingDown,
+  AlertCircle
 } from 'lucide-react';
 import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails, sendMaintenanceAiChat } from '../lib/api';
 
@@ -40,6 +44,7 @@ interface TenantPortalViewProps {
   units?: Unit[];
   properties?: Property[];
   invoices: Invoice[];
+  payments?: Payment[];
   quotes: Quote[];
   maintenance: MaintenanceRequest[];
   initialTenantEmail?: string;
@@ -57,6 +62,7 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   units = [],
   properties = [],
   invoices,
+  payments = [],
   quotes,
   maintenance,
   initialTenantEmail,
@@ -93,6 +99,8 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
 
   // Payment state
   const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
+  const [payAmountInput, setPayAmountInput] = useState<string>('');
+  const [payNotesInput, setPayNotesInput] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<'M-Pesa' | 'Bank Transfer' | 'Credit Card'>('M-Pesa');
   const [payRef, setPayRef] = useState('MPESA-92810');
   const [isProcessingPay, setIsProcessingPay] = useState(false);
@@ -186,6 +194,8 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   const tenantInvoices = invoices.filter((i) => i.tenantId === currentTenant?.id || i.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
   const tenantQuotes = quotes.filter((q) => q.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
   const tenantMaintenance = maintenance.filter((m) => m.tenantId === currentTenant?.id || m.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
+  const tenantPayments = payments.filter((p) => p.tenantId === currentTenant?.id || p.tenantName?.toLowerCase().trim() === currentTenant?.fullName?.toLowerCase().trim());
+  const tenantArrears = calculateTenantArrears(currentTenant, invoices, payments);
 
   const handleSendAiChat = async (userPrompt?: string) => {
     const promptToSubmit = userPrompt || chatInput;
@@ -255,16 +265,22 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
     if (!payingInvoice) return;
     setIsProcessingPay(true);
 
+    const dueRemaining = payingInvoice.totalAmount - (payingInvoice.amountPaid || 0);
+    const parsedAmount = parseFloat(payAmountInput);
+    const finalAmount = !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : dueRemaining;
+
     try {
       await recordPayment({
         invoiceId: payingInvoice.id,
-        amount: payingInvoice.totalAmount - (payingInvoice.amountPaid || 0),
+        amount: finalAmount,
         paymentMethod,
         referenceCode: payRef || `REF-${Math.floor(Math.random() * 899999 + 100000)}`,
-        notes: `Online tenant portal checkout payment via ${paymentMethod}`
+        notes: payNotesInput || `Tenant portal payment via ${paymentMethod} (Amount: KSh ${finalAmount.toLocaleString()})`
       });
 
       setPayingInvoice(null);
+      setPayAmountInput('');
+      setPayNotesInput('');
       onRefreshData();
     } catch (err) {
       console.error(err);
@@ -394,6 +410,79 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
       {/* DASHBOARD TAB */}
       {portalTab === 'dashboard' && (
         <div className="space-y-6">
+          {/* Rent Collection & Arrears Record Banner */}
+          <div className={`p-5 rounded-2xl border shadow-sm space-y-4 text-slate-900 ${
+            tenantArrears.totalArrears > 0 
+              ? 'bg-amber-50/90 border-amber-300' 
+              : 'bg-emerald-50/90 border-emerald-300'
+          }`}>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3 border-slate-200/80">
+              <div className="flex items-center gap-2.5">
+                {tenantArrears.totalArrears > 0 ? (
+                  <div className="p-2.5 rounded-xl bg-amber-500 text-white shadow-xs">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-xs">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                )}
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    {tenantArrears.totalArrears > 0 ? 'Outstanding Rent & Arrears Record' : 'Rent Account Status: Up to Date'}
+                  </h3>
+                  <p className="text-xs text-slate-600 font-medium">
+                    Shared record of rent billed, partial settlements, skipped months, and current arrears balance.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                  tenantArrears.status === 'Up-To-Date' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                  tenantArrears.status === 'Partial Arrears' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                  'bg-rose-100 text-rose-800 border border-rose-300'
+                }`}>
+                  {tenantArrears.status}
+                </span>
+                {tenantArrears.totalArrears > 0 && (
+                  <button
+                    onClick={() => setPortalTab('invoices')}
+                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <DollarSign className="w-3.5 h-3.5" /> Pay Rent / Arrears
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] text-slate-500 uppercase font-bold block">Outstanding Arrears</span>
+                <span className={`text-lg font-black ${tenantArrears.totalArrears > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {formatKSH(tenantArrears.totalArrears)}
+                </span>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] text-slate-500 uppercase font-bold block">Total Rent Billed</span>
+                <span className="text-lg font-bold text-slate-900">{formatKSH(tenantArrears.totalInvoiced)}</span>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] text-slate-500 uppercase font-bold block">Total Paid to Date</span>
+                <span className="text-lg font-bold text-emerald-600">{formatKSH(tenantArrears.totalPaid)}</span>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] text-slate-500 uppercase font-bold block">Unpaid / Skipped Months</span>
+                <span className="text-lg font-bold text-slate-800">
+                  {tenantArrears.skippedMonthsCount + tenantArrears.partialMonthsCount} Month(s)
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* Lease Info Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 grid grid-cols-1 md:grid-cols-3 gap-4 shadow-sm text-slate-900">
             <div>
@@ -1015,14 +1104,51 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">Unit {currentTenant.unitNumber}</span>
               </div>
               <p><strong>Building / Property:</strong> {currentTenant.propertyName || 'Property Premises'}</p>
-              <p><strong>Street Address:</strong> {currentTenant.propertyName ? `${currentTenant.propertyName}, Nairobi, Kenya` : 'Nairobi, Kenya'}</p>
               <p>Period: <strong className="text-slate-900">{payingInvoice.periodMonth}</strong></p>
-              <p className="text-base font-extrabold text-emerald-600 pt-1">
-                Total Amount Due: {formatKSH(payingInvoice.totalAmount)}
-              </p>
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/60 font-bold text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-500 block uppercase font-bold">Total Invoiced:</span>
+                  <span className="text-slate-900">{formatKSH(payingInvoice.totalAmount)}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 block uppercase font-bold">Current Remaining Due:</span>
+                  <span className="text-amber-700">{formatKSH(Math.max(0, payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)))}</span>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-3">
+              <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-2">
+                <label className="block text-slate-800 font-extrabold text-xs">
+                  Amount to Pay Now (KSh)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={payAmountInput !== '' ? payAmountInput : (payingInvoice.totalAmount - (payingInvoice.amountPaid || 0))}
+                    onChange={(e) => setPayAmountInput(e.target.value)}
+                    placeholder={(payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)).toString()}
+                    className="w-full bg-white border border-blue-300 rounded-lg p-2.5 text-slate-900 font-extrabold text-sm shadow-xs focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-600 font-medium">
+                  <button
+                    type="button"
+                    onClick={() => setPayAmountInput((payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)).toString())}
+                    className="text-blue-700 hover:underline font-bold"
+                  >
+                    Pay Full Due ({formatKSH(Math.max(0, payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)))})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayAmountInput((Math.round((payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)) / 2)).toString())}
+                    className="text-slate-600 hover:underline"
+                  >
+                    Pay 50% Fraction
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Select Payment Method</label>
                 <select
@@ -1136,6 +1262,19 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 />
               </div>
 
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  Payment Notes / Arrears Reason (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={payNotesInput}
+                  onChange={(e) => setPayNotesInput(e.target.value)}
+                  placeholder="e.g. Partial payment for August, remaining KSh 10,000 next week"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm text-xs"
+                />
+              </div>
+
               <button
                 onClick={handlePayInvoice}
                 disabled={isProcessingPay}
@@ -1145,7 +1284,7 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                   'Confirming Transaction...'
                 ) : (
                   <>
-                    <CheckCircle2 className="w-4 h-4" /> Settle {formatKSH(payingInvoice.totalAmount)}
+                    <CheckCircle2 className="w-4 h-4" /> Confirm & Record Payment of {formatKSH(parseFloat(payAmountInput) || (payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)))}
                   </>
                 )}
               </button>

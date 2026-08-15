@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="50%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="roofGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Rect -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  
+  <!-- Architectural Building Shapes -->
+  <!-- Left Building -->
+  <rect x="96" y="210" width="100" height="206" rx="8" fill="#ffffff" opacity="0.85"/>
+  <rect x="116" y="235" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="152" y="235" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="116" y="280" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="152" y="280" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="116" y="325" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="152" y="325" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="116" y="370" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="152" y="370" width="24" height="24" rx="4" fill="#1e3a8a"/>
+
+  <!-- Center Tall Tower -->
+  <rect x="180" y="140" width="152" height="276" rx="12" fill="#ffffff"/>
+  <!-- Penthouse roof accent -->
+  <polygon points="180,140 256,90 332,140" fill="url(#roofGrad)"/>
+  <!-- Windows -->
+  <rect x="204" y="160" width="30" height="30" rx="6" fill="#0284c7"/>
+  <rect x="278" y="160" width="30" height="30" rx="6" fill="#0284c7"/>
+  <rect x="204" y="205" width="30" height="30" rx="6" fill="#0284c7"/>
+  <rect x="278" y="205" width="30" height="30" rx="6" fill="#0284c7"/>
+  <rect x="204" y="250" width="30" height="30" rx="6" fill="#0284c7"/>
+  <rect x="278" y="250" width="30" height="30" rx="6" fill="#0284c7"/>
+  <rect x="204" y="295" width="30" height="30" rx="6" fill="#0284c7"/>
+  <rect x="278" y="295" width="30" height="30" rx="6" fill="#0284c7"/>
+  <rect x="204" y="340" width="30" height="30" rx="6" fill="#0284c7"/>
+  <rect x="278" y="340" width="30" height="30" rx="6" fill="#0284c7"/>
+  <!-- Main Entrance -->
+  <rect x="236" y="375" width="40" height="41" rx="4" fill="#1e3a8a"/>
+
+  <!-- Right Building -->
+  <rect x="316" y="240" width="100" height="176" rx="8" fill="#ffffff" opacity="0.9"/>
+  <rect x="336" y="265" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="372" y="265" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="336" y="310" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="372" y="310" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="336" y="355" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <rect x="372" y="355" width="24" height="24" rx="4" fill="#1e3a8a"/>
+
+  <!-- Key / Security Badge in Bottom Right -->
+  <circle cx="400" cy="390" r="48" fill="#10b981" stroke="#ffffff" stroke-width="6"/>
+  <path d="M400 370 L400 405 M390 395 L400 405 L410 395" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

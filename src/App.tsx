@@ -62,15 +62,17 @@ import {
   LayoutDashboard,
   Building2,
   Users,
-  FileText,
-  DollarSign,
+  ReceiptText,
+  WalletCards,
   Wrench,
   UserPlus,
   Key,
+  Landmark,
   CreditCard,
   LogOut,
   ArrowLeft,
-  RefreshCw
+  RefreshCw,
+  Sparkles
 } from 'lucide-react';
 
 export default function App() {
@@ -459,7 +461,7 @@ export default function App() {
                           : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <FileText className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Invoices & Quotes
+                      <ReceiptText className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Invoices & Quotes
                     </button>
 
                     <button
@@ -470,7 +472,7 @@ export default function App() {
                           : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <DollarSign className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Payment Ledger
+                      <WalletCards className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Payment Ledger
                     </button>
 
                     <button
@@ -492,14 +494,14 @@ export default function App() {
                           : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                       }`}
                     >
-                      <CreditCard className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-500" /> Bank & M-Pesa Accounts
+                      <Landmark className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-500" /> Bank & M-Pesa Accounts
                     </button>
 
                     <button
                       onClick={() => setShowRenewSubscriptionModal(true)}
                       className="px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm transition flex items-center gap-2 shadow-md hover:shadow-lg whitespace-nowrap ml-auto"
                     >
-                      <RefreshCw className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-200" /> Renew Subscription ({formatKSH(20000)}/yr)
+                      <Sparkles className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-200" /> Renew Subscription ({formatKSH(20000)}/yr)
                     </button>
                   </div>
                 </div>
@@ -683,6 +685,7 @@ export default function App() {
                 units={units}
                 properties={properties}
                 invoices={invoices}
+                payments={payments}
                 quotes={quotes}
                 maintenance={maintenance}
                 initialTenantEmail={recentRegisteredEmail}
