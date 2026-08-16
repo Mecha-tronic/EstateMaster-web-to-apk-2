@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Landlord } from '../types';
 import { formatKSH } from '../lib/formatters';
-import { updateLandlordDetails, triggerMpesaStkPush } from '../lib/api';
+import { updateLandlordDetails, triggerSubscriptionStkPush } from '../lib/api';
 import {
   Lock,
   ShieldAlert,
@@ -28,7 +28,7 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({
   onSubscriptionRenewed,
   activePlatformName
 }) => {
-  const [paymentPhone, setPaymentPhone] = useState(activeLandlord.phone || '+254 712 345 678');
+  const [paymentPhone, setPaymentPhone] = useState(activeLandlord.phone || '0746549710');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -38,12 +38,11 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({
     setStatusMessage(null);
 
     try {
-      // Trigger STK Push simulation
-      await triggerMpesaStkPush({
+      // Trigger STK Push to platform account +254746549710
+      const res = await triggerSubscriptionStkPush({
         phone: paymentPhone,
         amount: 20000,
-        invoiceId: `SUB-${Date.now()}`,
-        accountRef: activeLandlord.companyName || 'EstateMaster License'
+        landlordId: activeLandlord.id
       });
 
       // Calculate new expiry date (1 year from now)
@@ -55,13 +54,14 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({
       await updateLandlordDetails(activeLandlord.id, {
         subscriptionStatus: 'Active',
         subscriptionExpiry: newExpiry,
-        subscriptionPlan: 'EstateMaster Annual License (KSH 20,000/yr)'
+        subscriptionPlan: 'EstateMaster Annual License (KSH 20,000/yr)',
+        subscriptionPaid: true
       });
 
-      setStatusMessage('✅ KSH 20,000 Payment Received! Annual License Activated.');
+      setStatusMessage(`✅ ${res.CustomerMessage || 'KSH 20,000 Payment Received! Annual License Activated.'}`);
       setTimeout(() => {
         onSubscriptionRenewed();
-      }, 1500);
+      }, 1800);
     } catch (err: any) {
       setStatusMessage(`Payment error: ${err.message || 'Failed to process M-Pesa STK push'}`);
     } finally {

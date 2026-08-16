@@ -36,7 +36,7 @@ import {
   TrendingDown,
   AlertCircle
 } from 'lucide-react';
-import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails, sendMaintenanceAiChat } from '../lib/api';
+import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails, sendMaintenanceAiChat, triggerMpesaStkPush } from '../lib/api';
 
 interface TenantPortalViewProps {
   tenants: Tenant[];
@@ -104,6 +104,9 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<'M-Pesa' | 'Bank Transfer' | 'Credit Card'>('M-Pesa');
   const [payRef, setPayRef] = useState('MPESA-92810');
   const [isProcessingPay, setIsProcessingPay] = useState(false);
+  const [stkPhone, setStkPhone] = useState('0746549710');
+  const [isTriggeringStk, setIsTriggeringStk] = useState(false);
+  const [stkFeedback, setStkFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const handleCopy = (text: string, label: string) => {
@@ -258,6 +261,42 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
       console.error(err);
     } finally {
       setIsSubmittingMaint(false);
+    }
+  };
+
+  const handleTriggerStkPush = async () => {
+    if (!payingInvoice) return;
+    const dueRemaining = payingInvoice.totalAmount - (payingInvoice.amountPaid || 0);
+    const parsedAmount = parseFloat(payAmountInput);
+    const finalAmount = !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : dueRemaining;
+
+    setIsTriggeringStk(true);
+    setStkFeedback(null);
+
+    try {
+      const res = await triggerMpesaStkPush({
+        phone: stkPhone || currentTenant?.phone || '0746549710',
+        amount: finalAmount,
+        invoiceId: payingInvoice.id,
+        tenantId: currentTenant?.id,
+        accountRef: `Unit ${currentTenant?.unitNumber || 'Apartment'}`
+      });
+
+      if (res.receiptCode) {
+        setPayRef(res.receiptCode);
+      }
+      setStkFeedback({
+        type: 'success',
+        message: res.CustomerMessage || `STK Push prompt dispatched to ${stkPhone}! Please check your Safaricom mobile handset and enter your M-Pesa PIN.`
+      });
+      onRefreshData();
+    } catch (err: any) {
+      setStkFeedback({
+        type: 'error',
+        message: err.message || 'Failed to dispatch M-Pesa STK push. Please verify phone number and try again.'
+      });
+    } finally {
+      setIsTriggeringStk(false);
     }
   };
 
@@ -1213,6 +1252,50 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                     >
                       <Copy className="w-3 h-3" /> Copy Account No
                     </button>
+                  </div>
+
+                  {/* STK Push Instant Prompt Trigger */}
+                  <div className="bg-emerald-100/70 border border-emerald-300 rounded-lg p-2.5 space-y-2 mt-2">
+                    <div className="flex items-center justify-between">
+                      <strong className="text-emerald-950 font-bold text-xs flex items-center gap-1">
+                        ⚡ Instant M-Pesa STK Push
+                      </strong>
+                      <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-1.5 py-0.5 rounded">
+                        Auto-Verified
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-emerald-900">
+                      Receive an instant PIN prompt on your phone to complete payment without manually typing Paybill and Account numbers:
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={stkPhone}
+                        onChange={(e) => setStkPhone(e.target.value)}
+                        placeholder="e.g. 0746549710 or 254746549710"
+                        className="flex-1 bg-white border border-emerald-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-mono font-bold"
+                      />
+                      <button
+                        type="button"
+                        disabled={isTriggeringStk}
+                        onClick={handleTriggerStkPush}
+                        className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition shadow-xs flex items-center gap-1 shrink-0 cursor-pointer"
+                      >
+                        {isTriggeringStk ? 'Sending Prompt...' : '📱 Prompt Phone for PIN'}
+                      </button>
+                    </div>
+
+                    {stkFeedback && (
+                      <div
+                        className={`p-2 rounded text-[11px] font-medium ${
+                          stkFeedback.type === 'success'
+                            ? 'bg-emerald-200/80 text-emerald-950 border border-emerald-400'
+                            : 'bg-rose-100 text-rose-900 border border-rose-300'
+                        }`}
+                      >
+                        {stkFeedback.message}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

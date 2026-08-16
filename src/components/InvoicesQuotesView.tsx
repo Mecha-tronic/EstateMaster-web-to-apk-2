@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Invoice, Quote, Tenant, Unit, Landlord, Property } from '../types';
 import { formatKSH } from '../lib/formatters';
 import {
@@ -115,7 +115,36 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
   const [invTrashFee, setInvTrashFee] = useState('15');
   const [invMaintFee, setInvMaintFee] = useState('0');
   const [invDiscount, setInvDiscount] = useState('0');
+  const [invPreviousArrears, setInvPreviousArrears] = useState('0');
   const [invNotes, setInvNotes] = useState('');
+
+  // Auto-calculate arrears whenever the target tenant changes
+  useEffect(() => {
+    if (!invTenantId) return;
+    const targetTenant = tenants.find((t) => t.id === invTenantId);
+    const priorInvoices = invoices.filter(
+      (inv) =>
+        inv.tenantId === invTenantId ||
+        (targetTenant?.email && inv.tenantEmail && inv.tenantEmail.toLowerCase() === targetTenant.email.toLowerCase()) ||
+        (targetTenant?.fullName && inv.tenantName && inv.tenantName.toLowerCase().trim() === targetTenant.fullName.toLowerCase().trim())
+    );
+    const unpaidArrears = priorInvoices
+      .filter((inv) => inv.status !== 'Paid')
+      .reduce((sum, inv) => sum + Math.max(0, (inv.totalAmount || 0) - (inv.amountPaid || 0)), 0);
+
+    setInvPreviousArrears(unpaidArrears.toString());
+  }, [invTenantId, invoices, tenants, showCreateInvoiceModal]);
+
+  // Live selected tenant object & rent
+  const selectedInvTenant = tenants.find((t) => t.id === invTenantId) || tenants[0];
+  const liveBaseRent = selectedInvTenant?.monthlyRent || 0;
+  const liveCalculatedTotal = 
+    liveBaseRent + 
+    (parseFloat(invWaterFee) || 0) + 
+    (parseFloat(invTrashFee) || 0) + 
+    (parseFloat(invMaintFee) || 0) + 
+    (parseFloat(invPreviousArrears) || 0) - 
+    (parseFloat(invDiscount) || 0);
 
   // New Quote State
   const [qteTenantName, setQteTenantName] = useState('');
@@ -137,6 +166,7 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
       trashFee: parseFloat(invTrashFee) || 0,
       maintenanceFee: parseFloat(invMaintFee) || 0,
       discount: parseFloat(invDiscount) || 0,
+      previousArrears: parseFloat(invPreviousArrears) || 0,
       notes: invNotes
     });
     setShowCreateInvoiceModal(false);
@@ -593,6 +623,11 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                         <Mail className="w-3 h-3" /> Emailed
                       </span>
                     )}
+                    {inv.previousArrears && inv.previousArrears > 0 ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 font-bold">
+                        ⚠️ Includes Arrears: {formatKSH(inv.previousArrears)}
+                      </span>
+                    ) : null}
                   </div>
 
                   {(() => {
@@ -715,6 +750,16 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                 </select>
               </div>
 
+              {parseFloat(invPreviousArrears) > 0 && (
+                <div className="bg-amber-50 border border-amber-300 p-3 rounded-lg flex items-start gap-2.5 text-amber-900 text-xs">
+                  <span className="text-base">⚠️</span>
+                  <div>
+                    <strong className="font-bold block text-amber-950">Outstanding Arrears Detected:</strong>
+                    <span>This tenant has <strong className="font-mono text-amber-900">{formatKSH(parseFloat(invPreviousArrears))}</strong> in unpaid balances from prior invoices. It has been automatically added to this new invoice bill.</span>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-slate-700 font-medium mb-1">Invoice Month / Period</label>
                 <input
@@ -725,6 +770,32 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                   placeholder="e.g. September 2026"
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Base Monthly Rent (KSh)</label>
+                  <input
+                    type="number"
+                    disabled
+                    value={liveBaseRent}
+                    className="w-full bg-slate-100 border border-slate-300 rounded-lg p-2.5 text-slate-700 font-semibold shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1 flex items-center justify-between">
+                    <span>Prior Arrears (KSh)</span>
+                    {parseFloat(invPreviousArrears) > 0 && (
+                      <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">Overdue</span>
+                    )}
+                  </label>
+                  <input
+                    type="number"
+                    value={invPreviousArrears}
+                    onChange={(e) => setInvPreviousArrears(e.target.value)}
+                    className="w-full bg-amber-50/50 border border-amber-300 rounded-lg p-2.5 text-slate-900 font-mono shadow-sm"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -767,6 +838,14 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                     className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
                   />
                 </div>
+              </div>
+
+              {/* Live Invoice Summary Total */}
+              <div className="bg-slate-900 text-white p-3 rounded-lg flex items-center justify-between text-sm shadow-inner">
+                <span className="text-slate-300 text-xs">Total Invoiced Amount (with Arrears):</span>
+                <span className="text-base font-bold font-mono text-emerald-400">
+                  {formatKSH(liveCalculatedTotal)}
+                </span>
               </div>
 
               <div>
@@ -1102,6 +1181,15 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                           <td className="py-2.5 font-medium">Monthly Base Rent ({selectedDocument.data.periodMonth})</td>
                           <td className="py-2.5 text-right font-mono">{formatKSH(selectedDocument.data.rentAmount)}</td>
                         </tr>
+                        {selectedDocument.data.previousArrears > 0 && (
+                          <tr className="bg-amber-50/70 font-semibold text-amber-900">
+                            <td className="py-2 flex items-center gap-1.5">
+                              <span>Outstanding Arrears (Previous Months)</span>
+                              <span className="px-1.5 py-0.5 rounded bg-amber-200 text-amber-900 text-[9px] uppercase font-bold">Arrears</span>
+                            </td>
+                            <td className="py-2 text-right font-mono text-amber-800">{formatKSH(selectedDocument.data.previousArrears)}</td>
+                          </tr>
+                        )}
                         {selectedDocument.data.waterFee > 0 && (
                           <tr>
                             <td className="py-2">Water & Drainage Utility</td>
@@ -1118,6 +1206,12 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                           <tr>
                             <td className="py-2">Service Charge / Maintenance</td>
                             <td className="py-2 text-right font-mono">{formatKSH(selectedDocument.data.maintenanceFee)}</td>
+                          </tr>
+                        )}
+                        {selectedDocument.data.discount > 0 && (
+                          <tr className="text-emerald-700 font-medium">
+                            <td className="py-2">Special Discount</td>
+                            <td className="py-2 text-right font-mono">-{formatKSH(selectedDocument.data.discount)}</td>
                           </tr>
                         )}
                       </tbody>

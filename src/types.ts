@@ -112,6 +112,7 @@ export interface Invoice {
   serviceCharge?: number;
   taxAmount?: number;
   discount?: number;
+  previousArrears?: number;
   totalAmount: number;
   status: 'Unpaid' | 'Paid' | 'Overdue' | 'Partial';
   amountPaid?: number;

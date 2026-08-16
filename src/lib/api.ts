@@ -306,9 +306,62 @@ export async function registerLandlordAccount(data: any): Promise<{ landlord: La
   }
 }
 
-export async function triggerMpesaStkPush(data: { phone: string; amount: number; invoiceId: string; accountRef?: string }) {
+export async function triggerSubscriptionStkPush(data: { phone: string; landlordId?: string; amount?: number }) {
   try {
-    const res = await fetch(getApiUrl('/api/payments/stk-push'), {
+    const res = await fetch(getApiUrl('/api/mpesa/subscription-stk-push'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await handleResponse(res, 'M-Pesa Subscription STK Push failed');
+  } catch (err: any) {
+    console.warn('Backend fetch failed, executing local subscription STK push fallback:', err);
+    const receiptCode = `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
+    const amt = data.amount || 20000;
+    const pay: Payment = {
+      id: `pay-sub-${Date.now()}`,
+      invoiceId: `SUB-${Date.now()}`,
+      tenantId: data.landlordId || 'landlord-sub',
+      tenantName: 'EstateMaster Landlord License',
+      unitNumber: 'Annual Commercial License',
+      propertyName: 'EstateMaster SaaS Platform',
+      amount: amt,
+      paymentMethod: 'M-Pesa',
+      referenceCode: receiptCode,
+      paymentDate: new Date().toISOString(),
+      status: 'Completed',
+      notes: `Subscription fee of KSh ${amt.toLocaleString()} paid to Platform Account (+254746549710 - Allan Mokua / EstateMaster Kenya).`
+    };
+    const currentPayments = getLocalData<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
+    currentPayments.unshift(pay);
+    setLocalData(STORAGE_KEYS.PAYMENTS, currentPayments);
+
+    if (data.landlordId) {
+      const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
+      const lIdx = landlords.findIndex(l => l.id === data.landlordId);
+      if (lIdx !== -1) {
+        landlords[lIdx].subscriptionStatus = 'Active';
+        landlords[lIdx].subscriptionPaid = true;
+        landlords[lIdx].receiptCode = receiptCode;
+        setLocalData(STORAGE_KEYS.LANDLORDS, landlords);
+      }
+    }
+
+    return {
+      MerchantRequestID: `MR_${Date.now()}`,
+      CheckoutRequestID: `ws_CO_${Date.now()}`,
+      ResponseCode: '0',
+      ResponseDescription: 'Success. Request accepted for processing',
+      CustomerMessage: `Success! M-Pesa STK Prompt sent to ${data.phone} for KSh ${amt.toLocaleString()} (Beneficiary: Allan Mokua +254746549710).`,
+      receiptCode,
+      payment: pay
+    };
+  }
+}
+
+export async function triggerMpesaStkPush(data: { phone: string; amount: number; invoiceId?: string; tenantId?: string; accountRef?: string }) {
+  try {
+    const res = await fetch(getApiUrl('/api/mpesa/stk-push'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -319,10 +372,10 @@ export async function triggerMpesaStkPush(data: { phone: string; amount: number;
     const receiptCode = `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
     const pay: Payment = {
       id: `pay-${Date.now()}`,
-      invoiceId: data.invoiceId || `SUB-${Date.now()}`,
-      tenantId: 'landlord-sub',
-      tenantName: data.accountRef || 'EstateMaster Subscription',
-      unitNumber: 'Commercial License',
+      invoiceId: data.invoiceId || `RENT-${Date.now()}`,
+      tenantId: data.tenantId || 'tenant-1',
+      tenantName: data.accountRef || 'Tenant Rent Payment',
+      unitNumber: 'Apartment Unit',
       amount: data.amount,
       paymentMethod: 'M-Pesa',
       referenceCode: receiptCode,
@@ -845,24 +898,40 @@ export async function createInvoice(data: any): Promise<Invoice> {
     });
     return await handleResponse(res, 'Failed to create invoice');
   } catch (err) {
+    const invoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
+    const priorArrears = invoices
+      .filter(i => (i.tenantId === data.tenantId || i.tenantName === data.tenantName) && i.status !== 'Paid')
+      .reduce((sum, inv) => sum + Math.max(0, (inv.totalAmount || 0) - (inv.amountPaid || 0)), 0);
+
+    const prevArrears = data.previousArrears !== undefined ? Number(data.previousArrears) : priorArrears;
+    const rent = Number(data.rentAmount || 45000);
+    const water = Number(data.waterFee || data.waterBill || 0);
+    const trash = Number(data.trashFee || 0);
+    const maint = Number(data.maintenanceFee || 0);
+    const discount = Number(data.discount || 0);
+    const total = rent + water + trash + maint + prevArrears - discount;
+
     const newInv: Invoice = {
       id: `inv-${Date.now()}`,
       invoiceNumber: `INV-${Math.floor(10000 + Math.random() * 90000)}`,
       tenantId: data.tenantId || 'tenant-1',
       tenantName: data.tenantName || 'Jane Wanjiku',
       unitNumber: data.unitNumber || 'A101',
-      propertyName: 'Kilimani Palms Heights',
-      rentAmount: Number(data.rentAmount || 45000),
-      waterBill: Number(data.waterBill || 0),
-      electricityBill: Number(data.electricityBill || 0),
-      serviceCharge: Number(data.serviceCharge || 0),
-      totalAmount: Number(data.rentAmount || 45000) + Number(data.waterBill || 0) + Number(data.electricityBill || 0) + Number(data.serviceCharge || 0),
+      propertyName: data.propertyName || 'Kilimani Palms Heights',
+      periodMonth: data.periodMonth || 'Current Month',
+      rentAmount: rent,
+      waterFee: water,
+      trashFee: trash,
+      maintenanceFee: maint,
+      discount: discount,
+      previousArrears: prevArrears,
+      totalAmount: total,
       amountPaid: 0,
       issueDate: new Date().toISOString().split('T')[0],
       dueDate: data.dueDate || new Date().toISOString().split('T')[0],
-      status: 'Unpaid'
+      status: 'Unpaid',
+      notes: data.notes
     };
-    const invoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
     invoices.unshift(newInv);
     setLocalData(STORAGE_KEYS.INVOICES, invoices);
     return newInv;

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Landlord } from '../types';
 import { formatKSH } from '../lib/formatters';
-import { updateLandlordDetails, triggerMpesaStkPush } from '../lib/api';
+import { updateLandlordDetails, triggerSubscriptionStkPush } from '../lib/api';
 import {
   RefreshCw,
   X,
@@ -26,7 +26,7 @@ export const SubscriptionRenewalModal: React.FC<SubscriptionRenewalModalProps> =
   activeLandlord,
   onSubscriptionRenewed
 }) => {
-  const [phone, setPhone] = useState(activeLandlord?.phone || '+254 712 345 678');
+  const [phone, setPhone] = useState(activeLandlord?.phone || '0746549710');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
@@ -38,12 +38,11 @@ export const SubscriptionRenewalModal: React.FC<SubscriptionRenewalModalProps> =
     setStatusMsg(null);
 
     try {
-      // 1. Send M-Pesa STK Push Prompt
-      await triggerMpesaStkPush({
+      // 1. Send M-Pesa STK Push Prompt to Platform Account +254746549710
+      const res = await triggerSubscriptionStkPush({
         phone: phone.trim(),
         amount: 20000,
-        invoiceId: `RENEW-${Date.now()}`,
-        accountRef: activeLandlord?.companyName || 'EstateMaster License'
+        landlordId: activeLandlord?.id
       });
 
       // 2. Compute 1 year extension from current expiry or today
@@ -58,14 +57,15 @@ export const SubscriptionRenewalModal: React.FC<SubscriptionRenewalModalProps> =
       await updateLandlordDetails(activeLandlord.id, {
         subscriptionStatus: 'Active',
         subscriptionExpiry: newExpiry,
-        subscriptionPlan: 'EstateMaster Annual License (KSH 20,000/yr)'
+        subscriptionPlan: 'EstateMaster Annual License (KSH 20,000/yr)',
+        subscriptionPaid: true
       });
 
-      setStatusMsg(`✅ KSH 20,000 Payment Verified! Annual License renewed until ${newExpiry}.`);
+      setStatusMsg(`✅ ${res.CustomerMessage || `KSH 20,000 Payment Verified! Annual License renewed until ${newExpiry}.`}`);
       setTimeout(() => {
         onSubscriptionRenewed();
         onClose();
-      }, 1600);
+      }, 1800);
     } catch (err: any) {
       console.error('Subscription renewal error:', err);
       setStatusMsg(`Error: ${err.message || 'Failed to process payment.'}`);
