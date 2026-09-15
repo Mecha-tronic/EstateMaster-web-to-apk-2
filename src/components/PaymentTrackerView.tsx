@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { Payment, Invoice, Tenant } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { calculateTenantArrears } from '../lib/arrears';
-import { triggerMpesaStkPush } from '../lib/api';
-import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw, Users, Search, Building, AlertTriangle, TrendingDown } from 'lucide-react';
+import { triggerMpesaStkPush, verifyMpesaReceiptCode, fetchMpesaConfigStatus } from '../lib/api';
+import { KENYA_BANKS } from '../lib/kenyaBanks';
+import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw, Users, Search, Building, AlertTriangle, TrendingDown, Landmark, Check, ShieldCheck, Zap } from 'lucide-react';
 
 interface PaymentTrackerViewProps {
   payments: Payment[];
@@ -33,6 +35,21 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   const [mpesaPhone, setMpesaPhone] = useState('+254 712 345 678');
   const [isStkPushing, setIsStkPushing] = useState(false);
   const [stkMessage, setStkMessage] = useState<string | null>(null);
+
+  // M-Pesa Direct Code Verification Modal State
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [verifyCode, setVerifyCode] = useState('');
+  const [verifyInvoiceId, setVerifyInvoiceId] = useState(invoices[0]?.id || '');
+  const [verifyAmount, setVerifyAmount] = useState('');
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
+  const [verifyFeedback, setVerifyFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Daraja Gateway Connection Info
+  const [darajaStatus, setDarajaStatus] = useState<any>(null);
+
+  useEffect(() => {
+    fetchMpesaConfigStatus().then(setDarajaStatus).catch(console.error);
+  }, []);
 
   const unpaidInvoices = invoices.filter((i) => i.status !== 'Paid');
 
@@ -112,7 +129,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
         accountRef: selectedInv?.unitNumber || 'RENT'
       });
 
-      setStkMessage(`✅ ${res.message}`);
+      setStkMessage(`✅ ${res.message || res.CustomerMessage || 'STK Push Dispatched'}`);
       if (onPaymentProcessed) onPaymentProcessed();
       setTimeout(() => {
         setShowRecordModal(false);
@@ -122,6 +139,44 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
       setStkMessage(`❌ Error triggering M-Pesa STK Push: ${err.message}`);
     } finally {
       setIsStkPushing(false);
+    }
+  };
+
+  const handleVerifyReceiptCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verifyCode.trim()) return;
+
+    setIsVerifyingCode(true);
+    setVerifyFeedback(null);
+
+    try {
+      const selectedInv = invoices.find((i) => i.id === verifyInvoiceId);
+      const res = await verifyMpesaReceiptCode({
+        receiptCode: verifyCode.trim().toUpperCase(),
+        amount: verifyAmount ? parseFloat(verifyAmount) : undefined,
+        invoiceId: verifyInvoiceId || undefined,
+        tenantId: selectedInv?.tenantId,
+      });
+
+      setVerifyFeedback({
+        type: 'success',
+        message: res.message || `Code ${verifyCode.toUpperCase()} verified successfully!`
+      });
+
+      if (onPaymentProcessed) onPaymentProcessed();
+      setTimeout(() => {
+        setShowVerifyModal(false);
+        setVerifyCode('');
+        setVerifyAmount('');
+        setVerifyFeedback(null);
+      }, 2000);
+    } catch (err: any) {
+      setVerifyFeedback({
+        type: 'error',
+        message: err.message || 'M-Pesa confirmation code verification failed'
+      });
+    } finally {
+      setIsVerifyingCode(false);
     }
   };
 
@@ -139,24 +194,49 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   const totalPortfolioPaid = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalPaid, 0);
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 sm:p-7 space-y-7 max-w-7xl mx-auto font-sans"
+    >
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <DollarSign className="w-6 h-6 text-emerald-600" /> Rent Collection & Arrears Ledger
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-500">
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2.5">
+              <DollarSign className="w-7 h-7 text-emerald-600" /> Rent Collection & Arrears Ledger
+            </h2>
+            {darajaStatus && (
+              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                darajaStatus.configured 
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
+                  : 'bg-blue-50 text-blue-800 border-blue-200'
+              }`}>
+                <Zap className="w-3 h-3 text-emerald-600 fill-emerald-600" />
+                {darajaStatus.configured ? `Daraja API (${darajaStatus.environment?.toUpperCase()})` : 'Smart Gateway Active'}
+              </span>
+            )}
+          </div>
+          <p className="text-xs sm:text-sm text-slate-600 mt-1">
             Real-time tracking of rent collection, partial payments, tenant arrears balances, and M-Pesa STK pushes.
           </p>
         </div>
 
-        <button
-          onClick={() => setShowRecordModal(true)}
-          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Record / Trigger Payment
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setShowVerifyModal(true)}
+            className="px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs sm:text-sm font-bold border border-blue-200 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+          >
+            <ShieldCheck className="w-4 h-4 text-blue-600" /> Verify M-Pesa Code
+          </button>
+          <button
+            onClick={() => setShowRecordModal(true)}
+            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-md shadow-emerald-600/20 transition flex items-center gap-2 cursor-pointer hover:scale-105"
+          >
+            <Plus className="w-4 h-4" /> Record / Trigger Payment
+          </button>
+        </div>
       </div>
 
       {/* Portfolio Arrears & Rent Collection KPI Banner */}
@@ -482,6 +562,29 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                 </div>
               )}
 
+              {payMethod === 'Bank Transfer' && (
+                <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200 space-y-2">
+                  <label className="block text-slate-700 font-bold text-[11px] flex items-center gap-1.5">
+                    <Landmark className="w-3.5 h-3.5 text-blue-600" /> Settling Bank / Channel (e.g. Equity, Co-op, KCB):
+                  </label>
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setPayNotes((prev) => prev ? `${prev} via ${e.target.value}` : `Settled via ${e.target.value}`);
+                      }
+                    }}
+                    className="w-full bg-white border border-blue-200 rounded-lg p-2 text-slate-900 font-semibold shadow-xs"
+                  >
+                    <option value="">-- Choose Originating / Destination Bank --</option>
+                    {KENYA_BANKS.map((b) => (
+                      <option key={b.id} value={b.name}>
+                        {b.name} (PesaLink / EFT)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {payMethod !== 'M-Pesa' && (
                 <div>
                   <label className="block text-slate-700 font-medium mb-1">Transaction Ref / Receipt Code</label>
@@ -490,7 +593,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                     required
                     value={payRef}
                     onChange={(e) => setPayRef(e.target.value)}
-                    placeholder="e.g. RK92810283 or Bank Trans ID"
+                    placeholder="e.g. EFT-92810283 or PesaLink Ref"
                     className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
                   />
                 </div>
@@ -526,6 +629,115 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
           </div>
         </div>
       )}
-    </div>
+
+      {/* VERIFY M-PESA CONFIRMATION CODE MODAL */}
+      {showVerifyModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-5 h-5 text-blue-700" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Verify M-Pesa Transaction Code</h3>
+                  <p className="text-[11px] text-slate-500">Auto-reconciles invoice and generates proof of payment</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowVerifyModal(false);
+                  setVerifyFeedback(null);
+                }}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold p-1 rounded-md"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleVerifyReceiptCode} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  M-Pesa Confirmation Code <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={verifyCode}
+                  onChange={(e) => setVerifyCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. SAB9812471 or QHX892JK12"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-900 font-mono font-bold text-sm tracking-wider uppercase focus:bg-white focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">10-character code received by tenant from MPESA SMS</p>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Select Associated Invoice</label>
+                <select
+                  value={verifyInvoiceId}
+                  onChange={(e) => setVerifyInvoiceId(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-xs"
+                >
+                  <option value="">-- No specific invoice (General credit) --</option>
+                  {invoices.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      #{inv.invoiceNumber} - {inv.tenantName} ({inv.unitNumber}) - Due: {formatKSH(inv.totalAmount - (inv.amountPaid || 0))}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Amount Paid (KSh)</label>
+                <input
+                  type="number"
+                  value={verifyAmount}
+                  onChange={(e) => setVerifyAmount(e.target.value)}
+                  placeholder="e.g. 25000 (Defaults to remaining due if left blank)"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-xs"
+                />
+              </div>
+
+              {verifyFeedback && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-semibold ${
+                    verifyFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
+                      : 'bg-rose-50 text-rose-900 border border-rose-300'
+                  }`}
+                >
+                  {verifyFeedback.message}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowVerifyModal(false)}
+                  className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={isVerifyingCode || !verifyCode.trim()}
+                  className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isVerifyingCode ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Verifying Code...
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-4 h-4" /> Verify & Reconcile Payment
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </motion.div>
   );
 };

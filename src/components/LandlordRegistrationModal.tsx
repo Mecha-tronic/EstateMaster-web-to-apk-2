@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Landlord } from '../types';
 import { registerLandlordAccount } from '../lib/api';
 import { formatKSH } from '../lib/formatters';
+import { KENYA_BANKS } from '../lib/kenyaBanks';
 import {
   Building2,
   UserCheck,
@@ -12,7 +13,9 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
-  Lock
+  Lock,
+  Landmark,
+  Check
 } from 'lucide-react';
 
 interface LandlordRegistrationModalProps {
@@ -302,11 +305,70 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
         {step === 2 && (
           <form onSubmit={handleRegisterAndSubscribe} className="space-y-4 text-xs">
             {/* Till / Bank Config for collecting rent */}
-            <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 space-y-2">
-              <h3 className="font-bold text-blue-900 flex items-center gap-1.5">
-                <CreditCard className="w-4 h-4 text-blue-600" /> Your Rent Collection Setup (Shared on Invoices)
-              </h3>
+            <div className="bg-blue-50/70 p-3.5 rounded-xl border border-blue-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-blue-950 flex items-center gap-1.5 text-xs">
+                  <Landmark className="w-4 h-4 text-blue-600" /> Bank & Settlement Channel (Rent Collection)
+                </h3>
+                <span className="text-[10px] text-blue-700 bg-blue-100 font-semibold px-2 py-0.5 rounded">
+                  Direct Bank Integration
+                </span>
+              </div>
+
+              {/* Bank quick buttons */}
+              <div>
+                <label className="block text-slate-700 font-bold mb-1 text-[11px]">Choose Kenyan Bank:</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-2">
+                  {KENYA_BANKS.filter(b => b.popular).slice(0, 4).map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => {
+                        setBankName(b.name);
+                        if (b.paybill && !mpesaPaybill) setMpesaPaybill(b.paybill);
+                      }}
+                      className={`p-1.5 rounded-lg border text-left text-[11px] font-bold transition flex items-center justify-between cursor-pointer ${
+                        bankName.toLowerCase().includes(b.shortName.toLowerCase())
+                          ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="truncate">{b.shortName}</span>
+                      {bankName.toLowerCase().includes(b.shortName.toLowerCase()) && <Check className="w-3 h-3 shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Bank Name / SACCO</label>
+                  <select
+                    value={bankName}
+                    onChange={(e) => {
+                      setBankName(e.target.value);
+                      const matched = KENYA_BANKS.find(b => b.name === e.target.value);
+                      if (matched?.paybill && !mpesaPaybill) setMpesaPaybill(matched.paybill);
+                    }}
+                    className="w-full bg-white border border-blue-200 rounded-lg p-2 text-slate-900 font-semibold shadow-xs"
+                  >
+                    {KENYA_BANKS.map((b) => (
+                      <option key={b.id} value={b.name}>
+                        {b.name} ({b.supportedMethods.join(', ')})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">Bank Account Number</label>
+                  <input
+                    type="text"
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                    placeholder="e.g. 0110293847"
+                    className="w-full bg-white border border-blue-200 rounded-lg p-2 text-slate-900 font-mono shadow-xs"
+                  />
+                </div>
                 <div>
                   <label className="block text-slate-700 font-medium mb-1">M-Pesa Buy Goods Till Number</label>
                   <input
@@ -324,26 +386,6 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
                     value={mpesaPaybill}
                     onChange={(e) => setMpesaPaybill(e.target.value)}
                     placeholder="e.g. 247247"
-                    className="w-full bg-white border border-blue-200 rounded-lg p-2 text-slate-900 font-mono shadow-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Bank Name</label>
-                  <input
-                    type="text"
-                    value={bankName}
-                    onChange={(e) => setBankName(e.target.value)}
-                    placeholder="e.g. Equity Bank Kenya"
-                    className="w-full bg-white border border-blue-200 rounded-lg p-2 text-slate-900 shadow-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Bank Account Number</label>
-                  <input
-                    type="text"
-                    value={accountNumber}
-                    onChange={(e) => setAccountNumber(e.target.value)}
-                    placeholder="e.g. 0110293847"
                     className="w-full bg-white border border-blue-200 rounded-lg p-2 text-slate-900 font-mono shadow-xs"
                   />
                 </div>

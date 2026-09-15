@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Tenant, Landlord, Unit, Property } from '../types';
-import { loginUser, registerTenant, registerLandlordAccount } from '../lib/api';
+import { loginUser, registerTenant, registerLandlordAccount, LoginResponse } from '../lib/api';
+import { TwoFactorModal } from './TwoFactorModal';
 import { formatKSH } from '../lib/formatters';
+import { KENYA_BANKS } from '../lib/kenyaBanks';
 import {
   Key,
   Building2,
@@ -21,7 +24,10 @@ import {
   Phone,
   Briefcase,
   DollarSign,
-  FileText
+  FileText,
+  Landmark,
+  Check,
+  ShieldAlert
 } from 'lucide-react';
 
 interface SignInViewProps {
@@ -84,6 +90,27 @@ export const SignInView: React.FC<SignInViewProps> = ({
   const [paymentPhone, setPaymentPhone] = useState('+254 ');
   const [paymentMethod, setPaymentMethod] = useState<'M-Pesa Express' | 'Bank Transfer'>('M-Pesa Express');
 
+  // Anti-Hacking & 2FA State
+  const [pending2Fa, setPending2Fa] = useState<{
+    tempToken: string;
+    emailMasked?: string;
+    phoneMasked?: string;
+  } | null>(null);
+  const [lockoutSeconds, setLockoutSeconds] = useState<number | null>(null);
+  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+
+  // Countdown timer for lockout
+  useEffect(() => {
+    if (lockoutSeconds === null || lockoutSeconds <= 0) return;
+    const interval = setInterval(() => {
+      setLockoutSeconds((prev) => {
+        if (prev === null || prev <= 1) return null;
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lockoutSeconds]);
+
   const sortedLandlords = (() => {
     const list = [...landlords];
     if (!list.some(l => l.email.trim().toLowerCase() === 'mk@gmail.com')) {
@@ -105,7 +132,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
     });
   })();
 
-  // Handle standard Sign In
+  // Handle standard Sign In with Anti-Hacking Protection
   const handleSignInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = email ? email.trim().toLowerCase() : '';
@@ -115,18 +142,48 @@ export const SignInView: React.FC<SignInViewProps> = ({
       return;
     }
 
+    if (lockoutSeconds && lockoutSeconds > 0) {
+      setErrorMessage(`Account temporarily locked for security. Please retry in ${lockoutSeconds} seconds.`);
+      return;
+    }
+
     setLoading(true);
     setErrorMessage(null);
+    setRemainingAttempts(null);
 
     try {
-      const res = await loginUser(cleanEmail, cleanPassword, activeTab);
-      if (res.role === 'tenant') {
+      const res: LoginResponse = await loginUser(cleanEmail, cleanPassword, activeTab);
+
+      // Check if Two-Factor Authentication is triggered
+      if (res.requires2FA && res.tempToken) {
+        setPending2Fa({
+          tempToken: res.tempToken,
+          emailMasked: res.emailMasked,
+          phoneMasked: res.phoneMasked
+        });
+        return;
+      }
+
+      if (res.role === 'tenant' && res.user) {
         onTenantSuccess(res.user as Tenant);
-      } else if (res.role === 'landlord') {
+      } else if (res.role === 'landlord' && res.user) {
         onLandlordSuccess(res.user as Landlord);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Authentication failed. Please check your credentials.');
+      const errMsg = err.message || 'Authentication failed. Please check your credentials.';
+      setErrorMessage(errMsg);
+
+      // Check for lockout seconds in error message
+      const match = errMsg.match(/(\d+)\s*seconds/i);
+      if (match && match[1]) {
+        setLockoutSeconds(parseInt(match[1], 10));
+      }
+
+      // Check for remaining attempts in error message
+      const attemptMatch = errMsg.match(/(\d+)\s*attempt/i);
+      if (attemptMatch && attemptMatch[1]) {
+        setRemainingAttempts(parseInt(attemptMatch[1], 10));
+      }
     } finally {
       setLoading(false);
     }
@@ -255,22 +312,30 @@ export const SignInView: React.FC<SignInViewProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 max-w-2xl mx-auto space-y-6">
+    <motion.div 
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35 }}
+      className="p-4 sm:p-7 md:p-9 max-w-2xl mx-auto space-y-7 font-sans"
+    >
       {/* Header Branding */}
-      <div className="text-center space-y-2">
-        <div className="inline-flex p-3 rounded-2xl bg-blue-600 text-white shadow-md">
-          <Key className="w-8 h-8" />
-        </div>
-        <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-          EstateMaster Authentication
+      <div className="text-center space-y-3">
+        <motion.div 
+          whileHover={{ scale: 1.05 }}
+          className="inline-flex p-4 rounded-3xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/25"
+        >
+          <Key className="w-9 h-9" />
+        </motion.div>
+        <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+          EstateMaster Portal
         </h2>
-        <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto font-medium">
-          Sign in to your account or create a new account to access individual portal records.
+        <p className="text-sm sm:text-base text-slate-600 max-w-md mx-auto font-medium">
+          Sign in to your account or create a new profile to access your leases, invoices, and payment receipts.
         </p>
       </div>
 
       {/* Role Selector Tabs */}
-      <div className="bg-slate-200 p-1.5 rounded-2xl flex items-center text-xs font-bold shadow-inner">
+      <div className="bg-slate-200/80 backdrop-blur-sm p-1.5 rounded-2xl flex items-center text-sm font-bold shadow-inner">
         <button
           type="button"
           onClick={() => {
@@ -280,14 +345,14 @@ export const SignInView: React.FC<SignInViewProps> = ({
             setEmail('');
             setMode('signin');
           }}
-          className={`flex-1 py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 py-3.5 px-4 rounded-xl transition-all duration-200 flex items-center justify-center gap-2.5 cursor-pointer ${
             activeTab === 'tenant'
-              ? 'bg-white text-blue-700 shadow-md font-extrabold scale-[1.01]'
+              ? 'bg-white text-blue-700 shadow-md font-extrabold scale-[1.02]'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <UserCheck className="w-4 h-4 text-sky-600" />
-          Tenant Platform
+          <UserCheck className="w-5 h-5 text-sky-600" />
+          Tenant Portal
         </button>
 
         <button
@@ -300,32 +365,32 @@ export const SignInView: React.FC<SignInViewProps> = ({
             setMode('signin');
             setLandlordStep(1);
           }}
-          className={`flex-1 py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 py-3.5 px-4 rounded-xl transition-all duration-200 flex items-center justify-center gap-2.5 cursor-pointer ${
             activeTab === 'landlord'
-              ? 'bg-white text-blue-700 shadow-md font-extrabold scale-[1.01]'
+              ? 'bg-white text-blue-700 shadow-md font-extrabold scale-[1.02]'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <Building2 className="w-4 h-4 text-blue-600" />
+          <Building2 className="w-5 h-5 text-blue-600" />
           Landlord Platform
         </button>
       </div>
 
       {/* Main Authentication Card */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5 text-slate-900">
+      <div className="bg-white border border-slate-200/80 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 text-slate-900">
         {/* Card Header & Mode Switcher (Sign In vs Create Account) */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-          <div className="flex items-center gap-2">
-            <div className={`p-2 rounded-lg ${activeTab === 'tenant' ? 'bg-sky-100 text-sky-700' : 'bg-blue-100 text-blue-700'}`}>
-              {activeTab === 'tenant' ? <UserCheck className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+          <div className="flex items-center gap-3">
+            <div className={`p-2.5 rounded-xl ${activeTab === 'tenant' ? 'bg-sky-100 text-sky-700' : 'bg-blue-100 text-blue-700'}`}>
+              {activeTab === 'tenant' ? <UserCheck className="w-6 h-6" /> : <ShieldCheck className="w-6 h-6" />}
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-base">
+              <h3 className="font-extrabold text-slate-900 text-base sm:text-lg">
                 {activeTab === 'tenant'
                   ? mode === 'signin' ? 'Tenant Account Sign In' : 'Create New Tenant Account'
                   : mode === 'signin' ? 'Landlord Account Sign In' : 'Register Landlord & Pay Subscription'}
               </h3>
-              <p className="text-xs text-slate-500 font-medium">
+              <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
                 {activeTab === 'tenant'
                   ? mode === 'signin'
                     ? 'Access your unit statements, invoices, and maintenance requests.'
@@ -338,7 +403,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
           </div>
 
           {/* Mode Switcher Pill */}
-          <div className="bg-slate-100 p-1 rounded-xl flex items-center text-xs font-bold shrink-0 self-start sm:self-auto">
+          <div className="bg-slate-100 p-1.5 rounded-2xl flex items-center text-xs font-bold shrink-0 self-start sm:self-auto shadow-2xs">
             <button
               type="button"
               onClick={() => {
@@ -346,8 +411,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
                 setErrorMessage(null);
                 setSuccessMessage(null);
               }}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                mode === 'signin' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              className={`px-3.5 py-2 rounded-xl transition-all duration-200 cursor-pointer ${
+                mode === 'signin' ? 'bg-white text-slate-900 shadow-xs font-extrabold' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               Sign In
@@ -359,8 +424,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
                 setErrorMessage(null);
                 setSuccessMessage(null);
               }}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                mode === 'signup' ? 'bg-emerald-600 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-800'
+              className={`px-3.5 py-2 rounded-xl transition-all duration-200 cursor-pointer ${
+                mode === 'signup' ? 'bg-emerald-600 text-white shadow-xs font-extrabold shadow-emerald-600/20' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               Create Account
@@ -382,14 +447,17 @@ export const SignInView: React.FC<SignInViewProps> = ({
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
               <span>{errorMessage}</span>
             </div>
-            {errorMessage.toLowerCase().includes('no registered') && (
+            {(errorMessage.toLowerCase().includes('no account') || 
+              errorMessage.toLowerCase().includes('not exist') || 
+              errorMessage.toLowerCase().includes('register') || 
+              errorMessage.toLowerCase().includes('no registered')) && (
               <div className="mt-1 pt-2 border-t border-rose-200/80 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setErrorMessage(null);
                     setMode('signup');
-                    if (errorMessage.toLowerCase().includes('landlord')) {
+                    if (activeTab === 'landlord' || errorMessage.toLowerCase().includes('landlord')) {
                       setActiveTab('landlord');
                       if (email) setLandlordName(email.split('@')[0]);
                     } else {
@@ -397,10 +465,10 @@ export const SignInView: React.FC<SignInViewProps> = ({
                       if (email) setTenantFullName(email.split('@')[0]);
                     }
                   }}
-                  className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
-                  Create {activeTab === 'landlord' ? 'Landlord' : 'Tenant'} Account for "{email || 'your email'}"
+                  Create New {activeTab === 'landlord' ? 'Landlord' : 'Tenant'} Account for "{email || 'this email'}"
                 </button>
               </div>
             )}
@@ -704,13 +772,72 @@ export const SignInView: React.FC<SignInViewProps> = ({
             {/* Step 2: Rent Accounts & KSH 20,000 Payment */}
             {landlordStep === 2 && (
               <form onSubmit={handleLandlordPayAndRegister} className="space-y-4">
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <CreditCard className="w-4 h-4 text-blue-600" /> Rent Collection Accounts Setup (Optional Now)
-                  </h4>
-                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      <Landmark className="w-4 h-4 text-blue-600" /> Bank & Rent Collection Accounts
+                    </h4>
+                    <span className="text-[10px] text-blue-700 bg-blue-50 font-bold px-2 py-0.5 rounded border border-blue-200">
+                      Auto-Settlement Ready
+                    </span>
+                  </div>
+
+                  {/* Bank quick buttons */}
+                  <div className="space-y-1">
+                    <label className="block text-slate-600 text-[11px] font-medium">Select Integrated Bank:</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {KENYA_BANKS.filter(b => b.popular).slice(0, 4).map((b) => (
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => {
+                            setBankName(b.name);
+                            if (b.paybill && !mpesaPaybill) setMpesaPaybill(b.paybill);
+                          }}
+                          className={`p-1.5 rounded-lg border text-left text-[11px] font-bold transition flex items-center justify-between cursor-pointer ${
+                            bankName.toLowerCase().includes(b.shortName.toLowerCase())
+                              ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="truncate">{b.shortName}</span>
+                          {bankName.toLowerCase().includes(b.shortName.toLowerCase()) && <Check className="w-3 h-3 shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                     <div>
-                      <label className="block text-slate-600 mb-0.5">M-Pesa Till Number</label>
+                      <label className="block text-slate-600 mb-0.5 font-medium">Bank Name / Institution</label>
+                      <select
+                        value={bankName}
+                        onChange={(e) => {
+                          setBankName(e.target.value);
+                          const matched = KENYA_BANKS.find(b => b.name === e.target.value);
+                          if (matched?.paybill && !mpesaPaybill) setMpesaPaybill(matched.paybill);
+                        }}
+                        className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 font-semibold shadow-xs"
+                      >
+                        {KENYA_BANKS.map((b) => (
+                          <option key={b.id} value={b.name}>
+                            {b.name} ({b.supportedMethods.join(', ')})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-600 mb-0.5 font-medium">Bank Account Number</label>
+                      <input
+                        type="text"
+                        value={accountNumber}
+                        onChange={(e) => setAccountNumber(e.target.value)}
+                        placeholder="e.g. 01102938475"
+                        className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 font-mono shadow-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-600 mb-0.5 font-medium">M-Pesa Till Number</label>
                       <input
                         type="text"
                         value={mpesaTillNumber}
@@ -720,7 +847,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-600 mb-0.5">M-Pesa Paybill</label>
+                      <label className="block text-slate-600 mb-0.5 font-medium">M-Pesa Paybill</label>
                       <input
                         type="text"
                         value={mpesaPaybill}
@@ -872,7 +999,26 @@ export const SignInView: React.FC<SignInViewProps> = ({
             </div>
           )}
         </div>
+
+        {/* Two-Factor Authentication Modal */}
+        {pending2Fa && (
+          <TwoFactorModal
+            isOpen={!!pending2Fa}
+            tempToken={pending2Fa.tempToken}
+            emailMasked={pending2Fa.emailMasked}
+            phoneMasked={pending2Fa.phoneMasked}
+            onSuccess={(role, user) => {
+              setPending2Fa(null);
+              if (role === 'tenant') {
+                onTenantSuccess(user as Tenant);
+              } else if (role === 'landlord') {
+                onLandlordSuccess(user as Landlord);
+              }
+            }}
+            onCancel={() => setPending2Fa(null)}
+          />
+        )}
       </div>
-    </div>
+    </motion.div>
   );
 };

@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { Tenant, Invoice, Payment, Quote, MaintenanceRequest, EmailLog, Landlord, Unit, Property } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { calculateTenantArrears } from '../lib/arrears';
+import { KENYA_BANKS, getBankByNameOrId } from '../lib/kenyaBanks';
 import { SignInView } from './SignInView';
+import { SecurityShieldDashboard } from './SecurityShieldDashboard';
 import {
   Key,
   Home,
@@ -17,6 +20,7 @@ import {
   Sparkles,
   ChevronRight,
   ShieldAlert,
+  ShieldCheck,
   X,
   LogOut,
   UserCheck,
@@ -34,7 +38,8 @@ import {
   CreditCard,
   Receipt,
   TrendingDown,
-  AlertCircle
+  AlertCircle,
+  Landmark
 } from 'lucide-react';
 import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails, sendMaintenanceAiChat, triggerMpesaStkPush } from '../lib/api';
 
@@ -73,7 +78,7 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   onRefreshData,
   onSwitchToRegister,
 }) => {
-  const [portalTab, setPortalTab] = useState<'dashboard' | 'invoices' | 'maintenance' | 'inbox'>('dashboard');
+  const [portalTab, setPortalTab] = useState<'dashboard' | 'invoices' | 'maintenance' | 'inbox' | 'security'>('dashboard');
 
   // Maintenance form state
   const [maintTitle, setMaintTitle] = useState('');
@@ -269,13 +274,25 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
     const dueRemaining = payingInvoice.totalAmount - (payingInvoice.amountPaid || 0);
     const parsedAmount = parseFloat(payAmountInput);
     const finalAmount = !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : dueRemaining;
+    const targetPhone = (stkPhone || currentTenant?.phone || '0746549710').trim();
+
+    if (!targetPhone) {
+      setStkFeedback({
+        type: 'error',
+        message: 'Please enter a valid Safaricom phone number (e.g. 0746 549 710 or 254746549710).'
+      });
+      return;
+    }
 
     setIsTriggeringStk(true);
-    setStkFeedback(null);
+    setStkFeedback({
+      type: 'success',
+      message: 'Connecting to Safaricom Daraja API...'
+    });
 
     try {
       const res = await triggerMpesaStkPush({
-        phone: stkPhone || currentTenant?.phone || '0746549710',
+        phone: targetPhone,
         amount: finalAmount,
         invoiceId: payingInvoice.id,
         tenantId: currentTenant?.id,
@@ -287,13 +304,22 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
       }
       setStkFeedback({
         type: 'success',
-        message: res.CustomerMessage || `STK Push prompt dispatched to ${stkPhone}! Please check your Safaricom mobile handset and enter your M-Pesa PIN.`
+        message: `📲 M-Pesa STK Prompt sent to ${targetPhone} for KSh ${finalAmount.toLocaleString()}! Receipt: ${res.receiptCode || 'Confirmed'}. Statement updated.`
       });
       onRefreshData();
+
+      // Auto-close modal after confirmation
+      setTimeout(() => {
+        setPayingInvoice(null);
+        setPayAmountInput('');
+        setPayNotesInput('');
+        setStkFeedback(null);
+        onRefreshData();
+      }, 3500);
     } catch (err: any) {
       setStkFeedback({
         type: 'error',
-        message: err.message || 'Failed to dispatch M-Pesa STK push. Please verify phone number and try again.'
+        message: err.message || 'Failed to dispatch M-Pesa STK push. Please verify your phone number and try again.'
       });
     } finally {
       setIsTriggeringStk(false);
@@ -329,13 +355,18 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 sm:p-7 space-y-7 max-w-7xl mx-auto font-sans"
+    >
       {/* Header & User Authentication Status */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 shadow-sm text-slate-900">
-        <div className="flex items-center gap-3">
+      <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-7 flex flex-wrap items-center justify-between gap-5 shadow-sm text-slate-900">
+        <div className="flex items-center gap-4">
           {/* Tenant Profile Avatar with camera edit trigger */}
           <div className="relative group shrink-0">
-            <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-blue-500 bg-blue-50 text-blue-800 font-bold text-xl flex items-center justify-center shadow-xs">
+            <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-blue-500 bg-blue-50 text-blue-800 font-extrabold text-2xl flex items-center justify-center shadow-md">
               {currentTenant.profilePictureUrl ? (
                 <img src={currentTenant.profilePictureUrl} alt={currentTenant.fullName} className="w-full h-full object-cover" />
               ) : (
@@ -347,102 +378,112 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 setPhotoUrl(currentTenant.profilePictureUrl || PRESET_TENANT_AVATARS[0]);
                 setShowPhotoModal(true);
               }}
-              className="absolute -bottom-1 -right-1 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-md transition"
+              className="absolute -bottom-1 -right-1 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-md transition cursor-pointer"
               title="Upload/Change Profile Picture"
             >
-              <Camera className="w-3.5 h-3.5" />
+              <Camera className="w-4 h-4" />
             </button>
           </div>
 
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg sm:text-xl font-bold text-slate-900">{currentTenant.fullName}</h2>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900">{currentTenant.fullName}</h2>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
                 {currentTenant.status}
               </span>
             </div>
-            <p className="text-xs text-blue-700 font-semibold">
+            <p className="text-xs sm:text-sm text-blue-700 font-bold">
               Unit {currentTenant.unitNumber} &bull; {currentTenant.propertyName}
             </p>
-            <p className="text-[11px] text-slate-500 font-medium">
+            <p className="text-xs text-slate-500 font-medium">
               Signed in as: <strong className="text-slate-800">{currentTenant.email}</strong>
             </p>
           </div>
         </div>
 
         {/* Action Controls & Sign Out */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <button
             onClick={() => {
               setPhotoUrl(currentTenant.profilePictureUrl || PRESET_TENANT_AVATARS[0]);
               setShowPhotoModal(true);
             }}
-            className="px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+            className="px-3.5 py-2 rounded-xl bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
           >
-            <Camera className="w-3.5 h-3.5 text-blue-600" /> Upload Profile Photo
+            <Camera className="w-4 h-4 text-blue-600" /> Upload Profile Photo
           </button>
           {onSwitchToRegister && (
             <button
               onClick={onSwitchToRegister}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" /> Self-Register New Lease
+              <Plus className="w-4 h-4" /> Self-Register New Lease
             </button>
           )}
 
           {onSignOut && (
             <button
               onClick={onSignOut}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
               title="Sign out of tenant portal"
             >
-              <LogOut className="w-3.5 h-3.5 text-rose-400" /> Sign Out
+              <LogOut className="w-4 h-4 text-rose-400" /> Sign Out
             </button>
           )}
         </div>
       </div>
 
       {/* Portal Tabs Navigation */}
-      <div className="flex border-b border-slate-200 text-xs font-semibold overflow-x-auto">
+      <div className="flex border-b border-slate-200 text-xs sm:text-sm font-bold overflow-x-auto gap-2">
         <button
           onClick={() => setPortalTab('dashboard')}
-          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+          className={`pb-3.5 px-4 sm:px-5 border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             portalTab === 'dashboard'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-blue-600 text-blue-700 font-extrabold'
+              : 'border-transparent text-slate-500 hover:text-slate-900'
           }`}
         >
-          <Home className="w-4 h-4" /> My Apartment Overview
+          <Home className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> My Apartment Overview
         </button>
         <button
           onClick={() => setPortalTab('invoices')}
-          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+          className={`pb-3.5 px-4 sm:px-5 border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             portalTab === 'invoices'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-blue-600 text-blue-700 font-extrabold'
+              : 'border-transparent text-slate-500 hover:text-slate-900'
           }`}
         >
-          <FileText className="w-4 h-4" /> Invoices & Payments ({tenantInvoices.length})
+          <FileText className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Invoices & Payments ({tenantInvoices.length})
         </button>
         <button
           onClick={() => setPortalTab('maintenance')}
-          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+          className={`pb-3.5 px-4 sm:px-5 border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             portalTab === 'maintenance'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-blue-600 text-blue-700 font-extrabold'
+              : 'border-transparent text-slate-500 hover:text-slate-900'
           }`}
         >
-          <Wrench className="w-4 h-4" /> Maintenance ({tenantMaintenance.length})
+          <Wrench className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Maintenance ({tenantMaintenance.length})
         </button>
         <button
           onClick={() => setPortalTab('inbox')}
-          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap relative ${
+          className={`pb-3.5 px-4 sm:px-5 border-b-2 transition-all flex items-center gap-2 whitespace-nowrap relative cursor-pointer ${
             portalTab === 'inbox'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-blue-600 text-blue-700 font-extrabold'
+              : 'border-transparent text-slate-500 hover:text-slate-900'
           }`}
         >
-          <Mail className="w-4 h-4" /> Personal Email Inbox ({tenantEmails.length})
+          <Mail className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Personal Email Inbox ({tenantEmails.length})
+        </button>
+        <button
+          onClick={() => setPortalTab('security')}
+          className={`pb-3.5 px-4 sm:px-5 border-b-2 transition-all flex items-center gap-2 whitespace-nowrap relative cursor-pointer ${
+            portalTab === 'security'
+              ? 'border-blue-600 text-blue-700 font-extrabold'
+              : 'border-transparent text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-sky-500" /> Account Security & 2FA
         </button>
       </div>
 
@@ -667,50 +708,65 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
               </div>
 
               {/* BANK TRANSFER CHANNEL */}
-              <div className="bg-slate-900/90 border border-blue-500/30 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between border-b border-blue-500/20 pb-2">
-                  <span className="font-extrabold text-blue-400 flex items-center gap-1.5 text-xs uppercase tracking-wide">
-                    <Building2 className="w-4 h-4" /> Bank Account Details
-                  </span>
-                  <span className="text-[10px] bg-blue-500/20 text-blue-300 font-bold px-2 py-0.5 rounded border border-blue-500/30">
-                    Direct Wire / EFT
-                  </span>
-                </div>
-
-                <div className="space-y-2 text-slate-200 font-medium text-[11px]">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
-                      <span className="text-slate-400 block text-[10px]">Bank Name:</span>
-                      <strong className="text-white">{landlordBankName}</strong>
+              {(() => {
+                const matchedBank = getBankByNameOrId(landlordBankName);
+                return (
+                  <div className="bg-slate-900/90 border border-blue-500/30 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-blue-500/20 pb-2">
+                      <span className="font-extrabold text-blue-400 flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                        <Landmark className="w-4 h-4 text-blue-400" /> Bank & PesaLink Settlement
+                      </span>
+                      <span className="text-[10px] bg-blue-500/20 text-blue-300 font-bold px-2 py-0.5 rounded border border-blue-500/30">
+                        {matchedBank ? matchedBank.shortName : 'Direct EFT / Wire'}
+                      </span>
                     </div>
-                    <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
-                      <span className="text-slate-400 block text-[10px]">Branch Name:</span>
-                      <strong className="text-white">{landlordBranchName}</strong>
+
+                    <div className="space-y-2 text-slate-200 font-medium text-[11px]">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                          <span className="text-slate-400 block text-[10px]">Bank Name:</span>
+                          <strong className="text-white flex items-center gap-1">
+                            {landlordBankName}
+                          </strong>
+                        </div>
+                        <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                          <span className="text-slate-400 block text-[10px]">Branch / SWIFT:</span>
+                          <strong className="text-white font-mono text-[10px]">
+                            {landlordBranchName || activeLandlord?.swiftCode || matchedBank?.swiftCode || 'Nairobi Main'}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Account Name:</span>
+                          <strong className="text-white text-xs">{landlordAccountName}</strong>
+                        </div>
+                        {matchedBank?.paybill && (
+                          <div className="text-right">
+                            <span className="text-slate-400 block text-[10px]">Bank Paybill:</span>
+                            <strong className="text-amber-300 font-mono text-xs">{matchedBank.paybill}</strong>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Account Number:</span>
+                          <strong className="text-blue-300 text-sm font-mono">{landlordAccountNumber}</strong>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(landlordAccountNumber, 'Account Number')}
+                          className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3" /> Copy A/C
+                        </button>
+                      </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                    <div>
-                      <span className="text-slate-400 block text-[10px]">Account Name:</span>
-                      <strong className="text-white text-xs">{landlordAccountName}</strong>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                    <div>
-                      <span className="text-slate-400 block text-[10px]">Account Number:</span>
-                      <strong className="text-blue-300 text-sm font-mono">{landlordAccountNumber}</strong>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(landlordAccountNumber, 'Account Number')}
-                      className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <Copy className="w-3 h-3" /> Copy A/C
-                    </button>
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -1124,6 +1180,20 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
         </div>
       )}
 
+      {/* SECURITY TAB */}
+      {portalTab === 'security' && (
+        <div className="space-y-6">
+          <SecurityShieldDashboard
+            user={currentTenant}
+            role="tenant"
+            onUserUpdated={(updated) => {
+              if (onSignIn) onSignIn(updated as Tenant);
+              onRefreshData();
+            }}
+          />
+        </div>
+      )}
+
       {/* PAYMENT CHECKOUT MODAL */}
       {payingInvoice && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 overflow-y-auto p-2 sm:p-4 flex items-start sm:items-center justify-center">
@@ -1457,6 +1527,6 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };

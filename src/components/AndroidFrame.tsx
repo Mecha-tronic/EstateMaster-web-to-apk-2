@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'motion/react';
 
 interface AndroidFrameProps {
   isAndroidView?: boolean;
@@ -12,9 +13,14 @@ interface AndroidFrameProps {
 
 export const AndroidFrame: React.FC<AndroidFrameProps> = ({ children }) => {
   return (
-    <div className="w-screen min-h-screen h-screen bg-slate-50 text-slate-900 flex flex-col overflow-y-auto font-sans">
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.35 }}
+      className="w-screen min-h-screen h-screen bg-slate-50/90 text-slate-900 flex flex-col overflow-y-auto font-sans selection:bg-blue-500 selection:text-white"
+    >
       {children}
-    </div>
+    </motion.div>
   );
 };
 

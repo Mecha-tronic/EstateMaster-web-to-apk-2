@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'motion/react';
 import {
   Building2,
   Users,
@@ -11,11 +12,14 @@ import {
   Clock,
   ArrowUpRight,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  LogOut,
+  ShieldCheck,
+  Zap,
+  Layers
 } from 'lucide-react';
 import { Property, Unit, Tenant, Invoice, Quote, MaintenanceRequest, EmailLog, Landlord } from '../types';
 import { formatKSH } from '../lib/formatters';
-import { LogOut, ShieldCheck } from 'lucide-react';
 
 interface LandlordDashboardProps {
   properties: Property[];
@@ -72,50 +76,58 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
   const recentEmails = emails.slice(-4).reverse();
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
-      {/* Header Banner */}
-      <div className="bg-slate-900 text-white p-5 sm:p-6 rounded-2xl border border-slate-800 shadow-md relative overflow-hidden">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex flex-wrap items-center gap-2 mb-2">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-semibold">
-                <TrendingUp className="w-3.5 h-3.5" /> Real Estate Landlord Overview
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 sm:p-7 space-y-7 max-w-7xl mx-auto font-sans"
+    >
+      {/* Header Banner with Radiant Gradient & Glow */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 rounded-3xl border border-indigo-500/20 shadow-xl relative overflow-hidden">
+        <div className="absolute -right-10 -top-10 w-60 h-60 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -left-10 -bottom-10 w-60 h-60 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-2.5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-bold uppercase tracking-wider">
+                <TrendingUp className="w-3.5 h-3.5" /> Real Estate Portfolio
               </div>
               {signedInLandlord && (
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-semibold">
-                  <ShieldCheck className="w-3.5 h-3.5" /> Logged In: {signedInLandlord.name} ({signedInLandlord.companyName})
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold">
+                  <ShieldCheck className="w-3.5 h-3.5" /> {signedInLandlord.name} ({signedInLandlord.companyName})
                 </div>
               )}
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              Property Portfolio & Operations
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
+              Property Operations & Analytics
             </h2>
-            <p className="text-xs sm:text-sm text-slate-300 mt-1">
-              Automated tenant registration, monthly email invoices, and maintenance triage.
+            <p className="text-sm sm:text-base text-slate-300 max-w-2xl">
+              Automated M-Pesa billing, monthly PDF tenant invoices, automated arrears roll-over, and instant repairs dispatch.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             {onSignOut && (
               <button
                 onClick={onSignOut}
-                className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition flex items-center gap-1.5 shadow-xs"
+                className="px-4 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-bold border border-slate-700/80 transition-all flex items-center gap-2 shadow-sm cursor-pointer hover:scale-105"
                 title="Sign out of landlord account"
               >
-                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                <LogOut className="w-4 h-4 text-rose-400" />
                 Sign Out
               </button>
             )}
             <button
               onClick={() => onNavigate('register')}
-              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center gap-2 cursor-pointer hover:scale-105"
             >
               <PlusCircle className="w-4 h-4" />
               New Tenant Registration
             </button>
             <button
               onClick={onOpenNewInvoice}
-              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold shadow-md shadow-blue-600/30 transition-all flex items-center gap-2 cursor-pointer hover:scale-105"
             >
               <FileText className="w-4 h-4" />
               Issue Monthly Invoice
@@ -125,109 +137,127 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
       </div>
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         {/* Total Collected */}
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Revenue Collected</span>
-            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-              <DollarSign className="w-4 h-4" />
+        <motion.div 
+          whileHover={{ y: -3 }}
+          className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all relative overflow-hidden group"
+        >
+          <div className="flex items-center justify-between text-slate-500 mb-2.5">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Revenue Collected</span>
+            <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:scale-110 transition-transform">
+              <DollarSign className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-slate-900">
+          <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-sans tracking-tight">
             {formatKSH(totalCollected)}
           </div>
-          <p className="text-[11px] text-emerald-600 mt-1 flex items-center gap-1 font-medium">
-            <CheckCircle2 className="w-3 h-3" /> Paid Invoices
+          <p className="text-xs text-emerald-700 mt-2 flex items-center gap-1.5 font-bold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Settled Payments
           </p>
-        </div>
+        </motion.div>
 
         {/* Total Outstanding */}
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Outstanding Rent</span>
-            <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
-              <Clock className="w-4 h-4" />
+        <motion.div 
+          whileHover={{ y: -3 }}
+          className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all relative overflow-hidden group"
+        >
+          <div className="flex items-center justify-between text-slate-500 mb-2.5">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Outstanding Arrears</span>
+            <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600 group-hover:scale-110 transition-transform">
+              <Clock className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-slate-900">
+          <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-sans tracking-tight">
             {formatKSH(totalOutstanding)}
           </div>
-          <p className="text-[11px] text-amber-600 mt-1 flex items-center gap-1 font-medium">
-            <AlertCircle className="w-3 h-3" /> Due or Overdue
+          <p className="text-xs text-amber-700 mt-2 flex items-center gap-1.5 font-bold">
+            <AlertCircle className="w-4 h-4 text-amber-500" /> Pending Collection
           </p>
-        </div>
+        </motion.div>
 
         {/* Occupancy Rate */}
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Occupancy Rate</span>
-            <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-              <Building2 className="w-4 h-4" />
+        <motion.div 
+          whileHover={{ y: -3 }}
+          className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all relative overflow-hidden group"
+        >
+          <div className="flex items-center justify-between text-slate-500 mb-2.5">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Portfolio Occupancy</span>
+            <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 group-hover:scale-110 transition-transform">
+              <Building2 className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-slate-900">{occupancyRate}%</div>
-          <p className="text-[11px] text-slate-500 mt-1 font-medium">
-            {effectiveOccupied} / {totalUnitsCount} Units Occupied
+          <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-sans tracking-tight">
+            {occupancyRate}%
+          </div>
+          <p className="text-xs text-blue-700 mt-2 font-bold flex items-center gap-1">
+            <Layers className="w-4 h-4 text-blue-500" /> {effectiveOccupied} of {totalUnitsCount} Units Occupied
           </p>
-        </div>
+        </motion.div>
 
         {/* Maintenance Requests */}
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Maintenance Tickets</span>
-            <div className="p-2 rounded-lg bg-red-50 text-red-600">
-              <Wrench className="w-4 h-4" />
+        <motion.div 
+          whileHover={{ y: -3 }}
+          className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all relative overflow-hidden group"
+        >
+          <div className="flex items-center justify-between text-slate-500 mb-2.5">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Maintenance Tickets</span>
+            <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600 group-hover:scale-110 transition-transform">
+              <Wrench className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-slate-900">{openMaintenance}</div>
-          <p className="text-[11px] text-red-600 mt-1 font-medium">Active requests needing action</p>
-        </div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-sans tracking-tight">
+            {openMaintenance}
+          </div>
+          <p className="text-xs text-rose-700 mt-2 font-bold flex items-center gap-1">
+            <Zap className="w-4 h-4 text-rose-500" /> {openMaintenance > 0 ? 'Active repairs pending' : 'All repairs resolved'}
+          </p>
+        </motion.div>
       </div>
 
       {/* Main Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-7">
         {/* Left Column: Properties & Tenants Overview */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-6 sm:space-y-7">
           {/* Properties Summary */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-blue-600" /> Managed Properties ({properties.length})
+          <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-extrabold text-slate-900 text-lg flex items-center gap-2.5">
+                <Building2 className="w-5 h-5 text-blue-600" /> Managed Properties ({properties.length})
               </h3>
               <button
                 onClick={() => onNavigate('properties')}
-                className="text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1"
+                className="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1 cursor-pointer transition hover:translate-x-0.5"
               >
-                View All <ArrowUpRight className="w-3.5 h-3.5" />
+                View All Properties <ArrowUpRight className="w-4 h-4" />
               </button>
             </div>
 
             {properties.length === 0 ? (
-              <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 text-center space-y-3">
-                <p className="text-xs text-blue-950 font-bold">
+              <div className="p-6 rounded-2xl bg-blue-50/70 border border-blue-200 text-center space-y-3">
+                <p className="text-sm text-blue-950 font-bold">
                   You haven't added any properties to your estate portfolio yet.
                 </p>
-                <p className="text-[11px] text-blue-800">
+                <p className="text-xs text-blue-800">
                   EstateMaster provides isolated multi-tenant accounts. Click below to add your real property or populate sample estate data for testing:
                 </p>
-                <div className="flex flex-wrap justify-center gap-2 pt-1">
+                <div className="flex flex-wrap justify-center gap-2.5 pt-2">
                   <button
                     onClick={() => onNavigate('properties')}
-                    className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition"
+                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer"
                   >
                     + Add New Property
                   </button>
                   <button
                     onClick={() => onNavigate('register')}
-                    className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition"
+                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer"
                   >
                     + Register Tenant
                   </button>
                   {onSeedSampleData && (
                     <button
                       onClick={onSeedSampleData}
-                      className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-xs transition"
+                      className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer"
                     >
                       ⚡ Load Sample Demo Estate
                     </button>
@@ -235,25 +265,27 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {properties.map((prop) => (
                   <div
                     key={prop.id}
                     onClick={() => onNavigate('properties')}
-                    className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl hover:border-blue-500 transition cursor-pointer flex gap-3 items-center"
+                    className="bg-slate-50/70 border border-slate-200/80 p-4 rounded-2xl hover:border-blue-500 hover:bg-blue-50/30 transition-all cursor-pointer flex gap-3.5 items-center group shadow-2xs"
                   >
                     <img
                       src={prop.imageUrl}
                       alt={prop.name}
-                      className="w-16 h-16 rounded-lg object-cover bg-slate-200"
+                      className="w-18 h-18 rounded-xl object-cover bg-slate-200 group-hover:scale-105 transition-transform"
                     />
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-bold text-slate-900 text-sm truncate">{prop.name}</h4>
-                      <p className="text-xs text-slate-500 truncate">{prop.address}, {prop.city}</p>
-                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-blue-600 font-medium">
-                        <span>{prop.totalUnits} Units</span>
-                        <span>&bull;</span>
-                        <span className="capitalize">{prop.type}</span>
+                      <h4 className="font-extrabold text-slate-900 text-sm sm:text-base truncate group-hover:text-blue-600 transition-colors">
+                        {prop.name}
+                      </h4>
+                      <p className="text-xs text-slate-500 truncate mt-0.5">{prop.address}, {prop.city}</p>
+                      <div className="mt-2 flex items-center gap-2 text-xs text-blue-600 font-bold">
+                        <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md text-[11px]">{prop.totalUnits} Units</span>
+                        <span className="text-slate-400">&bull;</span>
+                        <span className="capitalize text-slate-600">{prop.type}</span>
                       </div>
                     </div>
                   </div>
@@ -263,49 +295,49 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
           </div>
 
           {/* Active Tenants List Preview */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                <Users className="w-4 h-4 text-emerald-600" /> Active Tenants ({tenants.length})
+          <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-extrabold text-slate-900 text-lg flex items-center gap-2.5">
+                <Users className="w-5 h-5 text-emerald-600" /> Active Leases & Occupants ({tenants.length})
               </h3>
               <button
                 onClick={() => onNavigate('tenants')}
-                className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold flex items-center gap-1"
+                className="text-xs sm:text-sm text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 cursor-pointer transition hover:translate-x-0.5"
               >
-                Manage Leases <ArrowUpRight className="w-3.5 h-3.5" />
+                Manage Leases <ArrowUpRight className="w-4 h-4" />
               </button>
             </div>
 
             {tenants.length === 0 ? (
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2">
-                <p className="text-xs text-slate-700 font-bold">No active tenants registered under your account yet.</p>
+              <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-3">
+                <p className="text-sm text-slate-700 font-bold">No active tenants registered under your account yet.</p>
                 <button
                   onClick={() => onNavigate('register')}
-                  className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer"
                 >
                   + Register First Tenant
                 </button>
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {tenants.map((tenant) => (
                   <div
                     key={tenant.id}
-                    className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center justify-between gap-3 text-xs"
+                    className="bg-slate-50/80 border border-slate-200/80 p-3.5 rounded-2xl flex items-center justify-between gap-4 text-xs sm:text-sm hover:bg-emerald-50/30 hover:border-emerald-200 transition-all"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center border border-emerald-200">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-bold text-base flex items-center justify-center shadow-xs">
                         {tenant.fullName.charAt(0)}
                       </div>
                       <div>
-                        <p className="font-bold text-slate-900">{tenant.fullName}</p>
-                        <p className="text-slate-500">{tenant.propertyName} - Unit {tenant.unitNumber}</p>
+                        <p className="font-extrabold text-slate-900 text-sm">{tenant.fullName}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{tenant.propertyName} &bull; Unit {tenant.unitNumber}</p>
                       </div>
                     </div>
 
                     <div className="text-right">
-                      <p className="font-bold text-emerald-600">{formatKSH(tenant.monthlyRent)}/mo</p>
-                      <p className="text-[10px] text-slate-500">{tenant.email}</p>
+                      <p className="font-extrabold text-emerald-600 text-sm sm:text-base">{formatKSH(tenant.monthlyRent)}/mo</p>
+                      <p className="text-xs text-slate-500">{tenant.phone || tenant.email}</p>
                     </div>
                   </div>
                 ))}
@@ -315,121 +347,121 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
         </div>
 
         {/* Right Column: Automated Email Log & Quick Actions */}
-        <div className="space-y-6">
+        <div className="space-y-6 sm:space-y-7">
           {/* Quick Automation Tools */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
-            <h3 className="font-bold text-slate-900 text-base mb-3 flex items-center gap-2">
-              ⚡ Quick Actions
+          <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-6 shadow-sm">
+            <h3 className="font-extrabold text-slate-900 text-lg mb-4 flex items-center gap-2">
+              ⚡ Quick Operations
             </h3>
-            <div className="grid grid-cols-1 gap-2.5">
+            <div className="grid grid-cols-1 gap-3">
               <button
                 onClick={() => onNavigate('register')}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                className="w-full text-left p-3.5 rounded-2xl bg-slate-50 hover:bg-emerald-50/80 border border-slate-200 hover:border-emerald-300 text-slate-800 text-xs sm:text-sm font-medium transition flex items-center justify-between group cursor-pointer"
               >
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-lg bg-emerald-100 text-emerald-700">📝</span>
+                <div className="flex items-center gap-3">
+                  <span className="p-2 rounded-xl bg-emerald-100 text-emerald-700 text-base">📝</span>
                   <div>
-                    <p className="font-bold text-slate-900">Register New Tenant</p>
-                    <p className="text-[11px] text-slate-500">Generates quote & first invoice instantly</p>
+                    <p className="font-extrabold text-slate-900 group-hover:text-emerald-700">Register New Tenant</p>
+                    <p className="text-xs text-slate-500">Generates quote & first invoice</p>
                   </div>
                 </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
               </button>
 
               <button
                 onClick={() => onNavigate('properties')}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                className="w-full text-left p-3.5 rounded-2xl bg-slate-50 hover:bg-blue-50/80 border border-slate-200 hover:border-blue-300 text-slate-800 text-xs sm:text-sm font-medium transition flex items-center justify-between group cursor-pointer"
               >
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-lg bg-blue-100 text-blue-700">🏢</span>
+                <div className="flex items-center gap-3">
+                  <span className="p-2 rounded-xl bg-blue-100 text-blue-700 text-base">🏢</span>
                   <div>
-                    <p className="font-bold text-slate-900">Add Property / Apartment Unit</p>
-                    <p className="text-[11px] text-slate-500">Register apartments & set monthly rent</p>
+                    <p className="font-extrabold text-slate-900 group-hover:text-blue-700">Add Unit / Property</p>
+                    <p className="text-xs text-slate-500">Add apartments & set monthly rent</p>
                   </div>
                 </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
               </button>
 
               <button
                 onClick={onOpenNewInvoice}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                className="w-full text-left p-3.5 rounded-2xl bg-slate-50 hover:bg-indigo-50/80 border border-slate-200 hover:border-indigo-300 text-slate-800 text-xs sm:text-sm font-medium transition flex items-center justify-between group cursor-pointer"
               >
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700">📄</span>
+                <div className="flex items-center gap-3">
+                  <span className="p-2 rounded-xl bg-indigo-100 text-indigo-700 text-base">📄</span>
                   <div>
-                    <p className="font-bold text-slate-900">Issue Monthly Invoice</p>
-                    <p className="text-[11px] text-slate-500">Breakdown & dispatch to tenant email</p>
+                    <p className="font-extrabold text-slate-900 group-hover:text-indigo-700">Issue Monthly Invoice</p>
+                    <p className="text-xs text-slate-500">Breakdown & auto-carry arrears</p>
                   </div>
                 </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
               </button>
 
               <button
                 onClick={onOpenNewQuote}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-sky-50/60 border border-slate-200 hover:border-sky-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                className="w-full text-left p-3.5 rounded-2xl bg-slate-50 hover:bg-sky-50/80 border border-slate-200 hover:border-sky-300 text-slate-800 text-xs sm:text-sm font-medium transition flex items-center justify-between group cursor-pointer"
               >
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-lg bg-sky-100 text-sky-700">🏷️</span>
+                <div className="flex items-center gap-3">
+                  <span className="p-2 rounded-xl bg-sky-100 text-sky-700 text-base">🏷️</span>
                   <div>
-                    <p className="font-bold text-slate-900">Generate Rental Quote</p>
-                    <p className="text-[11px] text-slate-500">Pricing, terms & move-in estimate</p>
+                    <p className="font-extrabold text-slate-900 group-hover:text-sky-700">Generate Rental Quote</p>
+                    <p className="text-xs text-slate-500">Pricing, terms & move-in estimate</p>
                   </div>
                 </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-sky-600 transition-colors" />
               </button>
 
               <button
                 onClick={() => onNavigate('payments')}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-amber-50/60 border border-slate-200 hover:border-amber-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                className="w-full text-left p-3.5 rounded-2xl bg-slate-50 hover:bg-amber-50/80 border border-slate-200 hover:border-amber-300 text-slate-800 text-xs sm:text-sm font-medium transition flex items-center justify-between group cursor-pointer"
               >
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-lg bg-amber-100 text-amber-700">💳</span>
+                <div className="flex items-center gap-3">
+                  <span className="p-2 rounded-xl bg-amber-100 text-amber-700 text-base">💳</span>
                   <div>
-                    <p className="font-bold text-slate-900">Payment Ledger & Receipts</p>
-                    <p className="text-[11px] text-slate-500">Record M-Pesa or bank payments</p>
+                    <p className="font-extrabold text-slate-900 group-hover:text-amber-700">Payment Ledger & Receipts</p>
+                    <p className="text-xs text-slate-500">M-Pesa STK & bank ledger</p>
                   </div>
                 </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-amber-600 transition-colors" />
               </button>
 
               <button
                 onClick={() => onNavigate('maintenance')}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-rose-50/60 border border-slate-200 hover:border-rose-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                className="w-full text-left p-3.5 rounded-2xl bg-slate-50 hover:bg-rose-50/80 border border-slate-200 hover:border-rose-300 text-slate-800 text-xs sm:text-sm font-medium transition flex items-center justify-between group cursor-pointer"
               >
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-lg bg-rose-100 text-rose-700">🔧</span>
+                <div className="flex items-center gap-3">
+                  <span className="p-2 rounded-xl bg-rose-100 text-rose-700 text-base">🔧</span>
                   <div>
-                    <p className="font-bold text-slate-900">Maintenance Tickets</p>
-                    <p className="text-[11px] text-slate-500">Review repairs & technician assignments</p>
+                    <p className="font-extrabold text-slate-900 group-hover:text-rose-700">Maintenance & Repairs</p>
+                    <p className="text-xs text-slate-500">AI triage & technician assignments</p>
                   </div>
                 </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-rose-600 transition-colors" />
               </button>
 
               <button
                 onClick={() => onNavigate('landlord-accounts')}
-                className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-purple-50/60 border border-slate-200 hover:border-purple-300 text-slate-800 text-xs font-medium transition flex items-center justify-between"
+                className="w-full text-left p-3.5 rounded-2xl bg-slate-50 hover:bg-purple-50/80 border border-slate-200 hover:border-purple-300 text-slate-800 text-xs sm:text-sm font-medium transition flex items-center justify-between group cursor-pointer"
               >
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-lg bg-purple-100 text-purple-700">🏦</span>
+                <div className="flex items-center gap-3">
+                  <span className="p-2 rounded-xl bg-purple-100 text-purple-700 text-base">🏦</span>
                   <div>
-                    <p className="font-bold text-slate-900">Bank & M-Pesa Accounts</p>
-                    <p className="text-[11px] text-slate-500">Configure rent collection details</p>
+                    <p className="font-extrabold text-slate-900 group-hover:text-purple-700">Bank & M-Pesa Accounts</p>
+                    <p className="text-xs text-slate-500">Receiving paybill & till accounts</p>
                   </div>
                 </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-400" />
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 transition-colors" />
               </button>
             </div>
           </div>
 
           {/* Email Dispatcher Activity Stream */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                <Mail className="w-4 h-4 text-blue-600" /> Dispatched Tenant Emails
+          <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-extrabold text-slate-900 text-lg flex items-center gap-2.5">
+                <Mail className="w-5 h-5 text-blue-600" /> Dispatched Notifications
               </h3>
-              <span className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full font-bold border border-blue-200">
-                Auto Sent
+              <span className="text-[11px] bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-extrabold border border-blue-200">
+                Auto Dispatched
               </span>
             </div>
 
@@ -437,22 +469,22 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
               {recentEmails.map((email) => (
                 <div
                   key={email.id}
-                  className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1"
+                  className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/80 text-xs space-y-1 hover:border-blue-300 transition-colors"
                 >
                   <div className="flex items-center justify-between text-slate-600">
-                    <span className="font-bold text-blue-600">{email.recipientName}</span>
-                    <span className="text-[10px] text-slate-400">
+                    <span className="font-extrabold text-blue-600 text-xs sm:text-sm">{email.recipientName}</span>
+                    <span className="text-[11px] text-slate-400 font-mono">
                       {new Date(email.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
-                  <p className="font-semibold text-slate-800 line-clamp-1">{email.subject}</p>
-                  <p className="text-[10px] text-slate-500 truncate">To: {email.recipientEmail}</p>
+                  <p className="font-bold text-slate-800 line-clamp-1">{email.subject}</p>
+                  <p className="text-[11px] text-slate-500 truncate">To: {email.recipientEmail}</p>
                 </div>
               ))}
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };

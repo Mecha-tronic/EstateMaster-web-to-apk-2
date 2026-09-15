@@ -20,7 +20,8 @@ import {
   Quote,
   Payment,
   MaintenanceRequest,
-  EmailLog
+  EmailLog,
+  SecurityLog
 } from '../types';
 
 // Helper to sanitize objects for Firestore (remove undefined values)
@@ -44,7 +45,8 @@ const COLLECTIONS = {
   QUOTES: 'quotes',
   PAYMENTS: 'payments',
   MAINTENANCE: 'maintenance',
-  EMAILS: 'emails'
+  EMAILS: 'emails',
+  SECURITY_LOGS: 'security_logs'
 };
 
 // --- LANDLORDS ---
@@ -455,4 +457,26 @@ export function subscribeToQuotes(onData: (data: Quote[]) => void) { return subs
 export function subscribeToPayments(onData: (data: Payment[]) => void) { return subscribeToCol<Payment>(COLLECTIONS.PAYMENTS, onData); }
 export function subscribeToMaintenance(onData: (data: MaintenanceRequest[]) => void) { return subscribeToCol<MaintenanceRequest>(COLLECTIONS.MAINTENANCE, onData); }
 export function subscribeToEmails(onData: (data: EmailLog[]) => void) { return subscribeToCol<EmailLog>(COLLECTIONS.EMAILS, onData); }
+export function subscribeToSecurityLogs(onData: (data: SecurityLog[]) => void) { return subscribeToCol<SecurityLog>(COLLECTIONS.SECURITY_LOGS, onData); }
+
+// --- SECURITY AUDIT LOGS ---
+export async function getSecurityLogsFromDb(): Promise<SecurityLog[]> {
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.SECURITY_LOGS));
+    const logs = snapshot.docs.map((d) => d.data() as SecurityLog);
+    return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  } catch (err) {
+    console.error('Error getting security logs from Firestore:', err);
+    return [];
+  }
+}
+
+export async function saveSecurityLogToDb(log: SecurityLog): Promise<void> {
+  try {
+    const cleanData = sanitize(log);
+    await setDoc(doc(db, COLLECTIONS.SECURITY_LOGS, log.id), cleanData);
+  } catch (err) {
+    console.error('Error saving security log to Firestore:', err);
+  }
+}
 

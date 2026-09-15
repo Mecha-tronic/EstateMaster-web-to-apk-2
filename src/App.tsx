@@ -13,6 +13,7 @@ import { LandlordRegistrationModal } from './components/LandlordRegistrationModa
 import { SubscriptionLockScreen } from './components/SubscriptionLockScreen';
 import { SubscriptionRenewalModal } from './components/SubscriptionRenewalModal';
 import { SignInView } from './components/SignInView';
+import { SecurityShieldDashboard } from './components/SecurityShieldDashboard';
 import { formatKSH } from './lib/formatters';
 
 import {
@@ -72,7 +73,8 @@ import {
   LogOut,
   ArrowLeft,
   RefreshCw,
-  Sparkles
+  Sparkles,
+  ShieldCheck
 } from 'lucide-react';
 
 export default function App() {
@@ -418,25 +420,25 @@ export default function App() {
             ) : (
               <div className="flex-1 flex flex-col justify-between">
                 {/* Landlord Header Sub-Navigation Bar */}
-                <div className="bg-white border-b-2 border-slate-200 px-4 py-3 sm:py-3.5 flex items-center justify-between gap-2 overflow-x-auto text-sm sticky top-0 z-20 shadow-xs">
+                <div className="bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3 sm:py-3.5 flex items-center justify-between gap-2 overflow-x-auto text-sm sticky top-0 z-20 shadow-xs">
                   <div className="flex items-center gap-2 sm:gap-2.5 font-bold text-sm w-full">
                     <button
                       onClick={() => navigateTab('dashboard')}
-                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition-all duration-200 flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer ${
                         landlordTab === 'dashboard'
-                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
-                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 font-extrabold scale-[1.02]'
+                          : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold'
                       }`}
                     >
-                      <LayoutDashboard className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-blue-300" /> Overview
+                      <LayoutDashboard className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Overview
                     </button>
 
                     <button
                       onClick={() => navigateTab('properties')}
-                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition-all duration-200 flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer ${
                         landlordTab === 'properties'
-                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
-                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 font-extrabold scale-[1.02]'
+                          : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold'
                       }`}
                     >
                       <Building2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Properties ({scopedUnits.length})
@@ -444,10 +446,10 @@ export default function App() {
 
                     <button
                       onClick={() => navigateTab('tenants')}
-                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition-all duration-200 flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer ${
                         landlordTab === 'tenants'
-                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
-                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 font-extrabold scale-[1.02]'
+                          : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold'
                       }`}
                     >
                       <Users className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Tenants ({scopedTenants.length})
@@ -455,10 +457,10 @@ export default function App() {
 
                     <button
                       onClick={() => navigateTab('invoices')}
-                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition-all duration-200 flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer ${
                         landlordTab === 'invoices'
-                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
-                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 font-extrabold scale-[1.02]'
+                          : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold'
                       }`}
                     >
                       <ReceiptText className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Invoices & Quotes
@@ -466,10 +468,10 @@ export default function App() {
 
                     <button
                       onClick={() => navigateTab('payments')}
-                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition-all duration-200 flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer ${
                         landlordTab === 'payments'
-                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
-                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 font-extrabold scale-[1.02]'
+                          : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold'
                       }`}
                     >
                       <WalletCards className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Payment Ledger
@@ -477,10 +479,10 @@ export default function App() {
 
                     <button
                       onClick={() => navigateTab('maintenance')}
-                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition-all duration-200 flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer ${
                         landlordTab === 'maintenance'
-                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
-                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 font-extrabold scale-[1.02]'
+                          : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold'
                       }`}
                     >
                       <Wrench className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> Maintenance ({scopedMaintenance.length})
@@ -488,20 +490,31 @@ export default function App() {
 
                     <button
                       onClick={() => navigateTab('landlord-accounts')}
-                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm ${
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition-all duration-200 flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer ${
                         landlordTab === 'landlord-accounts'
-                          ? 'bg-blue-600 text-white shadow-md font-extrabold'
-                          : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 font-extrabold scale-[1.02]'
+                          : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold'
                       }`}
                     >
                       <Landmark className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-500" /> Bank & M-Pesa Accounts
                     </button>
 
                     <button
-                      onClick={() => setShowRenewSubscriptionModal(true)}
-                      className="px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm transition flex items-center gap-2 shadow-md hover:shadow-lg whitespace-nowrap ml-auto"
+                      onClick={() => navigateTab('security')}
+                      className={`px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl transition-all duration-200 flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer ${
+                        landlordTab === 'security'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 font-extrabold scale-[1.02]'
+                          : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold'
+                      }`}
                     >
-                      <Sparkles className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-200" /> Renew Subscription ({formatKSH(20000)}/yr)
+                      <ShieldCheck className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-sky-500" /> Security & 2FA
+                    </button>
+
+                    <button
+                      onClick={() => setShowRenewSubscriptionModal(true)}
+                      className="px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm transition-all duration-200 flex items-center gap-2 shadow-md hover:shadow-lg shadow-emerald-600/20 whitespace-nowrap ml-auto cursor-pointer hover:scale-[1.02]"
+                    >
+                      <Sparkles className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-200 animate-spin-slow" /> Renew Subscription ({formatKSH(20000)}/yr)
                     </button>
                   </div>
                 </div>
@@ -559,6 +572,19 @@ export default function App() {
                       onLandlordUpdated={() => loadAllData()}
                       onOpenRegisterModal={() => setShowLandlordRegModal(true)}
                     />
+                  )}
+
+                  {landlordTab === 'security' && currentLandlord && (
+                    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+                      <SecurityShieldDashboard
+                        user={currentLandlord}
+                        role="landlord"
+                        onUserUpdated={(updated) => {
+                          setSignedInLandlord(updated as Landlord);
+                          loadAllData();
+                        }}
+                      />
+                    </div>
                   )}
 
                   {landlordTab === 'properties' && (

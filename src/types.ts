@@ -7,7 +7,17 @@ export interface Landlord {
   email: string;
   phone: string;
   password?: string;
+  passwordHash?: string;
+  passwordSalt?: string;
   idNumber?: string;
+  // Security & Anti-Hacking Protection
+  twoFactorEnabled?: boolean;
+  twoFactorSecret?: string;
+  failedLoginAttempts?: number;
+  lockoutUntil?: string;
+  lastLoginAt?: string;
+  lastLoginIp?: string;
+  securityScore?: number;
   // Subscription Commercialization
   subscriptionStatus?: 'Active' | 'Pending Payment' | 'Expired';
   subscriptionExpiry?: string;
@@ -71,7 +81,17 @@ export interface Tenant {
   email: string;
   phone: string;
   password?: string;
+  passwordHash?: string;
+  passwordSalt?: string;
   idNumber?: string;
+  // Security & Anti-Hacking Protection
+  twoFactorEnabled?: boolean;
+  twoFactorSecret?: string;
+  failedLoginAttempts?: number;
+  lockoutUntil?: string;
+  lastLoginAt?: string;
+  lastLoginIp?: string;
+  securityScore?: number;
   occupation?: string;
   income?: number;
   emergencyContactName?: string;
@@ -224,3 +244,52 @@ export interface AiTriageRequest {
   category: string;
   unitNumber: string;
 }
+
+export type SecurityEventType = 
+  | 'LOGIN_SUCCESS'
+  | 'FAILED_LOGIN'
+  | 'ACCOUNT_LOCKED'
+  | 'PASSWORD_CHANGED'
+  | '2FA_ENABLED'
+  | '2FA_DISABLED'
+  | 'SENSITIVE_DATA_MODIFIED'
+  | 'SESSION_REVOKED'
+  | 'SUSPICIOUS_ACTIVITY'
+  | 'STEP_UP_VERIFIED';
+
+export interface SecurityLog {
+  id: string;
+  userId?: string;
+  userEmail: string;
+  role: 'landlord' | 'tenant' | 'system';
+  eventType: SecurityEventType;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  description: string;
+  ipAddress: string;
+  userAgent?: string;
+  timestamp: string;
+}
+
+export interface UserSession {
+  sessionId: string;
+  userId: string;
+  userEmail: string;
+  role: 'landlord' | 'tenant';
+  ipAddress: string;
+  device: string;
+  browser: string;
+  createdAt: string;
+  lastActive: string;
+  isCurrent?: boolean;
+}
+
+export interface SecurityStatus {
+  twoFactorEnabled: boolean;
+  failedLoginAttempts: number;
+  isLocked: boolean;
+  lockoutRemainingSeconds: number;
+  securityScore: number;
+  recentLogs: SecurityLog[];
+  activeSessions: UserSession[];
+}
+

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Landlord } from '../types';
 import { formatKSH } from '../lib/formatters';
-import { Building, CreditCard, Building2, Phone, Mail, CheckCircle, Save, Smartphone, ShieldCheck, RefreshCw, UserPlus, Sparkles, Calendar, Award } from 'lucide-react';
+import { Building, CreditCard, Building2, Phone, Mail, CheckCircle, Save, Smartphone, ShieldCheck, RefreshCw, UserPlus, Sparkles, Calendar, Award, Landmark, Check } from 'lucide-react';
 import { updateLandlordDetails } from '../lib/api';
+import { KENYA_BANKS, getBankByNameOrId } from '../lib/kenyaBanks';
 
 interface LandlordProfileViewProps {
   landlords: Landlord[];
@@ -347,22 +348,63 @@ export const LandlordProfileView: React.FC<LandlordProfileViewProps> = ({
         {/* Bank Account Details Card */}
         <div className="bg-white border border-blue-200 rounded-2xl p-5 space-y-4 shadow-xs text-slate-900">
           <div className="flex items-center justify-between border-b border-blue-100 pb-3">
-            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-blue-600" /> Shareable Bank Account Details
-            </h3>
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <Landmark className="w-4 h-4 text-blue-600" /> Commercial Bank Integration & Settlement Account
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Integrate with major Kenyan banks (Equity, Co-op, KCB, National Bank, NCBA, Absa, etc.) to receive direct wire, PesaLink & EFT payments.
+              </p>
+            </div>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-800 border border-blue-200 font-bold uppercase">
-              Shared on Invoices & Tenant Portal
+              Shared on Invoices & Portals
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {/* Quick Bank Preset Badges */}
+          <div className="space-y-2">
+            <label className="block text-slate-700 font-bold text-[11px]">Select / Auto-configure Kenyan Bank:</label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+              {KENYA_BANKS.slice(0, 12).map((bank) => {
+                const isSelected = bankName.toLowerCase().includes(bank.shortName.toLowerCase()) || 
+                                   bankName.toLowerCase().includes(bank.name.toLowerCase());
+                return (
+                  <button
+                    key={bank.id}
+                    type="button"
+                    onClick={() => {
+                      setBankName(bank.name);
+                      if (bank.swiftCode) setSwiftCode(bank.swiftCode);
+                      if (bank.paybill && !mpesaPaybill) setMpesaPaybill(bank.paybill);
+                    }}
+                    className={`p-2 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-50 border-blue-600 ring-2 ring-blue-500/20 text-blue-900 shadow-xs font-bold'
+                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-[11px] font-bold leading-tight line-clamp-1">{bank.shortName}</span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                    </div>
+                    <div className="flex items-center gap-1 text-[9px] text-slate-500 font-mono">
+                      <span>Code: {bank.code}</span>
+                      {bank.paybill && <span>&bull; PB: {bank.paybill}</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
             <div>
               <label className="block text-slate-700 font-medium mb-1">Bank Name</label>
               <input
                 type="text"
                 value={bankName}
                 onChange={(e) => setBankName(e.target.value)}
-                placeholder="e.g. Equity Bank Kenya / KCB / NCBA"
+                placeholder="e.g. Equity Bank Kenya / KCB / Co-op / National Bank"
                 className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm"
               />
             </div>
@@ -395,18 +437,29 @@ export const LandlordProfileView: React.FC<LandlordProfileViewProps> = ({
                 type="text"
                 value={branchName}
                 onChange={(e) => setBranchName(e.target.value)}
-                placeholder="e.g. Westlands Branch"
+                placeholder="e.g. Westlands Branch / Harambee Avenue"
                 className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm"
               />
             </div>
 
             <div>
-              <label className="block text-slate-700 font-medium mb-1">SWIFT Code / Branch Code</label>
+              <label className="block text-slate-700 font-medium mb-1">SWIFT Code / BIC</label>
               <input
                 type="text"
                 value={swiftCode}
                 onChange={(e) => setSwiftCode(e.target.value)}
-                placeholder="e.g. EQBLKENA"
+                placeholder="e.g. EQBLKENA / KCBLKENA / KCOO-KENA"
+                className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 font-mono focus:outline-none focus:border-blue-500 shadow-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-medium mb-1">PesaLink / Direct Paybill</label>
+              <input
+                type="text"
+                value={mpesaPaybill}
+                onChange={(e) => setMpesaPaybill(e.target.value)}
+                placeholder="e.g. 247247 (Equity) / 522522 (KCB) / 400200 (Co-op)"
                 className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 font-mono focus:outline-none focus:border-blue-500 shadow-sm"
               />
             </div>
