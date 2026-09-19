@@ -180,12 +180,12 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {units.map((unit) => {
+                  {units.map((unit, uIdx) => {
                     const isSelected = unit.id === selectedUnitId;
                     const isOccupied = unit.status === 'Occupied';
                     return (
                       <div
-                        key={unit.id}
+                        key={`reg-unit-${unit.id}-${uIdx}`}
                         onClick={() => setSelectedUnitId(unit.id)}
                         className={`p-4 rounded-xl border transition cursor-pointer relative ${
                           isSelected
@@ -287,7 +287,7 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
                       <div className="flex items-center gap-2">
                         {PRESET_TENANT_AVATARS.map((url, idx) => (
                           <button
-                            key={idx}
+                            key={`reg-avatar-${idx}`}
                             type="button"
                             onClick={() => setProfilePictureUrl(url)}
                             className={`w-9 h-9 rounded-full overflow-hidden border-2 transition ${

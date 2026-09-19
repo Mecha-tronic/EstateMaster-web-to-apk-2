@@ -54,7 +54,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
 
       {/* Tickets List */}
       <div className="space-y-4">
-        {maintenance.map((m) => {
+        {maintenance.map((m, mIdx) => {
           // Dynamically resolve tenant, unit, and property to ensure property information matches tenant move-in
           const matchedTenant = tenants.find(
             (t) => (m.tenantId && t.id === m.tenantId) ||
@@ -75,7 +75,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
 
           return (
             <div
-              key={m.id}
+              key={`maint-${m.id}-${mIdx}`}
               className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-4 hover:border-blue-500 transition shadow-sm text-slate-900"
             >
               {/* Top Bar */}

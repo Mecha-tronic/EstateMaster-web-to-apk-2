@@ -36,6 +36,20 @@ export interface Landlord {
   accountNumber?: string;
   branchName?: string;
   swiftCode?: string;
+  // Financial Settlement Vault & Tamper Protection
+  lastFinancialUpdateAt?: string;
+  lastFinancialUpdatedBy?: string;
+  financialAuditTrail?: FinancialAuditEntry[];
+}
+
+export interface FinancialAuditEntry {
+  id: string;
+  timestamp: string;
+  verifiedMethod: string;
+  action: string;
+  changedFields?: string[];
+  ipAddress?: string;
+  summary: string;
 }
 
 export interface Property {
@@ -114,6 +128,7 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   invoiceNumber: string;
+  serialNumber?: string;
   tenantId: string;
   tenantName: string;
   tenantEmail?: string;
@@ -139,11 +154,13 @@ export interface Invoice {
   notes?: string;
   emailedToTenant?: boolean;
   emailSentAt?: string;
+  externalDeliveryStatus?: 'delivered' | 'simulated_fallback' | 'failed' | 'pending';
 }
 
 export interface Quote {
   id: string;
   quoteNumber: string;
+  serialNumber?: string;
   tenantName?: string;
   applicantName?: string;
   tenantEmail?: string;
@@ -170,11 +187,13 @@ export interface Quote {
   emailedToTenant?: boolean;
   emailSentAt?: string;
   applicantEmail?: string;
+  externalDeliveryStatus?: 'delivered' | 'simulated_fallback' | 'failed' | 'pending';
 }
 
 export interface Payment {
   id: string;
   invoiceId?: string;
+  serialNumber?: string;
   tenantId?: string;
   tenantName: string;
   unitNumber?: string;
@@ -185,6 +204,7 @@ export interface Payment {
   paymentDate: string;
   status: 'Completed' | 'Pending Verification' | 'Failed';
   notes?: string;
+  externalDeliveryStatus?: 'delivered' | 'simulated_fallback' | 'failed' | 'pending';
 }
 
 export interface MaintenanceRequest {
@@ -212,14 +232,18 @@ export interface MaintenanceRequest {
 
 export interface EmailLog {
   id: string;
+  serialNumber?: string;
   recipientEmail: string;
   recipientName: string;
   subject: string;
   bodyHtml: string;
-  emailType: 'Invoice' | 'Quote' | 'Welcome & Lease' | 'Payment Receipt' | 'Maintenance Update';
+  emailType: 'Invoice' | 'Quote' | 'Welcome & Lease' | 'Payment Receipt' | 'Maintenance Update' | 'Security OTP' | 'Security Alert';
   sentAt: string;
   readStatus: boolean;
   documentId?: string; // invoice or quote id
+  externalDeliveryStatus?: 'delivered' | 'failed' | 'simulated_fallback';
+  deliveryMessageId?: string;
+  deliveryError?: string;
 }
 
 export interface AiQuoteRequest {
@@ -253,6 +277,8 @@ export type SecurityEventType =
   | '2FA_ENABLED'
   | '2FA_DISABLED'
   | 'SENSITIVE_DATA_MODIFIED'
+  | 'BANK_DETAILS_MODIFIED'
+  | 'UNAUTHORIZED_PAYMENT_DETAILS_CHANGE_ATTEMPT'
   | 'SESSION_REVOKED'
   | 'SUSPICIOUS_ACTIVITY'
   | 'STEP_UP_VERIFIED';
@@ -272,11 +298,13 @@ export interface SecurityLog {
 
 export interface UserSession {
   sessionId: string;
+  id?: string;
   userId: string;
   userEmail: string;
   role: 'landlord' | 'tenant';
   ipAddress: string;
   device: string;
+  deviceType?: 'mobile' | 'desktop';
   browser: string;
   createdAt: string;
   lastActive: string;

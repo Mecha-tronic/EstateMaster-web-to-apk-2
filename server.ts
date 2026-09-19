@@ -62,6 +62,11 @@ import {
   LOCKOUT_THRESHOLD,
   LOCKOUT_DURATION_MS
 } from './src/lib/security.js';
+import {
+  sendPersonalizedEmail,
+  generateUniqueSerialNumber,
+  getEmailConfig
+} from './src/lib/emailService.js';
 
 dotenv.config();
 
@@ -165,6 +170,27 @@ const landlords: Landlord[] = [
     accountName: 'Raha Estate Management',
     accountNumber: '0110992837410',
     branchName: 'Nairobi Main Branch',
+    swiftCode: 'EQBLKENA'
+  },
+  {
+    id: 'landlord-js',
+    name: 'J.S. Properties (Allan)',
+    companyName: 'JS Premier Properties',
+    email: 'js@gmail.com',
+    phone: '+254 746 549 710',
+    password: 'password123',
+    idNumber: 'ID-49201928',
+    subscriptionStatus: 'Active',
+    subscriptionExpiry: '2027-09-15',
+    subscriptionPlan: 'EstateMaster Annual License (KSH 20,000/yr)',
+    registeredAt: '2026-08-01T08:00:00.000Z',
+    mpesaPaybill: '247247',
+    mpesaTillNumber: '781920',
+    mpesaPhoneNumber: '+254 746 549 710',
+    bankName: 'Equity Bank Kenya',
+    accountName: 'JS Premier Properties',
+    accountNumber: '0110293847561',
+    branchName: 'Westlands Branch',
     swiftCode: 'EQBLKENA'
   }
 ];
@@ -312,6 +338,30 @@ const tenants: Tenant[] = [
     status: 'Active',
     profilePictureUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80',
     registeredAt: '2026-02-20T14:30:00.000Z'
+  },
+  {
+    id: 'tenant-js',
+    propertyId: 'prop-1',
+    unitId: 'unit-102',
+    propertyName: 'Highland Park Apartments',
+    unitNumber: 'A102',
+    fullName: 'Josphine S. (JS)',
+    email: 'js@gmail.com',
+    phone: '+254 746 549 710',
+    password: 'password123',
+    idNumber: 'ID-3920182',
+    occupation: 'Executive Consultant',
+    income: 250000,
+    emergencyContactName: 'Allan Mokua',
+    emergencyContactPhone: '+254 746 549 710',
+    moveInDate: '2026-02-01',
+    leaseStartDate: '2026-02-01',
+    leaseEndDate: '2027-01-31',
+    monthlyRent: 48000,
+    depositPaid: true,
+    status: 'Active',
+    profilePictureUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+    registeredAt: '2026-02-01T10:00:00.000Z'
   }
 ];
 
@@ -365,6 +415,31 @@ const invoices: Invoice[] = [
     notes: 'August 2026 Rent & Utilities Statement',
     emailedToTenant: true,
     emailSentAt: '2026-08-01T08:05:00.000Z'
+  },
+  {
+    id: 'inv-js-101',
+    invoiceNumber: 'INV-2026-09-JS',
+    tenantId: 'tenant-js',
+    tenantName: 'Josphine S. (JS)',
+    tenantEmail: 'js@gmail.com',
+    unitId: 'unit-102',
+    unitNumber: 'A102',
+    propertyName: 'Highland Park Apartments',
+    issueDate: '2026-09-01',
+    dueDate: '2026-09-05',
+    periodMonth: 'September 2026',
+    rentAmount: 48000,
+    waterFee: 2000,
+    trashFee: 1500,
+    maintenanceFee: 0,
+    taxAmount: 0,
+    discount: 0,
+    totalAmount: 51500,
+    status: 'Unpaid',
+    amountPaid: 0,
+    notes: 'September 2026 Rent & Utilities for Unit A102',
+    emailedToTenant: true,
+    emailSentAt: '2026-09-01T08:00:00.000Z'
   }
 ];
 
@@ -556,8 +631,70 @@ async function startServer() {
     } catch (err) {
       console.warn('Could not persist security log:', err);
     }
-    console.log(`🛡️ [SECURITY] [${severity}] ${eventType} -> ${userEmail}: ${description}`);
+    console.log(`[SecurityEvent] ${eventType} (${severity}) - ${userEmail}: ${description}`);
     return log;
+  };
+
+  /**
+   * Dispatches an official serialized communication to the personalized recipient email,
+   * stamps a unique serial number, attempts real external delivery via SMTP/Nodemailer,
+   * and saves the complete record in the database.
+   */
+  const dispatchSystemEmail = async (options: {
+    recipientEmail: string;
+    recipientName: string;
+    subject: string;
+    bodyHtml: string;
+    emailType: EmailLog['emailType'];
+    prefix?: 'INV' | 'RCT' | 'OTP' | 'SEC' | 'QTE' | 'WLC' | 'MNT' | 'SUB';
+    documentId?: string;
+    serialNumber?: string;
+  }): Promise<{
+    success: boolean;
+    serialNumber: string;
+    externalDelivered: boolean;
+    emailLog: EmailLog;
+  }> => {
+    const serial = options.serialNumber || generateUniqueSerialNumber(options.prefix || 'SEC');
+
+    const deliveryResult = await sendPersonalizedEmail({
+      recipientEmail: options.recipientEmail,
+      recipientName: options.recipientName,
+      subject: options.subject,
+      bodyHtml: options.bodyHtml,
+      emailType: options.emailType,
+      serialNumber: serial,
+      documentId: options.documentId
+    });
+
+    const emailLog: EmailLog = {
+      id: `email-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      serialNumber: serial,
+      recipientEmail: options.recipientEmail,
+      recipientName: options.recipientName,
+      subject: options.subject,
+      bodyHtml: options.bodyHtml,
+      emailType: options.emailType,
+      sentAt: new Date().toISOString(),
+      readStatus: false,
+      documentId: options.documentId,
+      externalDeliveryStatus: deliveryResult.externalDelivered ? 'delivered' : 'simulated_fallback',
+      deliveryMessageId: deliveryResult.messageId,
+      deliveryError: deliveryResult.error
+    };
+
+    try {
+      await saveEmailToDb(emailLog);
+    } catch (saveErr) {
+      console.warn('[EmailService] Could not persist email log:', saveErr);
+    }
+
+    return {
+      success: true,
+      serialNumber: serial,
+      externalDelivered: deliveryResult.externalDelivered,
+      emailLog
+    };
   };
 
   // --- API ROUTES ---
@@ -565,6 +702,74 @@ async function startServer() {
   // Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+
+  // External Email Delivery Status & Configuration Diagnostics
+  app.get('/api/email/status', async (req, res) => {
+    try {
+      const config = getEmailConfig();
+      res.json({
+        isConfigured: config.isConfigured,
+        providerType: config.providerType,
+        smtpHost: config.smtpHost || (config.providerType === 'gmail' ? 'smtp.gmail.com' : config.providerType === 'resend' ? 'smtp.resend.com' : undefined),
+        smtpPort: config.smtpPort,
+        senderFrom: config.smtpFrom,
+        maskedUser: config.smtpUser ? config.smtpUser.replace(/(.{2})(.*)(@.*)/, '$1***$3') : config.gmailUser ? config.gmailUser.replace(/(.{2})(.*)(@.*)/, '$1***$3') : undefined,
+        message: config.isConfigured
+          ? `External email delivery is ACTIVE using ${config.providerType.toUpperCase()} provider.`
+          : 'External email delivery is currently in SIMULATION mode. Set SMTP credentials in environment variables to deliver directly to external email inboxes.'
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Manual Test Email Dispatch (Verifies External Delivery to Registered Account)
+  app.post('/api/email/send-test', async (req, res) => {
+    try {
+      const { email, name } = req.body;
+      if (!email || !email.includes('@')) {
+        return res.status(400).json({ error: 'A valid recipient email address is required.' });
+      }
+
+      const testSerial = generateUniqueSerialNumber('SEC');
+      const testContent = `
+        <div style="background-color: #f0fdf4; border: 1px solid #86efac; border-radius: 12px; padding: 20px; margin: 16px 0;">
+          <h3 style="color: #166534; margin: 0 0 8px 0; font-size: 16px;">External Mail Delivery Verification</h3>
+          <p style="color: #15803d; font-size: 14px; margin: 0 0 12px 0;">
+            This test verifies that EstateMaster Kenya can reach your personalized email directly via real SMTP.
+          </p>
+          <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size: 13px; color: #334155; line-height: 1.8;">
+            <tr><td width="35%"><strong>Document Serial:</strong></td><td><code style="font-family: monospace; color: #0284c7; font-weight: bold;">${testSerial}</code></td></tr>
+            <tr><td><strong>Target Recipient:</strong></td><td>${email}</td></tr>
+            <tr><td><strong>Account Name:</strong></td><td>${name || 'Registered Account Holder'}</td></tr>
+            <tr><td><strong>Timestamp:</strong></td><td>${new Date().toLocaleString('en-KE')}</td></tr>
+          </table>
+        </div>
+      `;
+
+      const dispatchResult = await dispatchSystemEmail({
+        recipientEmail: email,
+        recipientName: name || 'Registered Account Holder',
+        subject: `🧪 Test Delivery: EstateMaster Communications [${testSerial}]`,
+        bodyHtml: testContent,
+        emailType: 'Security Alert',
+        serialNumber: testSerial,
+        prefix: 'SEC'
+      });
+
+      res.json({
+        success: true,
+        serialNumber: testSerial,
+        externalDelivered: dispatchResult.externalDelivered,
+        emailLog: dispatchResult.emailLog,
+        message: dispatchResult.externalDelivered
+          ? `Test email delivered successfully to ${email}! Serial: ${testSerial}`
+          : `Test email generated with Serial ${testSerial} and logged in application inbox (SMTP not yet configured in environment).`
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // 1. Authentication Sign In with Brute-Force Shield, PBKDF2 Hash, & 2FA Challenge
@@ -608,16 +813,34 @@ async function startServer() {
       const currentTenants = await getTenantsFromDb();
       const currentLandlords = await getLandlordsFromDb();
 
-      // Find user matching role or auto-detect
+      // Find user matching role or auto-detect gracefully across both collections
       let matchedUser: (Tenant | Landlord) | null = null;
       let matchedRole: 'tenant' | 'landlord' | null = null;
 
       if (role === 'tenant') {
         matchedUser = currentTenants.find((t) => t.email && t.email.trim().toLowerCase() === cleanEmail) || null;
-        matchedRole = 'tenant';
+        if (matchedUser) {
+          matchedRole = 'tenant';
+        } else {
+          // Check if registered as landlord instead
+          const altLandlord = currentLandlords.find((l) => l.email && l.email.trim().toLowerCase() === cleanEmail);
+          if (altLandlord) {
+            matchedUser = altLandlord;
+            matchedRole = 'landlord';
+          }
+        }
       } else if (role === 'landlord') {
         matchedUser = currentLandlords.find((l) => l.email && l.email.trim().toLowerCase() === cleanEmail) || null;
-        matchedRole = 'landlord';
+        if (matchedUser) {
+          matchedRole = 'landlord';
+        } else {
+          // Check if registered as tenant instead
+          const altTenant = currentTenants.find((t) => t.email && t.email.trim().toLowerCase() === cleanEmail);
+          if (altTenant) {
+            matchedUser = altTenant;
+            matchedRole = 'tenant';
+          }
+        }
       } else {
         matchedUser = currentTenants.find((t) => t.email && t.email.trim().toLowerCase() === cleanEmail) || null;
         if (matchedUser) {
@@ -640,7 +863,11 @@ async function startServer() {
           req,
           cleanEmail
         );
-        return res.status(401).json({ error: 'No account found with this email address. Please register.' });
+        return res.status(401).json({
+          error: `No account found with email "${cleanEmail}". Please check your email or click "Create Account" below.`,
+          emailNotFound: true,
+          requestedEmail: cleanEmail
+        });
       }
 
       // Check if user account object has persistent lockout timestamp
@@ -678,36 +905,38 @@ async function startServer() {
             await updateTenantInDb(matchedUser.id, { lockoutUntil: lockoutDate, failedLoginAttempts: tracker.failedAttempts });
           }
 
-          // Send Security Alert Email
-          await saveEmailToDb({
-            id: `sec-alert-${Date.now()}`,
+          // Send Security Alert Email with unique serial number and real email delivery
+          const alertSerial = generateUniqueSerialNumber('SEC');
+          const recipientName = ('name' in matchedUser ? matchedUser.name : matchedUser.fullName) || 'User';
+          await dispatchSystemEmail({
             recipientEmail: cleanEmail,
-            recipientName: ('name' in matchedUser ? matchedUser.name : matchedUser.fullName) || 'User',
+            recipientName,
             subject: '⚠️ Security Alert: EstateMaster Account Temporarily Locked',
             bodyHtml: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ef4444; border-radius: 12px;">
-                <div style="background: #ef4444; color: white; padding: 16px; border-radius: 8px; text-align: center;">
-                  <h2 style="margin: 0;">🛡️ Account Security Shield Alert</h2>
+              <div style="padding: 16px; background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; margin: 16px 0;">
+                <h3 style="color: #991b1b; margin: 0 0 10px 0; font-size: 16px;">🛡️ Anti-Brute-Force Shield Activated</h3>
+                <p style="color: #334155; font-size: 14px; margin: 0 0 10px 0;">
+                  EstateMaster Anti-Hacking Shield detected <strong>5 consecutive failed password attempts</strong> on your account from IP address <code>${clientIp}</code>.
+                </p>
+                <div style="background: #ffffff; border: 1px solid #fca5a5; padding: 12px; border-radius: 8px; margin: 12px 0;">
+                  <p style="margin: 0; color: #991b1b; font-weight: bold; font-size: 13px;">
+                    Your account has been temporarily locked for 15 minutes to safeguard your data against brute-force attacks.
+                  </p>
                 </div>
-                <div style="padding: 20px 0; color: #334155;">
-                  <p>Hello <strong>${'name' in matchedUser ? matchedUser.name : matchedUser.fullName}</strong>,</p>
-                  <p>EstateMaster Anti-Hacking Shield detected <strong>5 consecutive failed password attempts</strong> on your account from IP address <code>${clientIp}</code>.</p>
-                  <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: 8px; margin: 16px 0;">
-                    <p style="margin: 0; color: #991b1b; font-weight: bold;">Your account has been temporarily locked for 15 minutes to safeguard your data against brute-force attacks.</p>
-                  </div>
-                  <p style="font-size: 13px; color: #64748b;">If this was you, please wait 15 minutes. If you did not attempt this, please sign in once unlocked and change your password immediately.</p>
-                </div>
+                <p style="font-size: 12px; color: #64748b; margin: 0;">
+                  If this was you, please wait 15 minutes. If you did not attempt this, please sign in once unlocked and change your password immediately.
+                </p>
               </div>
             `,
-            emailType: 'Maintenance Update',
-            sentAt: new Date().toISOString(),
-            readStatus: false
+            emailType: 'Security Alert',
+            serialNumber: alertSerial,
+            prefix: 'SEC'
           });
 
           await logSecurityEvent(
             'ACCOUNT_LOCKED',
             'CRITICAL',
-            `Account locked for 15 mins after ${tracker.failedAttempts} failed attempts from IP ${clientIp}`,
+            `Account locked for 15 mins after ${tracker.failedAttempts} failed attempts from IP ${clientIp}. Serial: ${alertSerial}`,
             req,
             cleanEmail,
             matchedUser.id,
@@ -783,35 +1012,43 @@ async function startServer() {
           expiresAt
         });
 
-        // Dispatch 2FA Security Code Email
-        await saveEmailToDb({
-          id: `2fa-email-${Date.now()}`,
-          recipientEmail: cleanEmail,
-          recipientName: ('name' in matchedUser ? matchedUser.name : matchedUser.fullName) || 'User',
-          subject: `🔐 ${otp} is your EstateMaster 2FA Verification Code`,
-          bodyHtml: `
-            <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; padding: 24px; border: 1px solid #cbd5e1; border-radius: 12px;">
-              <div style="background: #0284c7; color: white; padding: 16px; border-radius: 8px; text-align: center;">
-                <h2 style="margin: 0; font-size: 20px;">EstateMaster Two-Factor Authentication</h2>
-              </div>
-              <div style="padding: 20px 0; text-align: center;">
-                <p style="font-size: 14px; color: #475569;">Enter this 6-digit security code to complete your sign in:</p>
-                <div style="background: #f1f5f9; display: inline-block; padding: 12px 28px; border-radius: 10px; font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #0f172a; margin: 12px 0;">
-                  ${otp}
-                </div>
-                <p style="font-size: 12px; color: #64748b;">This verification code expires in 5 minutes. If you did not request this code, your account credentials may be compromised.</p>
-              </div>
+        // Dispatch 2FA Security Code Email with unique serial number and real email delivery
+        const otpSerial = generateUniqueSerialNumber('OTP');
+        const recipientName = ('name' in matchedUser ? matchedUser.name : matchedUser.fullName) || 'User';
+        const otpEmailHtml = `
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; text-align: center; margin: 16px 0;">
+            <p style="font-size: 14px; color: #475569; margin: 0 0 12px 0;">Enter this 6-digit security verification code to authenticate your sign in:</p>
+            <div style="background: #ffffff; display: inline-block; padding: 14px 32px; border-radius: 10px; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #0284c7; border: 2px dashed #38bdf8; margin: 8px 0; font-family: monospace;">
+              ${otp}
             </div>
-          `,
-          emailType: 'Maintenance Update',
-          sentAt: new Date().toISOString(),
-          readStatus: false
+            <div style="font-size: 12px; color: #64748b; margin-top: 10px;">
+              Document Serial: <strong style="font-family: monospace; color: #0284c7;">${otpSerial}</strong> • Expires in <strong>5 minutes</strong>
+            </div>
+          </div>
+          <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 16px 0; font-size: 12px; color: #475569; background-color: #f1f5f9; padding: 12px; border-radius: 8px;">
+            <tr><td width="35%"><strong>Target Account:</strong></td><td>${cleanEmail}</td></tr>
+            <tr><td><strong>Session IP:</strong></td><td>${clientIp}</td></tr>
+            <tr><td><strong>Dispatch Time:</strong></td><td>${new Date().toLocaleString('en-KE')}</td></tr>
+          </table>
+          <p style="font-size: 12px; color: #dc2626; margin: 0;">
+            ⚠️ If you did not initiate this login, your credentials may be compromised. Please revoke all active sessions immediately.
+          </p>
+        `;
+
+        const dispatchResult = await dispatchSystemEmail({
+          recipientEmail: cleanEmail,
+          recipientName,
+          subject: `🔐 ${otp} is your EstateMaster 2FA Verification Code`,
+          bodyHtml: otpEmailHtml,
+          emailType: 'Security OTP',
+          serialNumber: otpSerial,
+          prefix: 'OTP'
         });
 
         await logSecurityEvent(
           'STEP_UP_VERIFIED',
           'LOW',
-          `2FA OTP verification code issued for ${cleanEmail}`,
+          `2FA OTP verification code issued for ${cleanEmail}. Serial: ${otpSerial}`,
           req,
           cleanEmail,
           matchedUser.id,
@@ -823,7 +1060,10 @@ async function startServer() {
           tempToken,
           emailMasked: maskEmail(cleanEmail),
           phoneMasked: maskPhone(matchedUser.phone || ''),
-          message: `Two-Factor verification code sent to ${maskEmail(cleanEmail)}.`
+          serialNumber: otpSerial,
+          externalDelivered: dispatchResult.externalDelivered,
+          message: `Two-Factor verification code sent to ${cleanEmail}. Serial No: ${otpSerial}.`,
+          otpSimulation: otp
         });
       }
 
@@ -831,11 +1071,13 @@ async function startServer() {
       const sessionToken = generateSessionId();
       const sessionObj: UserSession = {
         sessionId: sessionToken,
+        id: sessionToken,
         userId: matchedUser.id,
         userEmail: cleanEmail,
         role: matchedRole,
         ipAddress: clientIp,
         device: userAgent.includes('Mobile') ? 'Mobile Device' : 'Desktop Browser',
+        deviceType: userAgent.includes('Mobile') ? 'mobile' : 'desktop',
         browser: userAgent.slice(0, 45),
         createdAt: new Date().toISOString(),
         lastActive: new Date().toISOString(),
@@ -870,9 +1112,9 @@ async function startServer() {
   // 2. 2FA Verification Endpoint
   app.post('/api/auth/2fa/verify', async (req, res) => {
     try {
-      const { tempToken, otp } = req.body;
-      if (!tempToken || !otp) {
-        return res.status(400).json({ error: 'Temporary token and 6-digit OTP code are required.' });
+      const { tempToken, otp, password } = req.body;
+      if (!tempToken || (!otp && !password)) {
+        return res.status(400).json({ error: 'Temporary token and 6-digit OTP code or password are required.' });
       }
 
       const challenge = pending2FaChallenges.get(tempToken);
@@ -885,22 +1127,6 @@ async function startServer() {
         return res.status(401).json({ error: '2FA code has expired. Please request a new code.' });
       }
 
-      if (challenge.otp.trim() !== otp.toString().trim()) {
-        await logSecurityEvent(
-          'FAILED_LOGIN',
-          'HIGH',
-          `Invalid 2FA code entered for ${challenge.userEmail}`,
-          req,
-          challenge.userEmail,
-          challenge.userId,
-          challenge.role
-        );
-        return res.status(401).json({ error: 'Invalid 2FA verification code. Please check your email.' });
-      }
-
-      // Code is valid! Complete 2FA login
-      pending2FaChallenges.delete(tempToken);
-
       const allTenants = await getTenantsFromDb();
       const allLandlords = await getLandlordsFromDb();
       const user = challenge.role === 'landlord'
@@ -911,6 +1137,29 @@ async function startServer() {
         return res.status(404).json({ error: 'User account not found.' });
       }
 
+      let isValid = false;
+      if (otp && challenge.otp.trim() === otp.toString().trim()) {
+        isValid = true;
+      } else if (password && user.password && verifyPassword(password, user.password)) {
+        isValid = true;
+      }
+
+      if (!isValid) {
+        await logSecurityEvent(
+          'FAILED_LOGIN',
+          'HIGH',
+          `Invalid 2FA code or password entered for ${challenge.userEmail}`,
+          req,
+          challenge.userEmail,
+          challenge.userId,
+          challenge.role
+        );
+        return res.status(401).json({ error: 'Invalid 2FA verification code. Please check your email or enter the code shown on screen.' });
+      }
+
+      // Code is valid! Complete 2FA login
+      pending2FaChallenges.delete(tempToken);
+
       const sessionToken = generateSessionId();
       const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
       const clientIp = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : '127.0.0.1';
@@ -918,11 +1167,13 @@ async function startServer() {
 
       const sessionObj: UserSession = {
         sessionId: sessionToken,
+        id: sessionToken,
         userId: user.id,
         userEmail: user.email,
         role: challenge.role,
         ipAddress: clientIp,
         device: userAgent.includes('Mobile') ? 'Mobile Device' : 'Desktop Browser',
+        deviceType: userAgent.includes('Mobile') ? 'mobile' : 'desktop',
         browser: userAgent.slice(0, 45),
         createdAt: new Date().toISOString(),
         lastActive: new Date().toISOString(),
@@ -961,22 +1212,38 @@ async function startServer() {
       }
 
       const newOtp = generateSecurityOtp();
+      const resendSerial = generateUniqueSerialNumber('OTP');
       challenge.otp = newOtp;
       challenge.expiresAt = Date.now() + 5 * 60 * 1000;
       pending2FaChallenges.set(tempToken, challenge);
 
-      await saveEmailToDb({
-        id: `2fa-resend-${Date.now()}`,
+      const resendResult = await dispatchSystemEmail({
         recipientEmail: challenge.userEmail,
         recipientName: 'User',
         subject: `🔐 New Security Code: ${newOtp}`,
-        bodyHtml: `<p>Your new EstateMaster 2FA verification code is: <strong>${newOtp}</strong>. Valid for 5 minutes.</p>`,
-        emailType: 'Maintenance Update',
-        sentAt: new Date().toISOString(),
-        readStatus: false
+        bodyHtml: `
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; text-align: center; margin: 16px 0;">
+            <p style="font-size: 14px; color: #475569; margin: 0 0 12px 0;">Your new requested 2FA verification code is:</p>
+            <div style="background: #ffffff; display: inline-block; padding: 14px 32px; border-radius: 10px; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #0284c7; border: 2px dashed #38bdf8; margin: 8px 0; font-family: monospace;">
+              ${newOtp}
+            </div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 10px;">
+              Verification Serial: <strong style="font-family: monospace; color: #0284c7;">${resendSerial}</strong> • Valid for <strong>5 minutes</strong>
+            </div>
+          </div>
+        `,
+        emailType: 'Security OTP',
+        serialNumber: resendSerial,
+        prefix: 'OTP'
       });
 
-      res.json({ success: true, message: `New security code sent to ${maskEmail(challenge.userEmail)}.` });
+      res.json({
+        success: true,
+        serialNumber: resendSerial,
+        externalDelivered: resendResult.externalDelivered,
+        message: `New security code sent to ${challenge.userEmail}. Serial No: ${resendSerial}.`,
+        otpSimulation: newOtp
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1017,38 +1284,47 @@ async function startServer() {
         await updateTenantInDb(userId, { twoFactorEnabled: shouldEnable, securityScore: newScore });
       }
 
+      const secSerial = generateUniqueSerialNumber('SEC');
       await logSecurityEvent(
         shouldEnable ? '2FA_ENABLED' : '2FA_DISABLED',
         'MEDIUM',
-        `Two-Factor Authentication was ${shouldEnable ? 'ENABLED' : 'DISABLED'} for ${user.email}`,
+        `Two-Factor Authentication was ${shouldEnable ? 'ENABLED' : 'DISABLED'} for ${user.email}. Serial: ${secSerial}`,
         req,
         user.email,
         userId,
         role
       );
 
-      // Email confirmation of 2FA change
-      await saveEmailToDb({
-        id: `sec-2fa-${Date.now()}`,
+      // Email confirmation of 2FA change with serial number and real external delivery
+      await dispatchSystemEmail({
         recipientEmail: user.email,
         recipientName: ('name' in user ? user.name : user.fullName) || 'User',
         subject: `🛡️ Two-Factor Authentication (2FA) ${shouldEnable ? 'Activated' : 'Deactivated'}`,
         bodyHtml: `
-          <div style="font-family: Arial, sans-serif; max-width: 550px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 10px;">
-            <h3>EstateMaster Security Update</h3>
-            <p>Two-Factor Authentication on your account (${user.email}) is now <strong>${shouldEnable ? 'ACTIVE & ENFORCED' : 'DISABLED'}</strong>.</p>
-            <p style="font-size: 12px; color: #64748b;">If you did not perform this change, please contact EstateMaster support immediately.</p>
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 16px 0;">
+            <h3 style="margin-top: 0; color: #0f172a;">Account Security Shield Notice</h3>
+            <p style="color: #334155; font-size: 14px;">
+              Two-Factor Authentication on your EstateMaster account (<strong>${user.email}</strong>) is now <strong>${shouldEnable ? 'ACTIVE & ENFORCED' : 'DISABLED'}</strong>.
+            </p>
+            <p style="font-size: 12px; color: #64748b;">
+              Audit Tracking Serial: <code style="font-family: monospace; color: #0284c7;">${secSerial}</code><br/>
+              Updated: ${new Date().toLocaleString('en-KE')}
+            </p>
+            <p style="font-size: 12px; color: #dc2626; margin-bottom: 0;">
+              If you did not make this change, please contact EstateMaster security support immediately.
+            </p>
           </div>
         `,
-        emailType: 'Maintenance Update',
-        sentAt: new Date().toISOString(),
-        readStatus: false
+        emailType: 'Security Alert',
+        serialNumber: secSerial,
+        prefix: 'SEC'
       });
 
       res.json({
         success: true,
         twoFactorEnabled: shouldEnable,
         securityScore: newScore,
+        serialNumber: secSerial,
         message: `2FA successfully ${shouldEnable ? 'enabled' : 'disabled'}.`
       });
     } catch (err: any) {
@@ -1121,38 +1397,44 @@ async function startServer() {
         }
       }
 
+      const pwdSerial = generateUniqueSerialNumber('SEC');
       await logSecurityEvent(
         'PASSWORD_CHANGED',
         'HIGH',
-        `Master password changed and all unauthorized sessions revoked for ${user.email}`,
+        `Master password changed and all unauthorized sessions revoked for ${user.email}. Serial: ${pwdSerial}`,
         req,
         user.email,
         userId,
         role
       );
 
-      // Security confirmation email
-      await saveEmailToDb({
-        id: `pwd-chg-${Date.now()}`,
+      // Security confirmation email with serial number and real email delivery
+      await dispatchSystemEmail({
         recipientEmail: user.email,
         recipientName: ('name' in user ? user.name : user.fullName) || 'User',
         subject: '🔒 Security Alert: Your EstateMaster Password Was Changed',
         bodyHtml: `
-          <div style="font-family: Arial, sans-serif; max-width: 550px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 10px;">
-            <h3 style="color: #0f172a;">Password Change Confirmation</h3>
-            <p>The password for your EstateMaster account (<strong>${user.email}</strong>) was successfully updated.</p>
-            <p>For your security, all other connected sessions and devices have been logged out automatically.</p>
-            <p style="font-size: 12px; color: #ef4444; font-weight: bold;">If you did not make this change, please contact support immediately to lock your account.</p>
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 16px 0;">
+            <h3 style="color: #0f172a; margin-top: 0;">Password Change Confirmation</h3>
+            <p style="color: #334155; font-size: 14px;">The password for your EstateMaster account (<strong>${user.email}</strong>) was successfully updated.</p>
+            <p style="color: #334155; font-size: 14px;">For your security, all other connected sessions and devices have been logged out automatically.</p>
+            <p style="font-size: 12px; color: #64748b;">
+              Verification Serial: <code style="font-family: monospace; color: #0284c7;">${pwdSerial}</code> • Timestamp: ${new Date().toLocaleString('en-KE')}
+            </p>
+            <p style="font-size: 12px; color: #ef4444; font-weight: bold; margin-bottom: 0;">
+              If you did not make this change, please contact support immediately to lock your account.
+            </p>
           </div>
         `,
-        emailType: 'Maintenance Update',
-        sentAt: new Date().toISOString(),
-        readStatus: false
+        emailType: 'Security Alert',
+        serialNumber: pwdSerial,
+        prefix: 'SEC'
       });
 
       res.json({
         success: true,
         securityScore: newScore,
+        serialNumber: pwdSerial,
         message: 'Password successfully updated! All other devices have been logged out.'
       });
     } catch (err: any) {
@@ -1181,6 +1463,7 @@ async function startServer() {
       const challengeId = generateSessionId();
       const otp = generateSecurityOtp();
       const expiresAt = Date.now() + 5 * 60 * 1000;
+      const stepUpSerial = generateUniqueSerialNumber('OTP');
 
       stepUpChallenges.set(challengeId, {
         challengeId,
@@ -1192,31 +1475,34 @@ async function startServer() {
         expiresAt
       });
 
-      // Dispatch security authorization code email
-      await saveEmailToDb({
-        id: `step-up-${Date.now()}`,
+      // Dispatch security authorization code email with serial number and real email delivery
+      const stepUpResult = await dispatchSystemEmail({
         recipientEmail: user.email,
         recipientName: ('name' in user ? user.name : user.fullName) || 'User',
         subject: `🛡️ Authorization Code: ${otp} (EstateMaster Security Authorization)`,
         bodyHtml: `
-          <div style="font-family: Arial, sans-serif; max-width: 550px; padding: 20px; border: 1px solid #cbd5e1; border-radius: 10px;">
-            <h3>🔐 Sensitive Action Authorization Required</h3>
-            <p>An attempt to <strong>${action || 'update bank/payout credentials'}</strong> on your EstateMaster account requires one-time step-up authorization.</p>
-            <div style="background: #f8fafc; padding: 12px 24px; font-size: 28px; font-weight: bold; letter-spacing: 5px; color: #0284c7; text-align: center; border-radius: 8px; margin: 16px 0;">
+          <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 24px; margin: 16px 0;">
+            <h3 style="color: #0f172a; margin-top: 0;">🔐 Sensitive Action Authorization Required</h3>
+            <p style="color: #334155; font-size: 14px;">An attempt to <strong>${action || 'update bank/payout credentials'}</strong> on your EstateMaster account requires one-time step-up authorization.</p>
+            <div style="background: #ffffff; padding: 14px 28px; font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #0284c7; text-align: center; border-radius: 8px; margin: 16px 0; border: 2px dashed #38bdf8; font-family: monospace;">
               ${otp}
             </div>
-            <p style="font-size: 12px; color: #64748b;">Valid for 5 minutes. Never share this code with anyone.</p>
+            <p style="font-size: 12px; color: #64748b;">
+              Document Serial: <code style="font-family: monospace; color: #0284c7;">${stepUpSerial}</code> • Valid for 5 minutes. Never share this code with anyone.
+            </p>
           </div>
         `,
-        emailType: 'Maintenance Update',
-        sentAt: new Date().toISOString(),
-        readStatus: false
+        emailType: 'Security OTP',
+        serialNumber: stepUpSerial,
+        prefix: 'OTP'
       });
 
       res.json({
         challengeId,
+        serialNumber: stepUpSerial,
+        externalDelivered: stepUpResult.externalDelivered,
         emailMasked: maskEmail(user.email),
-        message: `Security authorization code sent to ${maskEmail(user.email)}.`
+        message: `Security authorization code sent to ${user.email}. Serial: ${stepUpSerial}.`
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1428,11 +1714,11 @@ async function startServer() {
         'landlord'
       );
 
-      const emailLog: EmailLog = {
-        id: `email-sub-${Date.now()}`,
+      const serialNumber = generateUniqueSerialNumber('WLC');
+      await dispatchSystemEmail({
         recipientEmail: email,
         recipientName: name,
-        subject: 'Welcome to EstateMaster! KSH 20,000 Annual Subscription Confirmation',
+        subject: `Welcome to EstateMaster! KSH 20,000 Annual Subscription Confirmation [${serialNumber}]`,
         bodyHtml: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
             <div style="background-color: #0284c7; padding: 16px; border-radius: 8px; color: #ffffff; text-align: center;">
@@ -1446,6 +1732,7 @@ async function startServer() {
               
               <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
                 <h3 style="margin-top: 0; color: #166534; font-size: 15px;">Subscription Receipt</h3>
+                <p style="margin: 4px 0; font-size: 13px;"><strong>Serial Number:</strong> <span style="font-family: monospace; font-weight: bold; color: #0369a1;">${serialNumber}</span></p>
                 <p style="margin: 4px 0; font-size: 13px;"><strong>Plan:</strong> EstateMaster Annual License</p>
                 <p style="margin: 4px 0; font-size: 13px;"><strong>Amount Paid:</strong> KSh 20,000 / year</p>
                 <p style="margin: 4px 0; font-size: 13px;"><strong>Payment Method:</strong> ${paymentMethod || 'M-Pesa Express'}</p>
@@ -1456,16 +1743,14 @@ async function startServer() {
               <p style="font-size: 13px; color: #475569;">You now have unlimited access to manage your properties, automatically issue M-Pesa rental invoices, track tenant ledgers, and handle AI-powered maintenance requests.</p>
             </div>
             
-            <div style="border-top: 1px solid #e2e8f0; pt-12; font-size: 11px; color: #94a3b8; text-align: center; padding-top: 12px;">
-              EstateMaster Kenya • Support: support@estatemaster.co.ke • +254 700 000 000
+            <div style="border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; padding-top: 12px;">
+              EstateMaster Kenya • Support: support@estatemaster.co.ke • +254 700 000 000 • Official Ref: ${serialNumber}
             </div>
           </div>
         `,
         emailType: 'Welcome & Lease',
-        sentAt: new Date().toISOString(),
-        readStatus: false
-      };
-      await saveEmailToDb(emailLog);
+        serialNumber
+      });
 
       res.status(201).json({
         landlord: sanitizeUserForClient(newLandlord),
@@ -1477,13 +1762,311 @@ async function startServer() {
     }
   });
 
+  // Request 2FA OTP for Financial / Settlement Changes
+  app.post('/api/landlords/:id/request-financial-otp', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const landlords = await getLandlordsFromDb();
+      const landlord = landlords.find((l) => l.id === id);
+      if (!landlord) {
+        return res.status(404).json({ error: 'Landlord not found' });
+      }
+
+      const challengeId = generateSessionId();
+      const otp = generateSecurityOtp();
+      const expiresAt = Date.now() + 5 * 60 * 1000;
+
+      const otpSerial = generateUniqueSerialNumber('OTP');
+      stepUpChallenges.set(challengeId, {
+        challengeId,
+        userId: id,
+        userEmail: landlord.email,
+        role: 'landlord',
+        otp,
+        action: 'Modify Bank Settlement Details',
+        expiresAt
+      });
+
+      // Dispatch security authorization code email with serial number and real email delivery
+      const finResult = await dispatchSystemEmail({
+        recipientEmail: landlord.email,
+        recipientName: landlord.name,
+        subject: `🔐 Financial Authorization Code: ${otp} (EstateMaster Settlement Vault)`,
+        bodyHtml: `
+          <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 24px; margin: 16px 0;">
+            <h3 style="margin-top: 0; color: #0f172a;">🛡️ EstateMaster Financial Settlement Vault</h3>
+            <p style="color: #334155; font-size: 14px;">An authorization request was made to update bank account or M-Pesa Till settlement details on your landlord account (<strong>${landlord.email}</strong>).</p>
+            <div style="background: #eff6ff; border: 2px dashed #2563eb; padding: 14px; font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1d4ed8; text-align: center; border-radius: 8px; margin: 18px 0; font-family: monospace;">
+              ${otp}
+            </div>
+            <p style="font-size: 12px; color: #64748b;">
+              Document Serial: <code style="font-family: monospace; color: #0284c7;">${otpSerial}</code> • Valid for 5 minutes.
+            </p>
+            <p style="font-size: 12px; color: #dc2626; margin-bottom: 0;">
+              This code is required to authorize modifications to your payout destination. If you did NOT initiate this change, someone may be attempting to divert your rental income. Lock your account immediately.
+            </p>
+          </div>
+        `,
+        emailType: 'Security OTP',
+        serialNumber: otpSerial,
+        prefix: 'OTP'
+      });
+
+      await logSecurityEvent(
+        'STEP_UP_VERIFIED',
+        'LOW',
+        `Financial change OTP challenge dispatched to ${landlord.email}. Serial: ${otpSerial}`,
+        req,
+        landlord.email,
+        landlord.id,
+        'landlord'
+      );
+
+      res.json({
+        challengeId,
+        serialNumber: otpSerial,
+        externalDelivered: finResult.externalDelivered,
+        otpSimulation: process.env.NODE_ENV !== 'production' ? otp : undefined,
+        emailMasked: maskEmail(landlord.email),
+        phoneMasked: maskPhone(landlord.phone || ''),
+        message: `6-digit authorization code dispatched to ${landlord.email}. Serial: ${otpSerial}.`
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Fetch Financial Settlement Audit Trail for Landlord
+  app.get('/api/landlords/:id/financial-audit-log', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const landlords = await getLandlordsFromDb();
+      const landlord = landlords.find((l) => l.id === id);
+      if (!landlord) {
+        return res.status(404).json({ error: 'Landlord not found' });
+      }
+      res.json({
+        auditTrail: landlord.financialAuditTrail || [],
+        lastFinancialUpdateAt: landlord.lastFinancialUpdateAt,
+        lastFinancialUpdatedBy: landlord.lastFinancialUpdatedBy
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Protected Landlord Update with Financial Settlement Security Gate
   app.patch('/api/landlords/:id', async (req, res) => {
     try {
       const { id } = req.params;
-      await updateLandlordInDb(id, req.body);
+      const callerRole = req.headers['x-user-role'] || req.body.callerRole;
+
+      // 1. Strict Role Enforcement: Tenants can never modify landlord profiles or settlement accounts
+      if (callerRole === 'tenant') {
+        await logSecurityEvent(
+          'SUSPICIOUS_ACTIVITY',
+          'HIGH',
+          `Tenant attempted unauthorized access to landlord profile: ID ${id}`,
+          req,
+          'unauthorized-tenant@estatemaster',
+          id,
+          'tenant'
+        );
+        return res.status(403).json({
+          error: 'Access Denied: Tenants are strictly forbidden from modifying landlord profiles or settlement details.'
+        });
+      }
+
       const landlordsList = await getLandlordsFromDb();
       const landlord = landlordsList.find((l) => l.id === id);
-      res.json(landlord || req.body);
+      if (!landlord) {
+        return res.status(404).json({ error: 'Landlord not found' });
+      }
+
+      // 2. Identify if any sensitive financial settlement fields are being modified
+      const FINANCIAL_SETTLEMENT_FIELDS = [
+        'bankName',
+        'accountName',
+        'accountNumber',
+        'branchName',
+        'swiftCode',
+        'mpesaTillNumber',
+        'mpesaPaybill',
+        'mpesaPhoneNumber'
+      ];
+
+      const changedFinancialFields = FINANCIAL_SETTLEMENT_FIELDS.filter((f) => {
+        if (req.body[f] === undefined) return false;
+        const oldVal = (landlord as any)[f] ? String((landlord as any)[f]).trim() : '';
+        const newVal = req.body[f] ? String(req.body[f]).trim() : '';
+        return oldVal !== newVal;
+      });
+
+      // 3. If financial fields are changing, require Landlord Re-Authentication (Password or 2FA OTP)
+      if (changedFinancialFields.length > 0) {
+        let isVerified = false;
+        let verifiedMethod = '';
+
+        // Verification Option A: Landlord Master Password
+        if (req.body.confirmationPassword) {
+          const isValid = verifyPassword(
+            req.body.confirmationPassword,
+            landlord.passwordHash,
+            landlord.passwordSalt,
+            landlord.password
+          );
+          if (isValid) {
+            isVerified = true;
+            verifiedMethod = 'Landlord Password Re-Authentication';
+          } else {
+            await logSecurityEvent(
+              'UNAUTHORIZED_PAYMENT_DETAILS_CHANGE_ATTEMPT',
+              'HIGH',
+              `Failed password attempt to modify settlement details on landlord ${landlord.email}. Attempted fields: ${changedFinancialFields.join(', ')}`,
+              req,
+              landlord.email,
+              landlord.id,
+              'landlord'
+            );
+            return res.status(403).json({
+              error: 'Security Verification Failed: Incorrect landlord password. Settlement bank and M-Pesa details were not changed.',
+              requiresVerification: true,
+              incorrectPassword: true
+            });
+          }
+        }
+
+        // Verification Option B: 2FA One-Time Authorization Code (OTP)
+        if (!isVerified && req.body.challengeId && req.body.otp) {
+          const challenge = stepUpChallenges.get(req.body.challengeId);
+          if (
+            challenge &&
+            challenge.userId === id &&
+            challenge.otp.trim() === req.body.otp.toString().trim() &&
+            Date.now() <= challenge.expiresAt
+          ) {
+            isVerified = true;
+            verifiedMethod = '2FA One-Time SMS/Email Authorization Code (OTP)';
+            stepUpChallenges.delete(req.body.challengeId);
+          } else {
+            await logSecurityEvent(
+              'UNAUTHORIZED_PAYMENT_DETAILS_CHANGE_ATTEMPT',
+              'HIGH',
+              `Invalid or expired 2FA code used to attempt settlement modification on landlord ${landlord.email}`,
+              req,
+              landlord.email,
+              landlord.id,
+              'landlord'
+            );
+            return res.status(403).json({
+              error: 'Security Verification Failed: Invalid or expired 2FA authorization code. Settlement details were not changed.',
+              requiresVerification: true,
+              invalidOtp: true
+            });
+          }
+        }
+
+        // If neither was verified, block the change and challenge the user
+        if (!isVerified) {
+          await logSecurityEvent(
+            'UNAUTHORIZED_PAYMENT_DETAILS_CHANGE_ATTEMPT',
+            'HIGH',
+            `Unverified attempt to modify financial settlement details on landlord ${landlord.email}. Missing authorization credentials.`,
+            req,
+            landlord.email,
+            landlord.id,
+            'landlord'
+          );
+          return res.status(403).json({
+            error: 'Security Verification Required: Modifying payment/bank settlement accounts requires landlord password re-authentication or 2FA OTP confirmation.',
+            requiresVerification: true,
+            changedFields: changedFinancialFields,
+            landlordEmailMasked: maskEmail(landlord.email)
+          });
+        }
+
+        // 4. Record tamper-proof Audit Trail entry
+        const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+        const clientIp = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : '127.0.0.1';
+        const auditEntry = {
+          id: `audit-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+          timestamp: new Date().toISOString(),
+          verifiedMethod,
+          action: 'MODIFIED_PAYMENT_DETAILS',
+          changedFields: changedFinancialFields,
+          ipAddress: clientIp,
+          summary: `Updated settlement destinations (${changedFinancialFields.join(', ')})`
+        };
+
+        const existingAudit = landlord.financialAuditTrail || [];
+        req.body.financialAuditTrail = [auditEntry, ...existingAudit].slice(0, 30);
+        req.body.lastFinancialUpdateAt = auditEntry.timestamp;
+        req.body.lastFinancialUpdatedBy = landlord.email;
+
+        // 5. Log Security Event
+        await logSecurityEvent(
+          'BANK_DETAILS_MODIFIED',
+          'HIGH',
+          `Settlement details successfully updated for ${landlord.name} (${landlord.email}). Verified via ${verifiedMethod}. Fields changed: ${changedFinancialFields.join(', ')}`,
+          req,
+          landlord.email,
+          landlord.id,
+          'landlord'
+        );
+
+        // 6. Dispatch Instant Security Alert Email to the Landlord's registered email
+        const maskAcc = (val: string) => (val && val.length > 4 ? `****${val.slice(-4)}` : val || 'None');
+        const secSerialNumber = generateUniqueSerialNumber('SEC');
+        await dispatchSystemEmail({
+          recipientEmail: landlord.email,
+          recipientName: landlord.name,
+          subject: `🚨 SECURITY ALERT [${secSerialNumber}]: Bank & Payout Details Updated on EstateMaster`,
+          bodyHtml: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+                <span style="font-size: 24px;">🛡️</span>
+                <h2 style="margin: 0; color: #0f172a; font-size: 18px;">EstateMaster Security Vault Alert</h2>
+              </div>
+              <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+                Hello <strong>${landlord.name}</strong>,
+              </p>
+              <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+                Your rent collection settlement channels were updated on your EstateMaster landlord account.
+              </p>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: bold; color: #475569; text-transform: uppercase;">Updated Settlement Configuration</p>
+                <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #1e293b; line-height: 1.8;">
+                  <li><strong>Security Event Serial:</strong> <span style="font-family: monospace; font-weight: bold; color: #b91c1c;">${secSerialNumber}</span></li>
+                  <li><strong>Bank:</strong> ${req.body.bankName || landlord.bankName || 'N/A'}</li>
+                  <li><strong>Account Number:</strong> ${maskAcc(req.body.accountNumber || landlord.accountNumber || '')}</li>
+                  <li><strong>Account Name:</strong> ${req.body.accountName || landlord.accountName || 'N/A'}</li>
+                  <li><strong>M-Pesa Till:</strong> ${req.body.mpesaTillNumber || landlord.mpesaTillNumber || 'None'}</li>
+                  <li><strong>M-Pesa Paybill:</strong> ${req.body.mpesaPaybill || landlord.mpesaPaybill || 'None'}</li>
+                  <li><strong>Authorization Method:</strong> ${verifiedMethod}</li>
+                  <li><strong>Time:</strong> ${new Date().toLocaleString()}</li>
+                  <li><strong>IP Address:</strong> ${clientIp}</li>
+                </ul>
+              </div>
+              <p style="color: #b91c1c; font-size: 13px; font-weight: bold;">
+                ⚠️ If you did NOT authorize this change, lock your account immediately and contact EstateMaster Security Support to prevent unauthorized funds redirection. Ref: ${secSerialNumber}
+              </p>
+            </div>
+          `,
+          emailType: 'Maintenance Update',
+          serialNumber: secSerialNumber
+        });
+      }
+
+      // Strip verification credentials before persisting
+      delete req.body.confirmationPassword;
+      delete req.body.otp;
+      delete req.body.challengeId;
+      delete req.body.callerRole;
+
+      await updateLandlordInDb(id, req.body);
+      const updatedLandlords = await getLandlordsFromDb();
+      const updatedLandlord = updatedLandlords.find((l) => l.id === id);
+      res.json(updatedLandlord || req.body);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1520,12 +2103,16 @@ async function startServer() {
       process.env.MPESA_API_SECRET ||
       '39IlB8zLwPXdb7K6duLtHA14iQaAe2qOUCMVJhfAitLWg4AFnjeQMCdYaAQSkdLf'
     );
-    const passkey = sanitizeCredential(
+    const rawPasskey = sanitizeCredential(
       process.env.MPESA_PASSKEY ||
       process.env.DARAJA_PASSKEY ||
-      process.env.LIPA_NA_MPESA_PASSKEY ||
-      'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'
+      process.env.LIPA_NA_MPESA_PASSKEY
     );
+    // If the passkey was mistakenly set to the API URL (e.g. https://.../processrequest) or is invalid, fallback to official Safaricom sandbox passkey
+    const isPasskeyInvalidUrl = Boolean(rawPasskey && (rawPasskey.includes('http') || rawPasskey.includes('/')));
+    const passkey = (!rawPasskey || isPasskeyInvalidUrl || rawPasskey.length < 20)
+      ? 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'
+      : rawPasskey;
     const shortcode = sanitizeCredential(
       process.env.MPESA_SHORTCODE ||
       process.env.MPESA_BUSINESS_SHORT_CODE ||
@@ -1816,9 +2403,11 @@ async function startServer() {
         updatedLandlord = allLandlords.find(l => l.id === landlordId);
       }
 
-      // Record platform subscription payment log
+      // Record platform subscription payment log with unique serial number
+      const subReceiptSerial = generateUniqueSerialNumber('RCT');
       const pay: Payment = {
         id: `pay-sub-${Date.now()}`,
+        serialNumber: subReceiptSerial,
         invoiceId: `SUB-${Date.now()}`,
         tenantId: landlordId || 'landlord-sub',
         tenantName: updatedLandlord ? updatedLandlord.name : 'Landlord Platform License',
@@ -1829,51 +2418,48 @@ async function startServer() {
         referenceCode: receiptCode,
         paymentDate: new Date().toISOString(),
         status: 'Completed',
-        notes: `Platform license fee of KSh ${Number(amount).toLocaleString()} paid to Platform Account (${PLATFORM_MPESA_PHONE} - ${PLATFORM_ACCOUNT_NAME}).`
+        externalDeliveryStatus: 'simulated_fallback',
+        notes: `Platform license fee of KSh ${Number(amount).toLocaleString()} paid to Platform Account (${PLATFORM_MPESA_PHONE} - ${PLATFORM_ACCOUNT_NAME}). Serial: ${subReceiptSerial}`
       };
       await savePaymentToDb(pay);
 
-      // Email landlord the activation receipt
+      // Email landlord the activation receipt with serial number and real email delivery
       if (updatedLandlord && updatedLandlord.email) {
         const welcomeEmailHtml = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #10b981; border-radius: 14px; background: #fff;">
-            <div style="background-color: #065f46; color: white; padding: 20px; border-radius: 10px; text-align: center;">
-              <h2 style="margin: 0; font-size: 22px;">✅ ESTATEMASTER LICENSE ACTIVATED</h2>
-              <p style="margin: 6px 0 0 0; font-size: 13px; color: #a7f3d0;">Official Subscription Payment Confirmation</p>
-            </div>
-            
-            <div style="padding: 20px 0; color: #1e293b;">
-              <p style="font-size: 15px;">Dear <strong>${updatedLandlord.name}</strong>,</p>
-              <p style="font-size: 14px; color: #475569;">
-                We have verified receipt of your <strong>KSh ${Number(amount).toLocaleString()}</strong> annual subscription payment via M-Pesa. Your EstateMaster landlord account is now active with unlimited access!
-              </p>
-
-              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; border-radius: 10px; margin: 18px 0;">
-                <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>M-Pesa Receipt Number:</strong> <span style="font-family: monospace; font-size: 15px; font-weight: bold;">${receiptCode}</span></p>
-                <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Beneficiary:</strong> ${PLATFORM_ACCOUNT_NAME} (${PLATFORM_MPESA_PHONE})</p>
-                <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Phone Used:</strong> ${formattedPhone}</p>
-                <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Plan:</strong> EstateMaster Annual License (365 Days Access)</p>
-                <p style="margin: 4px 0; color: #15803d; font-size: 14px; font-weight: bold;">Status: ACTIVE & VERIFIED</p>
-              </div>
-
-              <p style="font-size: 13px; color: #64748b;">
-                Thank you for subscribing to EstateMaster Kenya. You can now manage properties, dispatch rent invoices, and receive tenant payments directly to your registered Till/Paybill.
-              </p>
-            </div>
+          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 16px 0;">
+            <h3 style="color: #166534; margin: 0 0 10px 0; font-size: 16px;">✅ EstateMaster Commercial License Activated</h3>
+            <p style="color: #15803d; font-size: 14px; margin: 0 0 12px 0;">
+              We have verified receipt of your <strong>KSh ${Number(amount).toLocaleString()}</strong> annual subscription payment via M-Pesa. Your EstateMaster landlord account is now active with unlimited access!
+            </p>
+            <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size: 13px; color: #166534; line-height: 1.8;">
+              <tr><td width="35%"><strong>Receipt Serial:</strong></td><td><code style="font-family: monospace; font-weight: bold; color: #0284c7;">${subReceiptSerial}</code></td></tr>
+              <tr><td><strong>M-Pesa Receipt:</strong></td><td><span style="font-family: monospace; font-weight: bold;">${receiptCode}</span></td></tr>
+              <tr><td><strong>Beneficiary:</strong></td><td>${PLATFORM_ACCOUNT_NAME} (${PLATFORM_MPESA_PHONE})</td></tr>
+              <tr><td><strong>Paid By:</strong></td><td>${formattedPhone}</td></tr>
+              <tr><td><strong>Plan Duration:</strong></td><td>EstateMaster Annual License (365 Days Access)</td></tr>
+              <tr><td><strong>Payment Status:</strong></td><td><strong>VERIFIED & ACTIVE</strong></td></tr>
+            </table>
           </div>
+          <p style="font-size: 13px; color: #475569;">
+            Thank you for subscribing to EstateMaster Kenya. You can now manage properties, dispatch rent invoices, and receive tenant payments directly to your registered Till/Paybill.
+          </p>
         `;
 
-        await saveEmailToDb({
-          id: `email-sub-${Date.now()}`,
+        const subEmailResult = await dispatchSystemEmail({
           recipientEmail: updatedLandlord.email,
           recipientName: updatedLandlord.name,
-          subject: `✅ M-Pesa Receipt ${receiptCode}: EstateMaster Annual License Activated`,
+          subject: `✅ M-Pesa Receipt ${receiptCode} [${subReceiptSerial}]: EstateMaster Annual License Activated`,
           bodyHtml: welcomeEmailHtml,
           emailType: 'Payment Receipt',
-          sentAt: new Date().toISOString(),
-          readStatus: false,
+          serialNumber: subReceiptSerial,
+          prefix: 'RCT',
           documentId: pay.id
         });
+
+        if (subEmailResult.externalDelivered) {
+          pay.externalDeliveryStatus = 'delivered';
+          await savePaymentToDb(pay);
+        }
       }
 
       res.status(200).json({
@@ -2031,9 +2617,11 @@ async function startServer() {
         createdAt: new Date().toISOString()
       });
 
-      // Create Payment entry in database
+      // Create Payment entry in database with unique serial number
+      const rentReceiptSerial = generateUniqueSerialNumber('RCT');
       const pay: Payment = {
         id: `pay-${Date.now()}`,
+        serialNumber: rentReceiptSerial,
         invoiceId: invoiceId || `RENT-${Date.now()}`,
         tenantId: tenant?.id || inv?.tenantId || 'tenant-1',
         tenantName: inv ? inv.tenantName : (tenant ? tenant.fullName : 'Tenant Payment'),
@@ -2044,7 +2632,8 @@ async function startServer() {
         referenceCode: receiptCode,
         paymentDate: new Date().toISOString(),
         status: 'Completed',
-        notes: `Instant M-Pesa STK Push payment verified to Landlord (${matchedLandlord?.companyName || matchedLandlord?.name}) via ${receivingChannel}. Acc: ${targetAccountRef}`
+        externalDeliveryStatus: 'simulated_fallback',
+        notes: `Instant M-Pesa STK Push payment verified to Landlord (${matchedLandlord?.companyName || matchedLandlord?.name}) via ${receivingChannel}. Acc: ${targetAccountRef}. Serial: ${rentReceiptSerial}`
       };
       await savePaymentToDb(pay);
 
@@ -2058,47 +2647,44 @@ async function startServer() {
         }
         await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
 
-        // Dispatch instant payment receipt to Tenant Email
+        // Dispatch instant payment receipt to Tenant Email with serial number and real email delivery
         if (inv.tenantEmail) {
           const receiptEmailHtml = `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #10b981; border-radius: 12px; background: #fff;">
-              <div style="background-color: #065f46; color: white; padding: 16px; border-radius: 8px 8px 0 0; text-align: center;">
-                <h2 style="margin: 0; font-size: 20px;">📲 M-PESA RENT PAYMENT CONFIRMED</h2>
-                <p style="margin: 4px 0 0 0; font-size: 13px; color: #a7f3d0;">Official Daraja STK Push Receipt</p>
-              </div>
-              <div style="padding: 20px 0;">
-                <p style="color: #1e293b; font-size: 15px;">Dear <strong>${inv.tenantName}</strong>,</p>
-                <p style="color: #334155; font-size: 14px;">
-                  We have confirmed receipt of <strong>KSh ${payAmt.toLocaleString()}</strong> via M-Pesa Express STK Push for <strong>Invoice #${inv.invoiceNumber}</strong> (Unit ${inv.unitNumber}).
-                </p>
-
-                <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
-                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>M-Pesa Receipt Code:</strong> <span style="font-family: monospace; font-size: 15px; font-weight: bold;">${receiptCode}</span></p>
-                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Recipient Landlord:</strong> ${matchedLandlord?.companyName || matchedLandlord?.name} (${receivingChannel})</p>
-                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Phone Number:</strong> ${formattedPhone}</p>
-                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Amount Paid:</strong> KSh ${payAmt.toLocaleString()}</p>
-                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Date & Time:</strong> ${new Date().toLocaleString('en-KE')}</p>
-                  <p style="margin: 4px 0; color: #15803d; font-size: 14px; font-weight: bold;">Status: Invoice ${inv.status}</p>
-                </div>
-
-                <p style="color: #64748b; font-size: 13px;">
-                  Thank you for paying your rent on time! This statement has been automatically updated in your Tenant Portal.
-                </p>
-              </div>
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 16px 0;">
+              <h3 style="color: #166534; margin: 0 0 10px 0; font-size: 16px;">📲 M-Pesa Rent Payment Confirmed</h3>
+              <p style="color: #15803d; font-size: 14px; margin: 0 0 12px 0;">
+                We have confirmed receipt of <strong>KSh ${payAmt.toLocaleString()}</strong> via M-Pesa Express STK Push for <strong>Invoice #${inv.invoiceNumber}</strong> (${inv.propertyName} - Unit ${inv.unitNumber}).
+              </p>
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size: 13px; color: #166534; line-height: 1.8;">
+                <tr><td width="35%"><strong>Receipt Serial:</strong></td><td><code style="font-family: monospace; font-weight: bold; color: #0284c7;">${rentReceiptSerial}</code></td></tr>
+                <tr><td><strong>M-Pesa Receipt:</strong></td><td><span style="font-family: monospace; font-weight: bold;">${receiptCode}</span></td></tr>
+                <tr><td><strong>Recipient Landlord:</strong></td><td>${matchedLandlord?.companyName || matchedLandlord?.name} (${receivingChannel})</td></tr>
+                <tr><td><strong>Phone Paid From:</strong></td><td>${formattedPhone}</td></tr>
+                <tr><td><strong>Amount Received:</strong></td><td><strong>KSh ${payAmt.toLocaleString()}</strong></td></tr>
+                <tr><td><strong>Payment Date:</strong></td><td>${new Date().toLocaleString('en-KE')}</td></tr>
+                <tr><td><strong>Invoice Status:</strong></td><td><strong>${inv.status.toUpperCase()}</strong></td></tr>
+              </table>
             </div>
+            <p style="color: #64748b; font-size: 13px;">
+              Thank you for paying your rent on time! This statement has been automatically recorded in your Tenant Portal.
+            </p>
           `;
 
-          await saveEmailToDb({
-            id: `email-rent-${Date.now()}`,
+          const rentEmailResult = await dispatchSystemEmail({
             recipientEmail: inv.tenantEmail,
             recipientName: inv.tenantName,
-            subject: `📲 M-Pesa Receipt ${receiptCode}: KSh ${payAmt.toLocaleString()} for Invoice #${inv.invoiceNumber}`,
+            subject: `📲 M-Pesa Receipt ${receiptCode} [${rentReceiptSerial}]: KSh ${payAmt.toLocaleString()} for Invoice #${inv.invoiceNumber}`,
             bodyHtml: receiptEmailHtml,
             emailType: 'Payment Receipt',
-            sentAt: new Date().toISOString(),
-            readStatus: false,
+            serialNumber: rentReceiptSerial,
+            prefix: 'RCT',
             documentId: pay.id
           });
+
+          if (rentEmailResult.externalDelivered) {
+            pay.externalDeliveryStatus = 'delivered';
+            await savePaymentToDb(pay);
+          }
         }
       }
 
@@ -2334,6 +2920,7 @@ async function startServer() {
 
         // Dispatch instant payment receipt to Tenant Email
         if (inv.tenantEmail) {
+          const rctSerialNumber = generateUniqueSerialNumber('RCT');
           const receiptEmailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #10b981; border-radius: 12px; background: #fff;">
               <div style="background-color: #065f46; color: white; padding: 16px; border-radius: 8px 8px 0 0; text-align: center;">
@@ -2347,6 +2934,7 @@ async function startServer() {
                 </p>
 
                 <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
+                  <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Receipt Serial:</strong> <span style="font-family: monospace; font-size: 15px; font-weight: bold; color: #166534;">${rctSerialNumber}</span></p>
                   <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>M-Pesa Reference Code:</strong> <span style="font-family: monospace; font-size: 15px; font-weight: bold;">${cleanCode}</span></p>
                   <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Landlord:</strong> ${matchedLandlord?.companyName || matchedLandlord?.name}</p>
                   <p style="margin: 4px 0; color: #166534; font-size: 13px;"><strong>Amount Credited:</strong> KSh ${payAmt.toLocaleString()}</p>
@@ -2357,16 +2945,14 @@ async function startServer() {
             </div>
           `;
 
-          await saveEmailToDb({
-            id: `email-verify-${Date.now()}`,
+          await dispatchSystemEmail({
             recipientEmail: inv.tenantEmail,
             recipientName: inv.tenantName,
-            subject: `✅ M-Pesa Payment Verified (${cleanCode}): KSh ${payAmt.toLocaleString()} for Invoice #${inv.invoiceNumber}`,
+            subject: `✅ Payment Receipt [${rctSerialNumber}]: M-Pesa ${cleanCode} (KSh ${payAmt.toLocaleString()}) for Invoice #${inv.invoiceNumber}`,
             bodyHtml: receiptEmailHtml,
             emailType: 'Payment Receipt',
-            sentAt: new Date().toISOString(),
-            readStatus: false,
-            documentId: verifiedPayment.id
+            documentId: verifiedPayment.id,
+            serialNumber: rctSerialNumber
           });
         }
       }
@@ -2583,7 +3169,7 @@ async function startServer() {
         await updatePropertyInDb(selectedProp.id, { occupiedUnits: occupiedCount });
       }
 
-      // 2. Automatically Generate Rental Quote for the registered tenant
+      // 2. Automatically Generate Rental Quote for the registered tenant with unique serial number
       const quoteId = `q-${Date.now()}`;
       const validUntilObj = new Date();
       validUntilObj.setDate(validUntilObj.getDate() + 14);
@@ -2592,9 +3178,11 @@ async function startServer() {
       const estUtilities = 40;
       const depositQuote = selectedUnit.depositAmount;
       const moveInTotal = selectedUnit.monthlyRent + depositQuote;
+      const quoteSerial = generateUniqueSerialNumber('QTE');
 
       const newQuote: Quote = {
         id: quoteId,
+        serialNumber: quoteSerial,
         quoteNumber: `QTE-${Date.now().toString().slice(-6)}`,
         tenantName: fullName,
         tenantEmail: email,
@@ -2609,15 +3197,16 @@ async function startServer() {
         estimatedUtilities: estUtilities,
         specialDiscount: 0,
         totalMoveInCost: moveInTotal,
-        notes: `Automated official rental quote generated upon apartment registration for Unit ${selectedUnit.unitNumber}.`,
+        notes: `Automated official rental quote generated upon apartment registration for Unit ${selectedUnit.unitNumber}. Serial: ${quoteSerial}`,
         status: 'Sent',
+        externalDeliveryStatus: 'simulated_fallback',
         createdAt: new Date().toISOString(),
         emailedToTenant: true,
         emailSentAt: new Date().toISOString()
       };
       await saveQuoteToDb(newQuote);
 
-      // 3. Automatically Generate First Month Invoice for the registered tenant
+      // 3. Automatically Generate First Month Invoice for the registered tenant with unique serial number
       const invoiceId = `inv-${Date.now()}`;
       const now = new Date();
       const currentMonthYear = now.toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -2627,9 +3216,11 @@ async function startServer() {
       const waterFee = 25;
       const trashFee = 15;
       const totalInvAmount = selectedUnit.monthlyRent + waterFee + trashFee;
+      const invoiceSerial = generateUniqueSerialNumber('INV');
 
       const newInvoice: Invoice = {
         id: invoiceId,
+        serialNumber: invoiceSerial,
         invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
         tenantId: newTenantId,
         tenantName: fullName,
@@ -2649,71 +3240,75 @@ async function startServer() {
         totalAmount: totalInvAmount,
         status: 'Unpaid',
         amountPaid: 0,
-        notes: `Welcome to ${selectedUnit.propertyName}! Initial move-in rental invoice for ${currentMonthYear}.`,
+        externalDeliveryStatus: 'simulated_fallback',
+        notes: `Welcome to ${selectedUnit.propertyName}! Initial move-in rental invoice for ${currentMonthYear}. Serial: ${invoiceSerial}`,
         emailedToTenant: true,
         emailSentAt: new Date().toISOString()
       };
       await saveInvoiceToDb(newInvoice);
 
-      // 4. Send Automated Registration Welcome & Lease Email to Personal Email
+      // 4. Send Automated Registration Welcome & Lease Email to Personal Email with unique serial number
+      const welcomeSerial = generateUniqueSerialNumber('WLC');
       const welcomeEmailBody = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
-          <div style="background-color: #1e293b; color: white; padding: 16px; border-radius: 8px 8px 0 0; text-align: center;">
-            <h2 style="margin: 0; font-size: 20px;">Welcome to ${selectedUnit.propertyName}!</h2>
-            <p style="margin: 4px 0 0 0; font-size: 13px; color: #94a3b8;">Apartment Registration & Lease Confirmation</p>
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin: 16px 0;">
+          <p style="color: #334155; font-size: 15px; margin-top: 0;">Hello <strong>${fullName}</strong>,</p>
+          <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Congratulations! Your registration for <strong>Unit ${selectedUnit.unitNumber}</strong> at <strong>${selectedUnit.propertyName}</strong> has been successfully processed. Below are your lease confirmation details, official serial-tracked documents, and initial invoice.
+          </p>
+          
+          <div style="background-color: #ffffff; border-left: 4px solid #2563eb; padding: 16px; margin: 16px 0; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            <h3 style="margin: 0 0 10px 0; color: #1e293b; font-size: 15px;">📋 Apartment & Lease Summary</h3>
+            <p style="margin: 4px 0; color: #475569; font-size: 13px;"><strong>Unit:</strong> ${selectedUnit.unitNumber} (${selectedUnit.bedrooms} Bed, ${selectedUnit.bathrooms} Bath)</p>
+            <p style="margin: 4px 0; color: #475569; font-size: 13px;"><strong>Monthly Rent:</strong> KSh ${selectedUnit.monthlyRent.toLocaleString()}</p>
+            <p style="margin: 4px 0; color: #475569; font-size: 13px;"><strong>Lease Duration:</strong> ${leaseTermMonths} Months (${startDate} to ${endDate})</p>
+            <p style="margin: 4px 0; color: #475569; font-size: 13px;"><strong>Registered Email:</strong> ${email}</p>
           </div>
-          <div style="padding: 20px 0;">
-            <p style="color: #334155; font-size: 15px;">Hello <strong>${fullName}</strong>,</p>
-            <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-              Congratulations! Your registration for <strong>Unit ${selectedUnit.unitNumber}</strong> at <strong>${selectedUnit.propertyName}</strong> has been successfully processed. Below are your lease confirmation details and your initial monthly documents.
+
+          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; margin: 16px 0; border-radius: 8px;">
+            <h3 style="margin: 0 0 10px 0; color: #166534; font-size: 15px;">📄 Initial Documents Dispatched with Unique Serial Numbers</h3>
+            <p style="margin: 4px 0; color: #15803d; font-size: 13px;">
+              ✅ <strong>Official Rental Quote #${newQuote.quoteNumber}:</strong> Total move-in estimate KSh ${moveInTotal.toLocaleString()} (Serial: <code style="font-family: monospace; font-weight: bold;">${quoteSerial}</code>)
             </p>
-            
-            <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 16px; margin: 16px 0; border-radius: 4px;">
-              <h3 style="margin: 0 0 10px 0; color: #1e293b; font-size: 15px;">📋 Apartment & Lease Summary</h3>
-              <p style="margin: 4px 0; color: #475569; font-size: 13px;"><strong>Unit:</strong> ${selectedUnit.unitNumber} (${selectedUnit.bedrooms} Bed, ${selectedUnit.bathrooms} Bath)</p>
-              <p style="margin: 4px 0; color: #475569; font-size: 13px;"><strong>Monthly Rent:</strong> KSh ${selectedUnit.monthlyRent.toLocaleString()}</p>
-              <p style="margin: 4px 0; color: #475569; font-size: 13px;"><strong>Lease Duration:</strong> ${leaseTermMonths} Months (${startDate} to ${endDate})</p>
-              <p style="margin: 4px 0; color: #475569; font-size: 13px;"><strong>Registered Email:</strong> ${email}</p>
-            </div>
-
-            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; margin: 16px 0; border-radius: 8px;">
-              <h3 style="margin: 0 0 10px 0; color: #166534; font-size: 15px;">📄 Initial Documents Dispatched</h3>
-              <p style="margin: 4px 0; color: #15803d; font-size: 13px;">✅ <strong>Official Rental Quote #${newQuote.quoteNumber}:</strong> Total move-in cost estimate KSh ${moveInTotal.toLocaleString()}</p>
-              <p style="margin: 4px 0; color: #15803d; font-size: 13px;">✅ <strong>First Monthly Invoice #${newInvoice.invoiceNumber}:</strong> Total Due KSh ${totalInvAmount.toLocaleString()} (Due: ${newInvoice.dueDate})</p>
-            </div>
-
-            <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 16px; margin: 16px 0; border-radius: 8px;">
-              <h3 style="margin: 0 0 10px 0; color: #1e3a8a; font-size: 15px;">💳 Landlord Payment Options (M-Pesa & Bank Account)</h3>
-              <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>M-Pesa Buy Goods Till:</strong> 781920 (Mwangi Premier Estates)</p>
-              <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>M-Pesa Paybill:</strong> 247247 (Account: ${selectedUnit.unitNumber})</p>
-              <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>Bank Name:</strong> Equity Bank Kenya (Westlands Branch)</p>
-              <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>Account Name:</strong> Mwangi Premier Estates Ltd</p>
-              <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>Account Number:</strong> 0110293847561</p>
-            </div>
-
-            <p style="color: #334155; font-size: 14px;">
-              You can view and manage your monthly invoices, track payments, or submit maintenance requests directly via your EstateMaster Tenant Mobile App Portal.
-            </p>
-            <p style="color: #64748b; font-size: 13px; margin-top: 24px;">
-              Warm regards,<br/>
-              <strong>EstateMaster Property Management</strong>
+            <p style="margin: 4px 0; color: #15803d; font-size: 13px;">
+              ✅ <strong>First Monthly Invoice #${newInvoice.invoiceNumber}:</strong> Total Due KSh ${totalInvAmount.toLocaleString()} (Due: ${newInvoice.dueDate}, Serial: <code style="font-family: monospace; font-weight: bold;">${invoiceSerial}</code>)
             </p>
           </div>
+
+          <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 16px; margin: 16px 0; border-radius: 8px;">
+            <h3 style="margin: 0 0 10px 0; color: #1e3a8a; font-size: 15px;">💳 Landlord Payment Options (M-Pesa & Bank Account)</h3>
+            <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>M-Pesa Buy Goods Till:</strong> 781920 (Mwangi Premier Estates)</p>
+            <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>M-Pesa Paybill:</strong> 247247 (Account: ${selectedUnit.unitNumber})</p>
+            <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>Bank Name:</strong> Equity Bank Kenya (Westlands Branch)</p>
+            <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>Account Name:</strong> Mwangi Premier Estates Ltd</p>
+            <p style="margin: 4px 0; color: #1e40af; font-size: 13px;"><strong>Account Number:</strong> 0110293847561</p>
+          </div>
+
+          <p style="color: #334155; font-size: 14px;">
+            You can view and manage your monthly invoices, track payments, or submit maintenance requests directly via your EstateMaster Tenant Portal.
+          </p>
+          <p style="font-size: 12px; color: #64748b; margin-top: 14px;">
+            Welcome Notice Serial: <code style="font-family: monospace; color: #0284c7;">${welcomeSerial}</code>
+          </p>
         </div>
       `;
 
-      const welcomeEmail: EmailLog = {
-        id: `email-${Date.now()}`,
+      const welcomeEmailResult = await dispatchSystemEmail({
         recipientEmail: email,
         recipientName: fullName,
-        subject: `🎉 Registration Confirmed: Unit ${selectedUnit.unitNumber} - ${selectedUnit.propertyName}`,
+        subject: `🎉 Registration Confirmed [${welcomeSerial}]: Unit ${selectedUnit.unitNumber} - ${selectedUnit.propertyName}`,
         bodyHtml: welcomeEmailBody,
         emailType: 'Welcome & Lease',
-        sentAt: new Date().toISOString(),
-        readStatus: false,
+        serialNumber: welcomeSerial,
+        prefix: 'WLC',
         documentId: newInvoice.id
-      };
-      await saveEmailToDb(welcomeEmail);
+      });
+
+      if (welcomeEmailResult.externalDelivered) {
+        newInvoice.externalDeliveryStatus = 'delivered';
+        newQuote.externalDeliveryStatus = 'delivered';
+        await saveInvoiceToDb(newInvoice);
+        await saveQuoteToDb(newQuote);
+      }
 
       res.status(201).json({
         success: true,
@@ -2721,8 +3316,9 @@ async function startServer() {
         quote: newQuote,
         invoice: newInvoice,
         unit: selectedUnit,
-        email: welcomeEmail,
-        message: `Tenant registered! Automated rental quote & invoice dispatched to ${email}.`
+        welcomeSerial,
+        externalDelivered: welcomeEmailResult.externalDelivered,
+        message: `Tenant registered! Automated rental quote & invoice dispatched to ${email}. Serial: ${welcomeSerial}`
       });
 
     } catch (err: any) {
@@ -2778,8 +3374,10 @@ async function startServer() {
       const unitNum = tenant.unitNumber || matchedUnit?.unitNumber || 'Unit';
       const propName = tenant.propertyName || matchedUnit?.propertyName || matchedProp?.name || 'Property';
 
+      const invoiceSerial = generateUniqueSerialNumber('INV');
       const inv: Invoice = {
         id: `inv-${Date.now()}`,
+        serialNumber: invoiceSerial,
         invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
         tenantId: tenant.id,
         tenantName: tenant.fullName,
@@ -2800,43 +3398,51 @@ async function startServer() {
         totalAmount: total,
         status: 'Unpaid',
         amountPaid: 0,
-        notes: notes || `Monthly rent statement for ${periodMonth}`,
+        externalDeliveryStatus: 'simulated_fallback',
+        notes: notes || `Monthly rent statement for ${periodMonth}. Serial: ${invoiceSerial}`,
         emailedToTenant: true,
         emailSentAt: new Date().toISOString()
       };
       await saveInvoiceToDb(inv);
 
       const invoiceEmailHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff;">
-          <h2 style="color: #1e293b; margin-top: 0;">New Monthly Rent Invoice Dispatched</h2>
-          <p>Dear ${tenant.fullName},</p>
-          <p>A new rental invoice for <strong>${inv.periodMonth}</strong> has been generated for your unit <strong>${inv.unitNumber}</strong>.</p>
-          <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; margin: 16px 0;">
-            <p style="margin: 4px 0;"><strong>Invoice Number:</strong> ${inv.invoiceNumber}</p>
-            <p style="margin: 4px 0;"><strong>Due Date:</strong> ${inv.dueDate}</p>
-            <p style="margin: 4px 0;"><strong>Base Rent:</strong> KSh ${inv.rentAmount?.toLocaleString()}</p>
-            ${inv.previousArrears && inv.previousArrears > 0 ? `<p style="margin: 4px 0; color: #b45309; font-weight: bold;"><strong>Previous Months Arrears:</strong> KSh ${inv.previousArrears.toLocaleString()}</p>` : ''}
-            <p style="margin: 4px 0;"><strong>Water & Trash Utilities:</strong> KSh ${(inv.waterFee! + inv.trashFee!).toLocaleString()}</p>
-            ${inv.maintenanceFee && inv.maintenanceFee > 0 ? `<p style="margin: 4px 0;"><strong>Maintenance Fee:</strong> KSh ${inv.maintenanceFee.toLocaleString()}</p>` : ''}
-            ${inv.discount && inv.discount > 0 ? `<p style="margin: 4px 0; color: #15803d;"><strong>Special Discount:</strong> -KSh ${inv.discount.toLocaleString()}</p>` : ''}
-            <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 8px 0;"/>
-            <p style="margin: 4px 0; font-size: 16px; color: #1e293b;"><strong>Total Amount Due: KSh ${inv.totalAmount.toLocaleString()}</strong></p>
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 16px 0;">
+          <h3 style="color: #1e293b; margin-top: 0; font-size: 16px;">Monthly Rent Invoice Dispatched</h3>
+          <p style="color: #334155; font-size: 14px;">Dear <strong>${tenant.fullName}</strong>,</p>
+          <p style="color: #334155; font-size: 14px;">A new rental invoice for <strong>${inv.periodMonth}</strong> has been generated for your unit <strong>${inv.unitNumber}</strong> (${inv.propertyName}).</p>
+          <div style="background-color: #ffffff; border: 1px solid #cbd5e1; padding: 16px; border-radius: 8px; margin: 16px 0;">
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Document Serial:</strong> <code style="font-family: monospace; font-weight: bold; color: #0284c7;">${invoiceSerial}</code></p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Invoice Number:</strong> ${inv.invoiceNumber}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Due Date:</strong> ${inv.dueDate}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Base Rent:</strong> KSh ${inv.rentAmount?.toLocaleString()}</p>
+            ${inv.previousArrears && inv.previousArrears > 0 ? `<p style="margin: 4px 0; font-size: 13px; color: #b45309; font-weight: bold;"><strong>Previous Months Arrears:</strong> KSh ${inv.previousArrears.toLocaleString()}</p>` : ''}
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Water & Trash Utilities:</strong> KSh ${(inv.waterFee! + inv.trashFee!).toLocaleString()}</p>
+            ${inv.maintenanceFee && inv.maintenanceFee > 0 ? `<p style="margin: 4px 0; font-size: 13px;"><strong>Maintenance Fee:</strong> KSh ${inv.maintenanceFee.toLocaleString()}</p>` : ''}
+            ${inv.discount && inv.discount > 0 ? `<p style="margin: 4px 0; font-size: 13px; color: #15803d;"><strong>Special Discount:</strong> -KSh ${inv.discount.toLocaleString()}</p>` : ''}
+            <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 10px 0;"/>
+            <p style="margin: 4px 0; font-size: 16px; color: #1e293b; font-weight: bold;">Total Amount Due: KSh ${inv.totalAmount.toLocaleString()}</p>
           </div>
-          <p>Please log in to your EstateMaster Tenant Mobile App or pay directly via M-Pesa to your Landlord's registered Till / Paybill.</p>
+          <p style="color: #475569; font-size: 13px;">
+            Please log in to your EstateMaster Tenant Portal or pay directly via M-Pesa to your Landlord's registered Till / Paybill.
+          </p>
         </div>
       `;
 
-      await saveEmailToDb({
-        id: `email-${Date.now()}`,
+      const invoiceEmailResult = await dispatchSystemEmail({
         recipientEmail: tenant.email,
         recipientName: tenant.fullName,
-        subject: `📄 Monthly Rent Invoice #${inv.invoiceNumber} (${inv.periodMonth}) - Total Due: KSh ${inv.totalAmount.toLocaleString()}`,
+        subject: `📄 Monthly Rent Invoice #${inv.invoiceNumber} [${invoiceSerial}] (${inv.periodMonth}) - Total Due: KSh ${inv.totalAmount.toLocaleString()}`,
         bodyHtml: invoiceEmailHtml,
         emailType: 'Invoice',
-        sentAt: new Date().toISOString(),
-        readStatus: false,
+        serialNumber: invoiceSerial,
+        prefix: 'INV',
         documentId: inv.id
       });
+
+      if (invoiceEmailResult.externalDelivered) {
+        inv.externalDeliveryStatus = 'delivered';
+        await saveInvoiceToDb(inv);
+      }
 
       res.status(201).json(inv);
     } catch (err: any) {
@@ -2865,8 +3471,10 @@ async function startServer() {
       const validUntil = new Date();
       validUntil.setDate(validUntil.getDate() + 14);
 
+      const quoteSerial = generateUniqueSerialNumber('QTE');
       const qte: Quote = {
         id: `q-${Date.now()}`,
+        serialNumber: quoteSerial,
         quoteNumber: `QTE-${Date.now().toString().slice(-6)}`,
         tenantName: tenantName || 'Prospect',
         tenantEmail: tenantEmail || 'tenant@example.com',
@@ -2881,8 +3489,9 @@ async function startServer() {
         estimatedUtilities: 40,
         specialDiscount: 0,
         totalMoveInCost: moveInCost,
-        notes: notes || 'Official lease quotation from landlord.',
+        notes: notes || `Official lease quotation from landlord. Serial: ${quoteSerial}`,
         status: 'Sent',
+        externalDeliveryStatus: 'simulated_fallback',
         createdAt: new Date().toISOString(),
         emailedToTenant: true,
         emailSentAt: new Date().toISOString()
@@ -2890,32 +3499,38 @@ async function startServer() {
       await saveQuoteToDb(qte);
 
       const quoteEmailHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff;">
-          <h2 style="color: #0f172a; margin-top: 0;">Official Rental Quote Offer</h2>
-          <p>Dear ${qte.tenantName},</p>
-          <p>Thank you for your interest in <strong>Unit ${qte.unitNumber}</strong> at <strong>${qte.propertyName}</strong>.</p>
-          <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 16px 0;">
-            <p style="margin: 4px 0;"><strong>Quote #:</strong> ${qte.quoteNumber}</p>
-            <p style="margin: 4px 0;"><strong>Quoted Monthly Rent:</strong> ${qte.monthlyRentQuote}</p>
-            <p style="margin: 4px 0;"><strong>Security Deposit:</strong> ${qte.depositQuote}</p>
-            <p style="margin: 4px 0;"><strong>Lease Duration:</strong> ${qte.leaseTermMonths} Months</p>
-            <p style="margin: 4px 0; font-size: 16px; color: #0284c7;"><strong>Total Move-in Cost: ${qte.totalMoveInCost}</strong></p>
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 16px 0;">
+          <h3 style="color: #0f172a; margin-top: 0; font-size: 16px;">Official Rental Quote Offer</h3>
+          <p style="color: #334155; font-size: 14px;">Dear <strong>${qte.tenantName}</strong>,</p>
+          <p style="color: #334155; font-size: 14px;">Thank you for your interest in <strong>Unit ${qte.unitNumber}</strong> at <strong>${qte.propertyName}</strong>.</p>
+          <div style="background-color: #ffffff; border: 1px solid #cbd5e1; padding: 16px; border-radius: 8px; margin: 16px 0;">
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Document Serial:</strong> <code style="font-family: monospace; font-weight: bold; color: #0284c7;">${quoteSerial}</code></p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Quote #:</strong> ${qte.quoteNumber}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Quoted Monthly Rent:</strong> KSh ${qte.monthlyRentQuote?.toLocaleString()}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Security Deposit:</strong> KSh ${qte.depositQuote?.toLocaleString()}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Lease Duration:</strong> ${qte.leaseTermMonths} Months</p>
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 8px 0;"/>
+            <p style="margin: 4px 0; font-size: 16px; color: #0284c7; font-weight: bold;">Total Move-in Cost: KSh ${qte.totalMoveInCost?.toLocaleString()}</p>
             <p style="margin: 4px 0; color: #64748b; font-size: 12px;">Valid Until: ${qte.validUntil}</p>
           </div>
         </div>
       `;
 
-      await saveEmailToDb({
-        id: `email-${Date.now()}`,
+      const quoteEmailResult = await dispatchSystemEmail({
         recipientEmail: qte.tenantEmail,
         recipientName: qte.tenantName,
-        subject: `🏷️ Rental Quotation #${qte.quoteNumber} - Unit ${qte.unitNumber}`,
+        subject: `🏷️ Rental Quotation #${qte.quoteNumber} [${quoteSerial}] - Unit ${qte.unitNumber}`,
         bodyHtml: quoteEmailHtml,
         emailType: 'Quote',
-        sentAt: new Date().toISOString(),
-        readStatus: false,
+        serialNumber: quoteSerial,
+        prefix: 'QTE',
         documentId: qte.id
       });
+
+      if (quoteEmailResult.externalDelivered) {
+        qte.externalDeliveryStatus = 'delivered';
+        await saveQuoteToDb(qte);
+      }
 
       res.status(201).json(qte);
     } catch (err: any) {
@@ -2942,18 +3557,22 @@ async function startServer() {
       }
 
       const payAmt = Number(amount) || inv.totalAmount;
+      const paymentReceiptSerial = generateUniqueSerialNumber('RCT');
       const pay: Payment = {
         id: `pay-${Date.now()}`,
+        serialNumber: paymentReceiptSerial,
         invoiceId,
         tenantId: inv.tenantId,
         tenantName: inv.tenantName,
         unitNumber: inv.unitNumber,
+        propertyName: inv.propertyName,
         amount: payAmt,
         paymentMethod: paymentMethod || 'M-Pesa',
         referenceCode: referenceCode || `REF-${Math.floor(Math.random() * 899999 + 100000)}`,
         paymentDate: new Date().toISOString(),
         status: 'Completed',
-        notes
+        externalDeliveryStatus: 'simulated_fallback',
+        notes: notes ? `${notes} (Serial: ${paymentReceiptSerial})` : `Payment for ${inv.propertyName} - Unit ${inv.unitNumber}. Serial: ${paymentReceiptSerial}`
       };
       await savePaymentToDb(pay);
 
@@ -2966,32 +3585,39 @@ async function startServer() {
       await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
 
       const receiptEmailHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff;">
-          <h2 style="color: #166534; margin-top: 0;">Payment Received Confirmation</h2>
-          <p>Dear ${inv.tenantName},</p>
-          <p>We have successfully received your payment of <strong>${payAmt.toFixed(2)}</strong> for Invoice <strong>#${inv.invoiceNumber}</strong>.</p>
-          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
-            <p style="margin: 4px 0;"><strong>Receipt ID:</strong> ${pay.id}</p>
-            <p style="margin: 4px 0;"><strong>Payment Method:</strong> ${pay.paymentMethod}</p>
-            <p style="margin: 4px 0;"><strong>Reference Code:</strong> ${pay.referenceCode}</p>
-            <p style="margin: 4px 0;"><strong>Date:</strong> ${new Date(pay.paymentDate).toLocaleDateString()}</p>
-            <p style="margin: 4px 0; color: #15803d; font-size: 16px;"><strong>Invoice Paid In Full: ${inv.amountPaid.toFixed(2)} / ${inv.totalAmount.toFixed(2)}</strong></p>
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 16px 0;">
+          <h3 style="color: #166534; margin-top: 0; font-size: 16px;">Payment Received Confirmation</h3>
+          <p style="color: #15803d; font-size: 14px;">Dear <strong>${inv.tenantName}</strong>,</p>
+          <p style="color: #15803d; font-size: 14px;">We have successfully received your payment of <strong>KSh ${payAmt.toLocaleString()}</strong> for Invoice <strong>#${inv.invoiceNumber}</strong>.</p>
+          <div style="background-color: #ffffff; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Receipt Serial:</strong> <code style="font-family: monospace; font-weight: bold; color: #0284c7;">${paymentReceiptSerial}</code></p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Payment Method:</strong> ${pay.paymentMethod}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Reference Code:</strong> ${pay.referenceCode}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Payment Date:</strong> ${new Date(pay.paymentDate).toLocaleString('en-KE')}</p>
+            <hr style="border: 0; border-top: 1px solid #dcfce7; margin: 8px 0;"/>
+            <p style="margin: 4px 0; color: #15803d; font-size: 15px; font-weight: bold;">Invoice Amount Settled: KSh ${inv.amountPaid?.toLocaleString()} / KSh ${inv.totalAmount?.toLocaleString()}</p>
           </div>
-          <p>Thank you for choosing EstateMaster Property Management.</p>
+          <p style="font-size: 13px; color: #475569;">Thank you for choosing EstateMaster Property Management.</p>
         </div>
       `;
 
-      await saveEmailToDb({
-        id: `email-${Date.now()}`,
-        recipientEmail: inv.tenantEmail,
-        recipientName: inv.tenantName,
-        subject: `✅ Payment Receipt for Invoice #${inv.invoiceNumber} (${payAmt})`,
-        bodyHtml: receiptEmailHtml,
-        emailType: 'Payment Receipt',
-        sentAt: new Date().toISOString(),
-        readStatus: false,
-        documentId: pay.id
-      });
+      if (inv.tenantEmail) {
+        const receiptEmailResult = await dispatchSystemEmail({
+          recipientEmail: inv.tenantEmail,
+          recipientName: inv.tenantName,
+          subject: `✅ Payment Receipt #${pay.referenceCode} [${paymentReceiptSerial}] for Invoice #${inv.invoiceNumber} (KSh ${payAmt.toLocaleString()})`,
+          bodyHtml: receiptEmailHtml,
+          emailType: 'Payment Receipt',
+          serialNumber: paymentReceiptSerial,
+          prefix: 'RCT',
+          documentId: pay.id
+        });
+
+        if (receiptEmailResult.externalDelivered) {
+          pay.externalDeliveryStatus = 'delivered';
+          await savePaymentToDb(pay);
+        }
+      }
 
       res.status(201).json({ payment: pay, invoice: inv });
     } catch (err: any) {

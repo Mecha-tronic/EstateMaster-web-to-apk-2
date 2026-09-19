@@ -266,9 +266,9 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {properties.map((prop) => (
+                {properties.map((prop, pIdx) => (
                   <div
-                    key={prop.id}
+                    key={`dash-prop-${prop.id}-${pIdx}`}
                     onClick={() => onNavigate('properties')}
                     className="bg-slate-50/70 border border-slate-200/80 p-4 rounded-2xl hover:border-blue-500 hover:bg-blue-50/30 transition-all cursor-pointer flex gap-3.5 items-center group shadow-2xs"
                   >
@@ -320,9 +320,9 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
-                {tenants.map((tenant) => (
+                {tenants.map((tenant, tIdx) => (
                   <div
-                    key={tenant.id}
+                    key={`dash-tenant-${tenant.id}-${tIdx}`}
                     className="bg-slate-50/80 border border-slate-200/80 p-3.5 rounded-2xl flex items-center justify-between gap-4 text-xs sm:text-sm hover:bg-emerald-50/30 hover:border-emerald-200 transition-all"
                   >
                     <div className="flex items-center gap-3.5">
@@ -466,19 +466,35 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
             </div>
 
             <div className="space-y-3">
-              {recentEmails.map((email) => (
+              {recentEmails.map((email, eIdx) => (
                 <div
-                  key={email.id}
-                  className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/80 text-xs space-y-1 hover:border-blue-300 transition-colors"
+                  key={`dash-email-${email.id}-${eIdx}`}
+                  className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/80 text-xs space-y-1.5 hover:border-blue-300 transition-colors"
                 >
                   <div className="flex items-center justify-between text-slate-600">
                     <span className="font-extrabold text-blue-600 text-xs sm:text-sm">{email.recipientName}</span>
-                    <span className="text-[11px] text-slate-400 font-mono">
-                      {new Date(email.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {email.serialNumber && (
+                        <span className="font-mono text-[10px] text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200 font-bold">
+                          {email.serialNumber}
+                        </span>
+                      )}
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        {new Date(email.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
                   </div>
                   <p className="font-bold text-slate-800 line-clamp-1">{email.subject}</p>
-                  <p className="text-[11px] text-slate-500 truncate">To: {email.recipientEmail}</p>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                    <span className="truncate">To: {email.recipientEmail}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      email.externalDeliveryStatus === 'delivered'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {email.externalDeliveryStatus === 'delivered' ? '✓ Delivered to Inbox' : 'App Inbox Archive'}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>

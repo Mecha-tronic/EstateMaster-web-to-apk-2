@@ -380,7 +380,7 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
               <p>Try searching for a different name or unit number.</p>
             </div>
           ) : (
-            tenantGroups.map((group) => {
+            tenantGroups.map((group, gIdx) => {
               const groupInvoices = invoices.filter(
                 (inv) =>
                   inv.tenantName.toLowerCase() === group.name.toLowerCase() ||
@@ -402,7 +402,7 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
 
               return (
                 <div
-                  key={group.id}
+                  key={`tgroup-${group.id || group.name}-${gIdx}`}
                   className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:border-blue-300 transition"
                 >
                   {/* Tenant Card Header */}
@@ -471,11 +471,11 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                         <p className="text-xs text-slate-400 italic py-2">No invoices recorded for this tenant.</p>
                       ) : (
                         <div className="space-y-2.5">
-                          {groupInvoices.map((inv) => {
+                          {groupInvoices.map((inv, invIdx) => {
                             const isPaid = inv.status === 'Paid';
                             return (
                               <div
-                                key={inv.id}
+                                key={`ginv-${inv.id || inv.invoiceNumber}-${invIdx}`}
                                 className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                               >
                                 <div>
@@ -546,9 +546,9 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                         <p className="text-xs text-slate-400 italic py-2">No quotes generated for this tenant.</p>
                       ) : (
                         <div className="space-y-2.5">
-                          {groupQuotes.map((qte) => (
+                          {groupQuotes.map((qte, qteIdx) => (
                             <div
-                              key={qte.id}
+                              key={`gqte-${qte.id || qte.quoteNumber}-${qteIdx}`}
                               className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                             >
                               <div>
@@ -598,11 +598,11 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
       {/* INVOICES LIST TAB */}
       {activeSubTab === 'invoices' && (
         <div className="space-y-3">
-          {invoices.map((inv) => {
+          {invoices.map((inv, invIdx) => {
             const isPaid = inv.status === 'Paid';
             return (
               <div
-                key={inv.id}
+                key={`all-inv-${inv.id || inv.invoiceNumber}-${invIdx}`}
                 className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-blue-500 transition shadow-sm text-slate-900"
               >
                 <div className="space-y-1">
@@ -668,9 +668,9 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
       {/* QUOTES LIST TAB */}
       {activeSubTab === 'quotes' && (
         <div className="space-y-3">
-          {quotes.map((qte) => (
+          {quotes.map((qte, qteIdx) => (
             <div
-              key={qte.id}
+              key={`all-qte-${qte.id || qte.quoteNumber}-${qteIdx}`}
               className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-blue-500 transition shadow-sm text-slate-900"
             >
               <div className="space-y-1">
@@ -742,8 +742,8 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                   onChange={(e) => setInvTenantId(e.target.value)}
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm"
                 >
-                  {tenants.map((t) => (
-                    <option key={t.id} value={t.id}>
+                  {tenants.map((t, tIdx) => (
+                    <option key={`tenant-opt-${t.id}-${tIdx}`} value={t.id}>
                       {t.fullName} - Unit {t.unitNumber} ({formatKSH(t.monthlyRent)}/mo)
                     </option>
                   ))}
@@ -942,8 +942,8 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                     onChange={(e) => setQteUnitId(e.target.value)}
                     className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
                   >
-                    {units.map((u) => (
-                      <option key={u.id} value={u.id}>
+                    {units.map((u, uIdx) => (
+                      <option key={`unit-opt-${u.id}-${uIdx}`} value={u.id}>
                         Unit {u.unitNumber} - {formatKSH(u.monthlyRent)}/mo ({u.propertyName})
                       </option>
                     ))}

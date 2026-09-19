@@ -10,7 +10,8 @@ import {
   Landlord,
   SecurityLog,
   UserSession,
-  SecurityStatus
+  SecurityStatus,
+  FinancialAuditEntry
 } from '../types';
 
 export function getApiBaseUrl(): string {
@@ -107,6 +108,7 @@ export interface LoginResponse {
   tempToken?: string;
   emailMasked?: string;
   phoneMasked?: string;
+  otpSimulation?: string;
   message?: string;
   role?: 'tenant' | 'landlord';
   user?: Tenant | Landlord;
@@ -210,16 +212,16 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
 }
 
 // --- 2FA TWO-FACTOR AUTHENTICATION HELPERS ---
-export async function verify2FaLogin(tempToken: string, otp: string): Promise<LoginResponse> {
+export async function verify2FaLogin(tempToken: string, otp?: string, password?: string): Promise<LoginResponse> {
   const res = await fetch(getApiUrl('/api/auth/2fa/verify'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tempToken, otp }),
+    body: JSON.stringify({ tempToken, otp, password }),
   });
   return handleResponse<LoginResponse>(res, '2FA Verification failed');
 }
 
-export async function resend2FaOtp(tempToken: string): Promise<{ success: boolean; message: string }> {
+export async function resend2FaOtp(tempToken: string): Promise<{ success: boolean; message: string; otpSimulation?: string }> {
   const res = await fetch(getApiUrl('/api/auth/2fa/resend'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -328,34 +330,71 @@ export async function fetchLandlords(): Promise<Landlord[]> {
   }
 }
 
-export async function updateLandlordDetails(landlordId: string, data: Partial<Landlord>): Promise<Landlord> {
-  try {
-    const res = await fetch(getApiUrl(`/api/landlords/${landlordId}`), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    const updated = await handleResponse(res, 'Failed to update landlord profile');
-    if (updated) {
-      const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
-      const idx = landlords.findIndex(l => l.id === landlordId);
-      if (idx !== -1) landlords[idx] = updated;
-      else landlords.unshift(updated);
-      setLocalData(STORAGE_KEYS.LANDLORDS, landlords);
-    }
-    return updated;
-  } catch (err) {
-    const landlords = await fetchLandlords();
-    const idx = landlords.findIndex(l => l.id === landlordId);
-    if (idx !== -1) {
-      landlords[idx] = { ...landlords[idx], ...data };
-      setLocalData(STORAGE_KEYS.LANDLORDS, landlords);
-      return landlords[idx];
-    }
-    const updated = { id: landlordId, name: 'Landlord', email: '', subscriptionPaid: true, ...data } as Landlord;
-    setLocalData(STORAGE_KEYS.LANDLORDS, [updated, ...landlords]);
-    return updated;
+export async function updateLandlordDetails(
+  landlordId: string,
+  data: Partial<Landlord>,
+  authVerification?: {
+    confirmationPassword?: string;
+    otp?: string;
+    challengeId?: string;
+    callerRole?: string;
   }
+): Promise<Landlord> {
+  const payload = {
+    ...data,
+    ...(authVerification || {})
+  };
+
+  const res = await fetch(getApiUrl(`/api/landlords/${landlordId}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    const errorMsg = errorData.error || `Failed to update landlord profile (${res.status})`;
+    const errorObj = new Error(errorMsg) as any;
+    errorObj.requiresVerification = errorData.requiresVerification;
+    errorObj.incorrectPassword = errorData.incorrectPassword;
+    errorObj.invalidOtp = errorData.invalidOtp;
+    errorObj.changedFields = errorData.changedFields;
+    errorObj.landlordEmailMasked = errorData.landlordEmailMasked;
+    throw errorObj;
+  }
+
+  const updated = await res.json();
+  if (updated) {
+    const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
+    const idx = landlords.findIndex(l => l.id === landlordId);
+    if (idx !== -1) landlords[idx] = updated;
+    else landlords.unshift(updated);
+    setLocalData(STORAGE_KEYS.LANDLORDS, landlords);
+  }
+  return updated;
+}
+
+export async function requestFinancialOtp(landlordId: string): Promise<{
+  challengeId: string;
+  otpSimulation?: string;
+  emailMasked: string;
+  phoneMasked: string;
+  message: string;
+}> {
+  const res = await fetch(getApiUrl(`/api/landlords/${landlordId}/request-financial-otp`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  return handleResponse(res, 'Failed to request financial OTP code');
+}
+
+export async function fetchFinancialAuditLog(landlordId: string): Promise<{
+  auditTrail: FinancialAuditEntry[];
+  lastFinancialUpdateAt?: string;
+  lastFinancialUpdatedBy?: string;
+}> {
+  const res = await fetch(getApiUrl(`/api/landlords/${landlordId}/financial-audit-log`));
+  return handleResponse(res, 'Failed to fetch financial audit trail');
 }
 
 export async function registerLandlordAccount(data: any): Promise<{ landlord: Landlord; receiptCode: string; message: string }> {

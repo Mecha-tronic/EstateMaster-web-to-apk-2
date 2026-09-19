@@ -231,13 +231,13 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {properties.map((prop) => {
+            {properties.map((prop, pIdx) => {
               const propUnits = units.filter((u) => u.propertyId === prop.id || (u.propertyName && u.propertyName.trim().toLowerCase() === prop.name.trim().toLowerCase()));
               const occupiedCount = propUnits.filter((u) => u.status === 'Occupied').length;
               const isSelected = selectedPropertyId === prop.id;
               return (
                 <div
-                  key={prop.id}
+                  key={`prop-stat-${prop.id}-${pIdx}`}
                   onClick={() => setSelectedPropertyId(prop.id)}
                   className={`bg-white border rounded-xl overflow-hidden shadow-xs space-y-3 flex flex-col justify-between transition cursor-pointer ${
                     isSelected ? 'ring-2 ring-blue-600 border-blue-600' : 'border-rose-200 hover:border-blue-400'
@@ -391,12 +391,12 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
             {units.length}
           </span>
         </button>
-        {properties.map((prop) => {
+        {properties.map((prop, pIdx) => {
           const propUnitCount = units.filter((u) => u.propertyId === prop.id || (u.propertyName && u.propertyName.trim().toLowerCase() === prop.name.trim().toLowerCase())).length;
           const isSelected = selectedPropertyId === prop.id;
           return (
             <button
-              key={prop.id}
+              key={`prop-filter-${prop.id}-${pIdx}`}
               onClick={() => setSelectedPropertyId(prop.id)}
               className={`px-3.5 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-1.5 ${
                 isSelected
@@ -439,11 +439,11 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
             )}
           </div>
         ) : (
-          filteredUnits.map((unit) => {
+          filteredUnits.map((unit, uIdx) => {
           const isOccupied = unit.status === 'Occupied';
           return (
             <div
-              key={unit.id}
+              key={`prop-unit-${unit.id}-${uIdx}`}
               className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 relative flex flex-col justify-between hover:border-blue-500 transition shadow-sm text-slate-900"
             >
               <div>
@@ -605,7 +605,7 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
                 <div className="grid grid-cols-4 gap-2">
                   {PRESET_PROPERTY_PHOTOS.map((url, idx) => (
                     <button
-                      key={idx}
+                      key={`edit-photo-${idx}`}
                       type="button"
                       onClick={() => setEditPhotoUrl(url)}
                       className={`h-14 rounded-lg overflow-hidden border-2 transition relative ${
@@ -733,7 +733,7 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
                       <div className="grid grid-cols-4 gap-2">
                         {PRESET_PROPERTY_PHOTOS.map((url, idx) => (
                           <button
-                            key={idx}
+                            key={`new-photo-${idx}`}
                             type="button"
                             onClick={() => setPropImageUrl(url)}
                             className="h-14 rounded-lg overflow-hidden border-2 border-slate-200 hover:border-blue-600 transition relative group"
@@ -782,8 +782,8 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
                   onChange={(e) => setUnitPropId(e.target.value)}
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm"
                 >
-                  {properties.map((p) => (
-                    <option key={p.id} value={p.id}>
+                  {properties.map((p, pIdx) => (
+                    <option key={`p-opt-${p.id}-${pIdx}`} value={p.id}>
                       {p.name}
                     </option>
                   ))}

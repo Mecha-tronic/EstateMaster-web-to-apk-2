@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-heading: 'Outfit', 'Plus Jakarta Sans', sans-serif;
@@ -10,6 +12,11 @@
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.6;
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
@@ -18,6 +25,82 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: #f8fafc;
   color: #0f172a;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+html.dark body {
+  background-color: #090d16;
+  color: #f1f5f9;
+}
+
+/* Smooth Dark Mode Theme Adaptations */
+html.dark .bg-white {
+  background-color: #111827;
+}
+
+html.dark .bg-white\/95 {
+  background-color: rgba(17, 24, 39, 0.95);
+}
+
+html.dark .bg-slate-50,
+html.dark .bg-slate-50\/80,
+html.dark .bg-slate-50\/90 {
+  background-color: #0b0f19;
+}
+
+html.dark .bg-slate-100 {
+  background-color: #1e293b;
+}
+
+html.dark .bg-slate-200,
+html.dark .bg-slate-200\/80 {
+  background-color: #334155;
+}
+
+/* Dark mode borders */
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-200\/80 {
+  border-color: #1f293d;
+}
+
+html.dark .border-slate-300 {
+  border-color: #334155;
+}
+
+/* Dark mode text readability */
+html.dark .text-slate-900 {
+  color: #f8fafc;
+}
+
+html.dark .text-slate-800 {
+  color: #e2e8f0;
+}
+
+html.dark .text-slate-700 {
+  color: #cbd5e1;
+}
+
+html.dark .text-slate-600 {
+  color: #94a3b8;
+}
+
+html.dark .text-slate-500 {
+  color: #64748b;
+}
+
+/* Dark mode form inputs and controls */
+html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]),
+html.dark select,
+html.dark textarea {
+  background-color: #141c2e;
+  color: #f8fafc;
+  border-color: #2e3b52;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b;
 }
 
 h1, h2, h3, h4, h5, h6 {

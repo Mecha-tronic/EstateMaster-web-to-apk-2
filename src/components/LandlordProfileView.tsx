@@ -1,9 +1,31 @@
 import React, { useState } from 'react';
 import { Landlord } from '../types';
 import { formatKSH } from '../lib/formatters';
-import { Building, CreditCard, Building2, Phone, Mail, CheckCircle, Save, Smartphone, ShieldCheck, RefreshCw, UserPlus, Sparkles, Calendar, Award, Landmark, Check } from 'lucide-react';
+import {
+  Building,
+  CreditCard,
+  Building2,
+  Phone,
+  Mail,
+  CheckCircle,
+  Save,
+  Smartphone,
+  ShieldCheck,
+  RefreshCw,
+  UserPlus,
+  Sparkles,
+  Calendar,
+  Award,
+  Landmark,
+  Check,
+  Lock,
+  History,
+  AlertTriangle
+} from 'lucide-react';
 import { updateLandlordDetails } from '../lib/api';
 import { KENYA_BANKS, getBankByNameOrId } from '../lib/kenyaBanks';
+import { FinancialSecurityVerificationModal } from './FinancialSecurityVerificationModal';
+import { FinancialAuditTrailModal } from './FinancialAuditTrailModal';
 
 interface LandlordProfileViewProps {
   landlords: Landlord[];
@@ -41,6 +63,23 @@ export const LandlordProfileView: React.FC<LandlordProfileViewProps> = ({
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Security Verification & Audit Modals
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+
+  // Check whether any financial settlement fields have been edited
+  const hasFinancialChanges =
+    (mpesaTillNumber || '').trim() !== (activeLandlord?.mpesaTillNumber || '').trim() ||
+    (mpesaPaybill || '').trim() !== (activeLandlord?.mpesaPaybill || '').trim() ||
+    (mpesaPhoneNumber || '').trim() !== (activeLandlord?.mpesaPhoneNumber || '').trim() ||
+    (bankName || '').trim() !== (activeLandlord?.bankName || '').trim() ||
+    (accountName || '').trim() !== (activeLandlord?.accountName || '').trim() ||
+    (accountNumber || '').trim() !== (activeLandlord?.accountNumber || '').trim() ||
+    (branchName || '').trim() !== (activeLandlord?.branchName || '').trim() ||
+    (swiftCode || '').trim() !== (activeLandlord?.swiftCode || '').trim();
 
   // Sync state when active landlord changes
   React.useEffect(() => {
@@ -58,11 +97,21 @@ export const LandlordProfileView: React.FC<LandlordProfileViewProps> = ({
       setBranchName(activeLandlord.branchName || '');
       setSwiftCode(activeLandlord.swiftCode || '');
       setSaveSuccess(false);
+      setErrorMessage(null);
     }
   }, [activeLandlordId, activeLandlord]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
+
+    // If sensitive financial settlement details are being changed, enforce Landlord Verification Modal!
+    if (hasFinancialChanges) {
+      setIsSecurityModalOpen(true);
+      return;
+    }
+
+    // Standard profile changes (Name, Company, Email, Phone) without financial impact
     setIsSaving(true);
     setSaveSuccess(false);
 
@@ -72,21 +121,50 @@ export const LandlordProfileView: React.FC<LandlordProfileViewProps> = ({
         companyName,
         email,
         phone,
-        mpesaTillNumber,
-        mpesaPaybill,
-        mpesaPhoneNumber,
-        bankName,
-        accountName,
-        accountNumber,
-        branchName,
-        swiftCode,
       });
 
       onLandlordUpdated(updated);
       setSaveSuccess(true);
+      setSaveMessage('Profile settings saved successfully.');
       setTimeout(() => setSaveSuccess(false), 4000);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to update profile settings.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleConfirmFinancialSave = async (auth: { confirmationPassword?: string; otp?: string; challengeId?: string }) => {
+    setIsSaving(true);
+    setSaveSuccess(false);
+    setErrorMessage(null);
+
+    try {
+      const updated = await updateLandlordDetails(
+        activeLandlord.id,
+        {
+          name,
+          companyName,
+          email,
+          phone,
+          mpesaTillNumber,
+          mpesaPaybill,
+          mpesaPhoneNumber,
+          bankName,
+          accountName,
+          accountNumber,
+          branchName,
+          swiftCode,
+        },
+        auth
+      );
+
+      onLandlordUpdated(updated);
+      setSaveSuccess(true);
+      setSaveMessage('Bank and M-Pesa settlement details securely authorized and saved! Real-time security email notification dispatched.');
+      setTimeout(() => setSaveSuccess(false), 6000);
+    } catch (err: any) {
+      throw err; // Allow modal to display specific error
     } finally {
       setIsSaving(false);
     }
@@ -117,11 +195,11 @@ export const LandlordProfileView: React.FC<LandlordProfileViewProps> = ({
 
           {/* Landlord Switcher Pills */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
-            {landlords.map((l) => {
+            {landlords.map((l, lIdx) => {
               const isSelected = l.id === activeLandlordId;
               return (
                 <button
-                  key={l.id}
+                  key={`ll-pill-${l.id}-${lIdx}`}
                   onClick={() => onSelectLandlord(l.id)}
                   className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 whitespace-nowrap shadow-xs ${
                     isSelected
@@ -295,6 +373,59 @@ export const LandlordProfileView: React.FC<LandlordProfileViewProps> = ({
           </div>
         </div>
 
+        {/* Tamper-Proof Financial Settlement Vault Card */}
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-blue-800/80 rounded-2xl p-5 text-white shadow-md relative overflow-hidden">
+          <div className="flex flex-wrap items-start justify-between gap-4 relative z-10">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-blue-500/20 border border-blue-400/30 text-blue-400 shrink-0">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-base text-white">Financial Settlement Security Vault</h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-[10px] uppercase tracking-wider">
+                    Owner Verification Active
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-bold text-[10px] uppercase tracking-wider">
+                    Tamper Protection
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                  Only the verified landlord (<strong className="text-white">{activeLandlord.email}</strong>) can alter Bank or M-Pesa settlement destinations. All modifications strictly require Landlord Master Password or 2FA OTP authorization and generate an immutable audit log and security alert email.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsAuditModalOpen(true)}
+              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 transition flex items-center gap-1.5 shrink-0"
+            >
+              <History className="w-4 h-4 text-blue-400" />
+              <span>Settlement Audit History</span>
+              {activeLandlord.financialAuditTrail && activeLandlord.financialAuditTrail.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-blue-500 text-white text-[10px]">
+                  {activeLandlord.financialAuditTrail.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {hasFinancialChanges && (
+            <div className="mt-3.5 p-3 rounded-xl bg-amber-500/20 border border-amber-400/30 text-amber-200 text-xs flex items-center justify-between gap-3 animate-fade-in">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  <strong>Unsaved Settlement Modifications Detected:</strong> Landlord password or 2FA authorization will be prompted when you click Save.
+                </span>
+              </div>
+              <span className="font-bold uppercase text-[10px] bg-amber-400/20 px-2 py-0.5 rounded text-amber-300 shrink-0">
+                Verification Required
+              </span>
+            </div>
+          )}
+        </div>
+
         {/* M-Pesa Setup Card */}
         <div className="bg-white border border-emerald-200 rounded-2xl p-5 space-y-4 shadow-xs text-slate-900">
           <div className="flex items-center justify-between border-b border-emerald-100 pb-3">
@@ -365,12 +496,12 @@ export const LandlordProfileView: React.FC<LandlordProfileViewProps> = ({
           <div className="space-y-2">
             <label className="block text-slate-700 font-bold text-[11px]">Select / Auto-configure Kenyan Bank:</label>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
-              {KENYA_BANKS.slice(0, 12).map((bank) => {
+              {KENYA_BANKS.slice(0, 12).map((bank, bIdx) => {
                 const isSelected = bankName.toLowerCase().includes(bank.shortName.toLowerCase()) || 
                                    bankName.toLowerCase().includes(bank.name.toLowerCase());
                 return (
                   <button
-                    key={bank.id}
+                    key={`bank-preset-${bank.id}-${bIdx}`}
                     type="button"
                     onClick={() => {
                       setBankName(bank.name);
@@ -466,25 +597,92 @@ export const LandlordProfileView: React.FC<LandlordProfileViewProps> = ({
           </div>
         </div>
 
+        {/* Alerts & Feedback */}
+        {saveSuccess && (
+          <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center gap-2.5 animate-fade-in">
+            <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div className="space-y-0.5">
+              <strong className="block text-emerald-950 font-bold">Settlement Settings Successfully Authorized & Saved</strong>
+              <p className="text-emerald-800 font-normal">{saveMessage}</p>
+            </div>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs font-semibold flex items-center gap-2.5 animate-fade-in">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+            <div className="space-y-0.5">
+              <strong className="block text-rose-950 font-bold">Modification Blocked by Security Vault</strong>
+              <p className="text-rose-800 font-normal">{errorMessage}</p>
+            </div>
+          </div>
+        )}
+
         {/* Submit */}
-        <div className="flex justify-end pt-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+          <div className="text-xs text-slate-500 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>
+              {hasFinancialChanges ? (
+                <strong className="text-amber-700 font-bold">
+                  🔐 Modifying payout destinations requires landlord re-authentication.
+                </strong>
+              ) : (
+                'Settlement accounts guarded by EstateMaster Anti-Diversion Shield.'
+              )}
+            </span>
+          </div>
+
           <button
             type="submit"
             disabled={isSaving}
-            className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition flex items-center gap-2"
+            className={`px-6 py-2.5 rounded-xl font-bold text-xs shadow-md transition flex items-center gap-2 cursor-pointer ${
+              hasFinancialChanges
+                ? 'bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-500/20'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
           >
             {isSaving ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" /> Saving Changes...
               </>
+            ) : hasFinancialChanges ? (
+              <>
+                <Lock className="w-4 h-4" /> Authorize & Save Settlement Details
+              </>
             ) : (
               <>
-                <Save className="w-4 h-4" /> Save Landlord Bank & M-Pesa Settings
+                <Save className="w-4 h-4" /> Save Profile Settings
               </>
             )}
           </button>
         </div>
       </form>
+
+      {/* Gated Financial Security Authorization Modal */}
+      <FinancialSecurityVerificationModal
+        isOpen={isSecurityModalOpen}
+        onClose={() => setIsSecurityModalOpen(false)}
+        landlord={activeLandlord}
+        pendingChanges={{
+          bankName,
+          accountName,
+          accountNumber,
+          branchName,
+          swiftCode,
+          mpesaTillNumber,
+          mpesaPaybill,
+          mpesaPhoneNumber
+        }}
+        onConfirm={handleConfirmFinancialSave}
+      />
+
+      {/* Immutable Financial Settlement Audit Trail Modal */}
+      <FinancialAuditTrailModal
+        isOpen={isAuditModalOpen}
+        onClose={() => setIsAuditModalOpen(false)}
+        landlord={activeLandlord}
+      />
     </div>
   );
 };

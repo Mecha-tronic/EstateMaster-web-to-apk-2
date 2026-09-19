@@ -375,6 +375,16 @@ export async function seedDbIfEmpty(
       for (const t of initialTenants) {
         await saveTenantToDb(t);
       }
+    } else {
+      for (const t of initialTenants) {
+        const found = existingTenants.some(
+          (e) => (e.email && e.email.trim().toLowerCase() === t.email.trim().toLowerCase()) || e.id === t.id
+        );
+        if (!found) {
+          console.log(`⚡ Syncing missing seed tenant (${t.fullName} - ${t.email}) to Firestore...`);
+          await saveTenantToDb(t);
+        }
+      }
     }
 
     // Check invoices
@@ -383,6 +393,14 @@ export async function seedDbIfEmpty(
       console.log('⚡ Seeding initial invoices to Firestore...');
       for (const inv of initialInvoices) {
         await saveInvoiceToDb(inv);
+      }
+    } else {
+      for (const inv of initialInvoices) {
+        const found = existingInvoices.some((e) => e.id === inv.id);
+        if (!found) {
+          console.log(`⚡ Syncing missing seed invoice (${inv.invoiceNumber}) to Firestore...`);
+          await saveInvoiceToDb(inv);
+        }
       }
     }
 

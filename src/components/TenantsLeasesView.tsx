@@ -116,9 +116,9 @@ export const TenantsLeasesView: React.FC<TenantsLeasesViewProps> = ({
 
       {/* Tenants Grid/Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredTenants.map((tenant) => (
+        {filteredTenants.map((tenant, tIdx) => (
           <div
-            key={tenant.id}
+            key={`tenant-card-${tenant.id}-${tIdx}`}
             className="bg-white border border-slate-200 rounded-xl p-4 space-y-4 relative hover:border-blue-500 transition shadow-sm text-slate-900"
           >
             {/* Top Bar */}
@@ -339,7 +339,7 @@ export const TenantsLeasesView: React.FC<TenantsLeasesViewProps> = ({
                 <div className="flex items-center justify-center gap-3">
                   {PRESET_TENANT_AVATARS.map((url, idx) => (
                     <button
-                      key={idx}
+                      key={`tenant-preset-av-${idx}`}
                       type="button"
                       onClick={() => setPhotoUrl(url)}
                       className={`w-12 h-12 rounded-full overflow-hidden border-2 transition ${

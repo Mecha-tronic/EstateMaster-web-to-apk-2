@@ -319,9 +319,9 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
               <div>
                 <label className="block text-slate-700 font-bold mb-1 text-[11px]">Choose Kenyan Bank:</label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-2">
-                  {KENYA_BANKS.filter(b => b.popular).slice(0, 4).map((b) => (
+                  {KENYA_BANKS.filter(b => b.popular).slice(0, 4).map((b, bIdx) => (
                     <button
-                      key={b.id}
+                      key={`modal-pop-bank-${b.id}-${bIdx}`}
                       type="button"
                       onClick={() => {
                         setBankName(b.name);
@@ -352,8 +352,8 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
                     }}
                     className="w-full bg-white border border-blue-200 rounded-lg p-2 text-slate-900 font-semibold shadow-xs"
                   >
-                    {KENYA_BANKS.map((b) => (
-                      <option key={b.id} value={b.name}>
+                    {KENYA_BANKS.map((b, bIdx) => (
+                      <option key={`modal-bank-opt-${b.id}-${bIdx}`} value={b.name}>
                         {b.name} ({b.supportedMethods.join(', ')})
                       </option>
                     ))}

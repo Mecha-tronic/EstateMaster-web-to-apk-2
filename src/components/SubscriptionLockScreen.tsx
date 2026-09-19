@@ -176,9 +176,9 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({
           <div className="flex justify-between items-center text-[11px]">
             <span className="text-slate-400">Switch Landlord Account:</span>
             <div className="flex gap-1 overflow-x-auto max-w-[200px]">
-              {landlords.map((l) => (
+              {landlords.map((l, lIdx) => (
                 <button
-                  key={l.id}
+                  key={`lock-ll-${l.id}-${lIdx}`}
                   onClick={() => onSelectLandlord(l.id)}
                   className={`px-2 py-1 rounded text-[10px] font-bold ${
                     l.id === activeLandlord.id

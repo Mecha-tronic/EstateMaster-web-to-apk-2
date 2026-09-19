@@ -228,7 +228,8 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
     setSessionMessage(null);
     try {
       const current = securityStatus?.activeSessions.find((s) => s.isCurrent);
-      const res = await revokeAllOtherSessions(user.id, current?.id);
+      const currentSessionId = current?.sessionId || current?.id;
+      const res = await revokeAllOtherSessions(user.id, currentSessionId);
       setSessionMessage(res.message);
       await loadSecurityData();
     } catch (err: any) {
@@ -549,50 +550,54 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
           )}
 
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {(securityStatus?.activeSessions || []).map((sess) => (
-              <div key={sess.id} className="py-4 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
-                    {sess.deviceType === 'mobile' ? <Smartphone className="w-5 h-5" /> : <Laptop className="w-5 h-5" />}
-                  </div>
+            {(securityStatus?.activeSessions || []).map((sess, sIdx) => {
+              const sessionKey = `sess-${sess.sessionId || sess.id || ''}-${sIdx}`;
+              const targetSessionId = sess.sessionId || sess.id || '';
+              return (
+                <div key={sessionKey} className="py-4 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
+                      {sess.deviceType === 'mobile' ? <Smartphone className="w-5 h-5" /> : <Laptop className="w-5 h-5" />}
+                    </div>
 
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                        {sess.deviceType === 'mobile' ? 'Mobile App / Smartphone' : 'Desktop Browser Session'}
-                      </span>
-                      {sess.isCurrent && (
-                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 text-[10px] font-bold rounded-full border border-emerald-300 dark:border-emerald-700">
-                          Current Device
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                          {sess.deviceType === 'mobile' ? 'Mobile App / Smartphone' : 'Desktop Browser Session'}
                         </span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      <span className="flex items-center gap-1">
-                        <Globe className="w-3 h-3" />
-                        <span>{sess.ipAddress}</span>
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        <span>Signed in: {new Date(sess.createdAt).toLocaleString()}</span>
-                      </span>
+                        {sess.isCurrent && (
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 text-[10px] font-bold rounded-full border border-emerald-300 dark:border-emerald-700">
+                            Current Device
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        <span className="flex items-center gap-1">
+                          <Globe className="w-3 h-3" />
+                          <span>{sess.ipAddress}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          <span>Signed in: {new Date(sess.createdAt).toLocaleString()}</span>
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {!sess.isCurrent && (
-                  <button
-                    type="button"
-                    onClick={() => handleRevokeSession(sess.id)}
-                    disabled={sessionActionLoading}
-                    className="p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-xs transition"
-                    title="Terminate this session"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            ))}
+                  {!sess.isCurrent && (
+                    <button
+                      type="button"
+                      onClick={() => handleRevokeSession(targetSessionId)}
+                      disabled={sessionActionLoading}
+                      className="p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-xs transition"
+                      title="Terminate this session"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -730,8 +735,8 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-                  {logs.map((l) => (
-                    <tr key={l.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                  {logs.map((l, lIdx) => (
+                    <tr key={`sec-log-${l.id || l.timestamp}-${lIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                       <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
                         {new Date(l.timestamp).toLocaleString()}
                       </td>

@@ -95,6 +95,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
     tempToken: string;
     emailMasked?: string;
     phoneMasked?: string;
+    otpSimulation?: string;
+    userEmail?: string;
   } | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState<number | null>(null);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
@@ -159,7 +161,9 @@ export const SignInView: React.FC<SignInViewProps> = ({
         setPending2Fa({
           tempToken: res.tempToken,
           emailMasked: res.emailMasked,
-          phoneMasked: res.phoneMasked
+          phoneMasked: res.phoneMasked,
+          otpSimulation: res.otpSimulation,
+          userEmail: cleanEmail
         });
         return;
       }
@@ -276,36 +280,6 @@ export const SignInView: React.FC<SignInViewProps> = ({
       }, 1500);
     } catch (err: any) {
       setErrorMessage(err.message || 'Landlord registration & payment failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleQuickTenantLogin = async (tenant: Tenant) => {
-    setEmail(tenant.email);
-    setPassword(tenant.password || 'password123');
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      const res = await loginUser(tenant.email, tenant.password || 'password123', 'tenant');
-      onTenantSuccess(res.user as Tenant);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleQuickLandlordLogin = async (landlord: Landlord) => {
-    setEmail(landlord.email);
-    setPassword(landlord.password || 'password123');
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      const res = await loginUser(landlord.email, landlord.password || 'password123', 'landlord');
-      onLandlordSuccess(res.user as Landlord);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -627,8 +601,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
                   onChange={(e) => setSelectedUnitId(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-slate-900 font-bold focus:outline-none focus:border-blue-500 shadow-xs"
                 >
-                  {units.map((u) => (
-                    <option key={u.id} value={u.id} disabled={u.status === 'Occupied'}>
+                  {units.map((u, uIdx) => (
+                    <option key={`signin-u-${u.id}-${uIdx}`} value={u.id} disabled={u.status === 'Occupied'}>
                       Unit {u.unitNumber} ({u.propertyName}) &bull; {formatKSH(u.monthlyRent)}/mo {u.status === 'Occupied' ? '[Occupied]' : ''}
                     </option>
                   ))}
@@ -786,9 +760,9 @@ export const SignInView: React.FC<SignInViewProps> = ({
                   <div className="space-y-1">
                     <label className="block text-slate-600 text-[11px] font-medium">Select Integrated Bank:</label>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                      {KENYA_BANKS.filter(b => b.popular).slice(0, 4).map((b) => (
+                      {KENYA_BANKS.filter(b => b.popular).slice(0, 4).map((b, bIdx) => (
                         <button
-                          key={b.id}
+                          key={`signin-pop-bank-${b.id}-${bIdx}`}
                           type="button"
                           onClick={() => {
                             setBankName(b.name);
@@ -819,8 +793,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
                         }}
                         className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 font-semibold shadow-xs"
                       >
-                        {KENYA_BANKS.map((b) => (
-                          <option key={b.id} value={b.name}>
+                        {KENYA_BANKS.map((b, bIdx) => (
+                          <option key={`signin-bank-opt-${b.id}-${bIdx}`} value={b.name}>
                             {b.name} ({b.supportedMethods.join(', ')})
                           </option>
                         ))}
@@ -1007,6 +981,8 @@ export const SignInView: React.FC<SignInViewProps> = ({
             tempToken={pending2Fa.tempToken}
             emailMasked={pending2Fa.emailMasked}
             phoneMasked={pending2Fa.phoneMasked}
+            initialOtpSimulation={pending2Fa.otpSimulation}
+            userEmail={pending2Fa.userEmail}
             onSuccess={(role, user) => {
               setPending2Fa(null);
               if (role === 'tenant') {

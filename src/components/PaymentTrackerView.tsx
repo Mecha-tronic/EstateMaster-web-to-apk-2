@@ -307,7 +307,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
               <p className="font-bold text-slate-700">No payment ledgers found matching your search.</p>
             </div>
           ) : (
-            tenantGroups.map((group) => {
+            tenantGroups.map((group, gIdx) => {
               const matchedTenant = tenants.find((t) => t.id === group.id || t.fullName.toLowerCase() === group.name.toLowerCase());
               const tenantObj = matchedTenant || { id: group.id, fullName: group.name, email: '' };
               const arrearsData = calculateTenantArrears(tenantObj, invoices, payments);
@@ -320,7 +320,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
 
               return (
                 <div
-                  key={group.id}
+                  key={`paygroup-${group.id || group.name}-${gIdx}`}
                   className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:border-emerald-300 transition"
                 >
                   {/* Tenant Card Header */}
@@ -389,8 +389,8 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
-                          {groupPayments.map((p) => (
-                            <tr key={p.id} className="hover:bg-slate-50/70 transition">
+                          {groupPayments.map((p, pIdx) => (
+                            <tr key={`gpay-${p.id || p.referenceCode}-${pIdx}`} className="hover:bg-slate-50/70 transition">
                               <td className="p-3 font-bold text-emerald-700 flex items-center gap-1.5">
                                 <Receipt className="w-3.5 h-3.5 text-emerald-600" /> {p.paymentMethod}
                               </td>
@@ -441,8 +441,8 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-slate-800 font-medium">
-              {payments.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-50 transition">
+              {payments.map((p, pIdx) => (
+                <tr key={`allpay-${p.id || p.referenceCode}-${pIdx}`} className="hover:bg-slate-50 transition">
                   <td className="p-3.5">
                     <p className="font-bold text-slate-900">{p.tenantName}</p>
                     <p className="text-[10px] text-slate-500 font-medium">Unit {p.unitNumber}</p>
@@ -495,8 +495,8 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
                 >
                   {unpaidInvoices.length > 0 ? (
-                    unpaidInvoices.map((inv) => (
-                      <option key={inv.id} value={inv.id}>
+                    unpaidInvoices.map((inv, invIdx) => (
+                      <option key={`unpaid-${inv.id}-${invIdx}`} value={inv.id}>
                         {inv.invoiceNumber} - {inv.tenantName} ({formatKSH(inv.totalAmount - (inv.amountPaid || 0))} due)
                       </option>
                     ))
@@ -679,8 +679,8 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-xs"
                 >
                   <option value="">-- No specific invoice (General credit) --</option>
-                  {invoices.map((inv) => (
-                    <option key={inv.id} value={inv.id}>
+                  {invoices.map((inv, invIdx) => (
+                    <option key={`inv-opt-${inv.id}-${invIdx}`} value={inv.id}>
                       #{inv.invoiceNumber} - {inv.tenantName} ({inv.unitNumber}) - Due: {formatKSH(inv.totalAmount - (inv.amountPaid || 0))}
                     </option>
                   ))}

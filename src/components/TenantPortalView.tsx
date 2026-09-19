@@ -772,14 +772,14 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
 
           <h3 className="font-bold text-slate-900 text-sm">My Monthly Invoices</h3>
           <div className="space-y-3">
-            {tenantInvoices.map((inv) => {
+            {tenantInvoices.map((inv, invIdx) => {
               const isPaid = inv.status === 'Paid';
               const prop = properties.find((p) => p.id === inv.propertyId || p.name === inv.propertyName);
               const targetLandlord = landlords.find((l) => l.id === (inv.landlordId || currentTenant?.landlordId || prop?.landlordId)) || activeLandlord;
 
               return (
                 <div
-                  key={inv.id}
+                  key={`tportal-inv-${inv.id || inv.invoiceNumber}-${invIdx}`}
                   className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-slate-900 space-y-3"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -935,7 +935,7 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
             <div className="bg-slate-950/80 rounded-xl p-3 max-h-56 overflow-y-auto space-y-3 text-xs border border-blue-900/40 font-sans">
               {chatMessages.map((msg, idx) => (
                 <div
-                  key={idx}
+                  key={`chat-msg-${idx}`}
                   className={`flex gap-2.5 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   {msg.sender === 'ai' && (
@@ -1068,8 +1068,8 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 No maintenance requests logged yet. Use the form above to submit an issue.
               </div>
             ) : (
-              tenantMaintenance.map((m) => (
-                <div key={m.id} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 text-xs shadow-sm text-slate-900">
+              tenantMaintenance.map((m, mIdx) => (
+                <div key={`tportal-maint-${m.id}-${mIdx}`} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 text-xs shadow-sm text-slate-900">
                   <div className="flex justify-between items-center gap-2">
                     <span className="text-[10px] text-slate-500 font-medium">Category: {m.category || 'General'} • Urgency: {m.urgency || 'Medium'}</span>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
@@ -1134,9 +1134,9 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Email List */}
             <div className="space-y-2 lg:col-span-1">
-              {tenantEmails.map((email) => (
+              {tenantEmails.map((email, eIdx) => (
                 <div
-                  key={email.id}
+                  key={`tportal-email-${email.id}-${eIdx}`}
                   onClick={() => setSelectedEmail(email)}
                   className={`p-3 rounded-xl border text-xs cursor-pointer transition ${
                     selectedEmail?.id === email.id
@@ -1494,7 +1494,7 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 <div className="flex items-center justify-center gap-3">
                   {PRESET_TENANT_AVATARS.map((url, idx) => (
                     <button
-                      key={idx}
+                      key={`preset-avatar-${idx}`}
                       type="button"
                       onClick={() => setPhotoUrl(url)}
                       className={`w-12 h-12 rounded-full overflow-hidden border-2 transition ${
