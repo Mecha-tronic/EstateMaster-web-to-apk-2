@@ -113,23 +113,31 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
         <div className="absolute -left-10 -bottom-10 w-60 h-60 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2.5">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-bold uppercase tracking-wider">
-                <TrendingUp className="w-3.5 h-3.5" /> Real Estate Portfolio
-              </div>
-              {signedInLandlord && (
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold">
-                  <ShieldCheck className="w-3.5 h-3.5" /> {signedInLandlord.name} ({signedInLandlord.companyName})
+          <div className="flex items-start sm:items-center gap-4">
+            <img
+              src="/icon.svg"
+              alt="EstateMaster"
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl shadow-lg shadow-blue-950/40 object-contain shrink-0 border border-blue-400/20"
+              referrerPolicy="no-referrer"
+            />
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-bold uppercase tracking-wider">
+                  <TrendingUp className="w-3.5 h-3.5" /> Real Estate Portfolio
                 </div>
-              )}
+                {signedInLandlord && (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold">
+                    <ShieldCheck className="w-3.5 h-3.5" /> {signedInLandlord.name} ({signedInLandlord.companyName})
+                  </div>
+                )}
+              </div>
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
+                Property Operations & Analytics
+              </h2>
+              <p className="text-sm sm:text-base text-slate-300 max-w-2xl">
+                Automated M-Pesa billing, monthly PDF tenant invoices, automated arrears roll-over, and instant repairs dispatch.
+              </p>
             </div>
-            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
-              Property Operations & Analytics
-            </h2>
-            <p className="text-sm sm:text-base text-slate-300 max-w-2xl">
-              Automated M-Pesa billing, monthly PDF tenant invoices, automated arrears roll-over, and instant repairs dispatch.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">

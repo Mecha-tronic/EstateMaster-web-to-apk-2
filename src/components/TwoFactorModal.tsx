@@ -9,7 +9,6 @@ interface TwoFactorModalProps {
   tempToken: string;
   emailMasked?: string;
   phoneMasked?: string;
-  initialOtpSimulation?: string;
   userEmail?: string;
   onSuccess: (role: 'tenant' | 'landlord', user: Tenant | Landlord, sessionToken?: string) => void;
   onCancel: () => void;
@@ -20,13 +19,11 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
   tempToken,
   emailMasked,
   phoneMasked,
-  initialOtpSimulation,
   userEmail,
   onSuccess,
   onCancel,
 }) => {
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
-  const [currentOtpSimulation, setCurrentOtpSimulation] = useState<string | undefined>(initialOtpSimulation);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resending, setResending] = useState(false);
@@ -41,7 +38,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setDigits(['', '', '', '', '', '']);
-    setCurrentOtpSimulation(initialOtpSimulation);
     setError(null);
     setResendSuccess(null);
     setSecondsRemaining(300);
@@ -54,7 +50,7 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [isOpen, initialOtpSimulation]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || secondsRemaining <= 0) return;
@@ -159,9 +155,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
 
     try {
       const res = await resend2FaOtp(tempToken);
-      if (res.otpSimulation) {
-        setCurrentOtpSimulation(res.otpSimulation);
-      }
       setResendSuccess(res.message || 'New code sent to your registered email.');
       setSecondsRemaining(300);
       setDigits(['', '', '', '', '', '']);
@@ -209,14 +202,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
 
           {!usePasswordFallback ? (
             <>
-              {currentOtpSimulation && (
-                <div className="bg-sky-50/90 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800/70 rounded-xl px-3 py-2 text-center shadow-2xs">
-                  <p className="text-[11px] text-sky-700 dark:text-sky-300 font-medium">
-                    Verification Code: <strong className="font-mono font-bold tracking-widest text-sm text-sky-900 dark:text-sky-100">{currentOtpSimulation}</strong>
-                  </p>
-                </div>
-              )}
-
               {/* 6-Digit OTP Inputs */}
               <div className="flex justify-center items-center gap-2 sm:gap-3 py-1">
                 {digits.map((digit, idx) => (

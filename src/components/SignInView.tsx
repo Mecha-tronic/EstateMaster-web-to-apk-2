@@ -296,9 +296,14 @@ export const SignInView: React.FC<SignInViewProps> = ({
       <div className="text-center space-y-3">
         <motion.div 
           whileHover={{ scale: 1.05 }}
-          className="inline-flex p-4 rounded-3xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/25"
+          className="inline-flex"
         >
-          <Key className="w-9 h-9" />
+          <img
+            src="/icon.svg"
+            alt="EstateMaster App Icon"
+            className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl shadow-xl shadow-blue-950/20 object-contain hover:shadow-2xl transition-all duration-300"
+            referrerPolicy="no-referrer"
+          />
         </motion.div>
         <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
           EstateMaster Portal
@@ -1022,7 +1027,6 @@ export const SignInView: React.FC<SignInViewProps> = ({
             tempToken={pending2Fa.tempToken}
             emailMasked={pending2Fa.emailMasked}
             phoneMasked={pending2Fa.phoneMasked}
-            initialOtpSimulation={pending2Fa.otpSimulation}
             userEmail={pending2Fa.userEmail}
             onSuccess={(role, user) => {
               setPending2Fa(null);

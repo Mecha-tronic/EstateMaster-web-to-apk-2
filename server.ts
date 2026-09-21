@@ -1092,7 +1092,6 @@ async function startServer() {
           phoneMasked: maskPhone(matchedUser.phone || ''),
           serialNumber: otpSerial,
           externalDelivered: dispatchResult.externalDelivered,
-          otpSimulation: otp,
           message: `Two-Factor verification code sent to ${cleanEmail}. Serial No: ${otpSerial}.`
         });
       }
@@ -1279,7 +1278,6 @@ async function startServer() {
         success: true,
         serialNumber: resendSerial,
         externalDelivered: resendResult.externalDelivered,
-        otpSimulation: newOtp,
         message: `New security code sent to ${challenge.userEmail}. Serial No: ${resendSerial}.`
       });
     } catch (err: any) {

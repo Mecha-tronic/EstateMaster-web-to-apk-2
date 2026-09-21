@@ -1,58 +1,193 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e3a8a"/>
-      <stop offset="50%" stop-color="#2563eb"/>
-      <stop offset="100%" stop-color="#0284c7"/>
+    <!-- Background Gradient -->
+    <radialGradient id="bgRadial" cx="50%" cy="45%" r="65%">
+      <stop offset="0%" stop-color="#111d38"/>
+      <stop offset="60%" stop-color="#0a1122"/>
+      <stop offset="100%" stop-color="#060a14"/>
+    </radialGradient>
+
+    <!-- Blueprint Grid -->
+    <pattern id="gridPattern" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#1d2d4e" stroke-width="0.7" stroke-opacity="0.35"/>
+    </pattern>
+
+    <!-- Left Tower Gradient (Faces) -->
+    <linearGradient id="leftTowerMain" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="50%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
     </linearGradient>
-    <linearGradient id="roofGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#10b981"/>
-      <stop offset="100%" stop-color="#059669"/>
+    <linearGradient id="leftTowerFacet" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#2563eb"/>
     </linearGradient>
+
+    <!-- Right Tower Gradient (Faces) -->
+    <linearGradient id="rightTowerMain" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="50%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+    <linearGradient id="rightTowerFacet" x1="100%" y1="0%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+
+    <!-- Center Tower Gradient -->
+    <linearGradient id="centerTowerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e40af"/>
+      <stop offset="100%" stop-color="#172554"/>
+    </linearGradient>
+
+    <!-- Roof Gold Gradient -->
+    <linearGradient id="goldRoof" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="30%" stop-color="#fbbf24"/>
+      <stop offset="80%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="goldRoofFascia" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#92400e"/>
+    </linearGradient>
+
+    <!-- Door Glow -->
+    <radialGradient id="doorGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.75"/>
+      <stop offset="40%" stop-color="#f59e0b" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+    
+    <!-- Door Linear Fill -->
+    <linearGradient id="doorGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="40%" stop-color="#fde047"/>
+      <stop offset="80%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+
+    <!-- Star Glows -->
+    <radialGradient id="starGlowGold" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="30%" stop-color="#fef08a" stop-opacity="0.7"/>
+      <stop offset="60%" stop-color="#f59e0b" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="starGlowWhite" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="40%" stop-color="#93c5fd" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Soft Floor Shadow Filter -->
+    <filter id="shadowBlur" x="-20%" y="-50%" width="140%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="12"/>
+    </filter>
   </defs>
-  <!-- Background Rounded Rect -->
-  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
-  
-  <!-- Architectural Building Shapes -->
-  <!-- Left Building -->
-  <rect x="96" y="210" width="100" height="206" rx="8" fill="#ffffff" opacity="0.85"/>
-  <rect x="116" y="235" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="152" y="235" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="116" y="280" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="152" y="280" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="116" y="325" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="152" y="325" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="116" y="370" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="152" y="370" width="24" height="24" rx="4" fill="#1e3a8a"/>
 
-  <!-- Center Tall Tower -->
-  <rect x="180" y="140" width="152" height="276" rx="12" fill="#ffffff"/>
-  <!-- Penthouse roof accent -->
-  <polygon points="180,140 256,90 332,140" fill="url(#roofGrad)"/>
-  <!-- Windows -->
-  <rect x="204" y="160" width="30" height="30" rx="6" fill="#0284c7"/>
-  <rect x="278" y="160" width="30" height="30" rx="6" fill="#0284c7"/>
-  <rect x="204" y="205" width="30" height="30" rx="6" fill="#0284c7"/>
-  <rect x="278" y="205" width="30" height="30" rx="6" fill="#0284c7"/>
-  <rect x="204" y="250" width="30" height="30" rx="6" fill="#0284c7"/>
-  <rect x="278" y="250" width="30" height="30" rx="6" fill="#0284c7"/>
-  <rect x="204" y="295" width="30" height="30" rx="6" fill="#0284c7"/>
-  <rect x="278" y="295" width="30" height="30" rx="6" fill="#0284c7"/>
-  <rect x="204" y="340" width="30" height="30" rx="6" fill="#0284c7"/>
-  <rect x="278" y="340" width="30" height="30" rx="6" fill="#0284c7"/>
-  <!-- Main Entrance -->
-  <rect x="236" y="375" width="40" height="41" rx="4" fill="#1e3a8a"/>
+  <!-- Squircle Base with 114px radius -->
+  <rect width="512" height="512" rx="114" ry="114" fill="url(#bgRadial)"/>
 
-  <!-- Right Building -->
-  <rect x="316" y="240" width="100" height="176" rx="8" fill="#ffffff" opacity="0.9"/>
-  <rect x="336" y="265" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="372" y="265" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="336" y="310" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="372" y="310" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="336" y="355" width="24" height="24" rx="4" fill="#1e3a8a"/>
-  <rect x="372" y="355" width="24" height="24" rx="4" fill="#1e3a8a"/>
+  <!-- Blueprint Grid Overlay -->
+  <rect width="512" height="512" rx="114" ry="114" fill="url(#gridPattern)"/>
 
-  <!-- Key / Security Badge in Bottom Right -->
-  <circle cx="400" cy="390" r="48" fill="#10b981" stroke="#ffffff" stroke-width="6"/>
-  <path d="M400 370 L400 405 M390 395 L400 405 L410 395" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Floor Shadow -->
+  <ellipse cx="256" cy="395" rx="170" ry="22" fill="#000000" opacity="0.75" filter="url(#shadowBlur)"/>
+
+  <!-- CENTER TOWER (Backdrop) -->
+  <g id="centerTower">
+    <polygon points="215,190 256,152 297,190 297,375 215,375" fill="url(#centerTowerGrad)"/>
+    <!-- Center Tower Facet / Shading -->
+    <polygon points="256,152 297,190 297,375 256,375" fill="#172554" opacity="0.55"/>
+    <!-- Center Tower Highlight Edge -->
+    <line x1="256" y1="152" x2="256" y2="375" stroke="#3b82f6" stroke-width="1.5" opacity="0.4"/>
+  </g>
+
+  <!-- LEFT TOWER -->
+  <g id="leftTower">
+    <!-- Left Outer Facet (Slightly darker/angled) -->
+    <polygon points="105,166 172,112 172,375 105,375" fill="url(#leftTowerMain)"/>
+    <!-- Left Inner Facet (Brighter highlight side) -->
+    <polygon points="172,112 215,170 215,375 172,375" fill="url(#leftTowerFacet)"/>
+    
+    <!-- Left Tower Angled Bevel Top -->
+    <polygon points="105,166 172,112 215,170" fill="#60a5fa" opacity="0.3"/>
+    
+    <!-- Left Tower Edge Highlight Line -->
+    <line x1="172" y1="112" x2="172" y2="375" stroke="#93c5fd" stroke-width="1.5" opacity="0.65"/>
+    
+    <!-- Left Tower Window Grooves -->
+    <line x1="114" y1="198" x2="163" y2="198" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="114" y1="226" x2="163" y2="226" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="114" y1="254" x2="163" y2="254" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="114" y1="282" x2="163" y2="282" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="114" y1="310" x2="163" y2="310" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="114" y1="338" x2="163" y2="338" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="114" y1="366" x2="163" y2="366" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+  </g>
+
+  <!-- RIGHT TOWER -->
+  <g id="rightTower">
+    <!-- Right Inner Facet (Darker inner side) -->
+    <polygon points="297,170 340,112 340,375 297,375" fill="url(#rightTowerMain)"/>
+    <!-- Right Outer Facet (Brighter face) -->
+    <polygon points="340,112 407,166 407,375 340,375" fill="url(#rightTowerFacet)"/>
+
+    <!-- Right Tower Angled Bevel Top -->
+    <polygon points="297,170 340,112 407,166" fill="#93c5fd" opacity="0.3"/>
+
+    <!-- Right Tower Edge Highlight Line -->
+    <line x1="340" y1="112" x2="340" y2="375" stroke="#93c5fd" stroke-width="1.5" opacity="0.7"/>
+
+    <!-- Right Tower Window Grooves -->
+    <line x1="349" y1="198" x2="398" y2="198" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="349" y1="226" x2="398" y2="226" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="349" y1="254" x2="398" y2="254" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="349" y1="282" x2="398" y2="282" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="349" y1="310" x2="398" y2="310" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="349" y1="338" x2="398" y2="338" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+    <line x1="349" y1="366" x2="398" y2="366" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+
+    <!-- Sparkle at Right Tower Peak (340, 112) -->
+    <circle cx="340" cy="112" r="26" fill="url(#starGlowWhite)"/>
+    <!-- 4-point Diamond Star -->
+    <path d="M 340 92 Q 340 112 320 112 Q 340 112 340 132 Q 340 112 360 112 Q 340 112 340 92 Z" fill="#ffffff"/>
+    <circle cx="340" cy="112" r="2.5" fill="#dbeafe"/>
+  </g>
+
+  <!-- FOREGROUND HOUSE -->
+  <g id="foregroundHouse">
+    <!-- House Shadow -->
+    <polygon points="188,280 256,220 324,280 324,375 188,375" fill="#000000" opacity="0.45"/>
+
+    <!-- House Body (Dark Obsidian Blue) -->
+    <rect x="198" y="278" width="116" height="97" fill="#0c1527" stroke="#1e293b" stroke-width="1"/>
+
+    <!-- Roof Underlayer / Fascia (Thick architectural overhang) -->
+    <polygon points="188,280 256,220 324,280 312,291 256,242 200,291" fill="url(#goldRoofFascia)"/>
+
+    <!-- Main Golden Roof Pitch -->
+    <polygon points="188,280 256,220 324,280 317,270 256,215 195,270" fill="url(#goldRoof)"/>
+
+    <!-- Golden Roof Top Edge Highlight -->
+    <polyline points="188,280 256,215 324,280" stroke="#fef08a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Door Glow Ambient Aura -->
+    <circle cx="256" cy="338" r="52" fill="url(#doorGlow)"/>
+
+    <!-- Doorway -->
+    <rect x="246" y="298" width="20" height="62" rx="10" ry="10" fill="url(#doorGrad)"/>
+    <rect x="248" y="300" width="16" height="58" rx="8" ry="8" fill="#fef08a" opacity="0.4"/>
+
+    <!-- Ground Light Spill in Front of Door -->
+    <ellipse cx="256" cy="375" rx="28" ry="5" fill="#f59e0b" opacity="0.75" filter="url(#shadowBlur)"/>
+
+    <!-- Golden Star Sparkle at House Roof Apex (256, 215) -->
+    <circle cx="256" cy="215" r="34" fill="url(#starGlowGold)"/>
+    <!-- Star Rays -->
+    <path d="M 256 193 Q 256 215 234 215 Q 256 215 256 237 Q 256 215 278 215 Q 256 215 256 193 Z" fill="#ffffff"/>
+    <path d="M 256 197 Q 256 215 238 215 Q 256 215 256 233 Q 256 215 274 215 Q 256 215 256 197 Z" fill="#fef08a" opacity="0.8"/>
+    <circle cx="256" cy="215" r="3" fill="#ffffff"/>
+  </g>
 </svg>
