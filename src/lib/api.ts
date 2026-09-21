@@ -216,9 +216,25 @@ export async function verify2FaLogin(tempToken: string, otp?: string, password?:
   const res = await fetch(getApiUrl('/api/auth/2fa/verify'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tempToken, otp, password }),
+    body: JSON.stringify({ tempToken, otp: otp?.trim(), password: password?.trim() }),
   });
-  return handleResponse<LoginResponse>(res, '2FA Verification failed');
+  const result = await handleResponse<LoginResponse>(res, '2FA Verification failed');
+  if (result && result.user) {
+    if (result.role === 'landlord') {
+      const landlords = getLocalData<Landlord[]>(STORAGE_KEYS.LANDLORDS, []);
+      const idx = landlords.findIndex(l => l.id === result.user!.id || (l.email && result.user!.email && l.email.trim().toLowerCase() === result.user!.email.trim().toLowerCase()));
+      if (idx !== -1) landlords[idx] = result.user as Landlord;
+      else landlords.unshift(result.user as Landlord);
+      setLocalData(STORAGE_KEYS.LANDLORDS, landlords);
+    } else if (result.role === 'tenant') {
+      const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+      const idx = tenants.findIndex(t => t.id === result.user!.id || (t.email && result.user!.email && t.email.trim().toLowerCase() === result.user!.email.trim().toLowerCase()));
+      if (idx !== -1) tenants[idx] = result.user as Tenant;
+      else tenants.unshift(result.user as Tenant);
+      setLocalData(STORAGE_KEYS.TENANTS, tenants);
+    }
+  }
+  return result;
 }
 
 export async function resend2FaOtp(tempToken: string): Promise<{ success: boolean; message: string; otpSimulation?: string }> {

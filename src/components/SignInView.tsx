@@ -523,6 +523,47 @@ export const SignInView: React.FC<SignInViewProps> = ({
                 </>
               )}
             </button>
+
+            {/* Quick Demo Credentials */}
+            <div className="pt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span className="text-slate-400 font-medium">Quick sign-in:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('landlord');
+                  setEmail('mokuaallan89@gmail.com');
+                  setPassword('1234567');
+                  setErrorMessage(null);
+                }}
+                className="px-2 py-0.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 rounded-md font-medium border border-slate-200 transition cursor-pointer"
+              >
+                Allan Mokua
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('landlord');
+                  setEmail('mk@gmail.com');
+                  setPassword('password123');
+                  setErrorMessage(null);
+                }}
+                className="px-2 py-0.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 rounded-md font-medium border border-slate-200 transition cursor-pointer"
+              >
+                mk@gmail.com
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('tenant');
+                  setEmail('jane.wanjiku@example.com');
+                  setPassword('password123');
+                  setErrorMessage(null);
+                }}
+                className="px-2 py-0.5 bg-slate-100 hover:bg-sky-50 text-slate-700 hover:text-sky-700 rounded-md font-medium border border-slate-200 transition cursor-pointer"
+              >
+                Jane (Tenant)
+              </button>
+            </div>
           </form>
         )}
 

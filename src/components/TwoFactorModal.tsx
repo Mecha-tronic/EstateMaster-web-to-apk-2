@@ -26,12 +26,12 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
   onCancel,
 }) => {
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [currentOtpSimulation, setCurrentOtpSimulation] = useState<string | undefined>(initialOtpSimulation);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState(300); // 5 mins
-  const [otpSimulation, setOtpSimulation] = useState<string | undefined>(initialOtpSimulation);
   const [usePasswordFallback, setUsePasswordFallback] = useState(false);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -41,10 +41,10 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setDigits(['', '', '', '', '', '']);
+    setCurrentOtpSimulation(initialOtpSimulation);
     setError(null);
     setResendSuccess(null);
     setSecondsRemaining(300);
-    setOtpSimulation(initialOtpSimulation);
     setUsePasswordFallback(false);
     setPassword('');
 
@@ -139,7 +139,7 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
     setError(null);
 
     try {
-      const res = await verify2FaLogin(tempToken, undefined, password);
+      const res = await verify2FaLogin(tempToken, undefined, password.trim());
       if (res.success && res.role && res.user) {
         onSuccess(res.role, res.user, res.sessionToken);
       } else {
@@ -160,7 +160,7 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
     try {
       const res = await resend2FaOtp(tempToken);
       if (res.otpSimulation) {
-        setOtpSimulation(res.otpSimulation);
+        setCurrentOtpSimulation(res.otpSimulation);
       }
       setResendSuccess(res.message || 'New code sent to your registered email.');
       setSecondsRemaining(300);
@@ -207,36 +207,16 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
             )}
           </div>
 
-          {/* Development / Immediate OTP Simulation Banner */}
-          {otpSimulation && !usePasswordFallback && (
-            <div className="p-3.5 bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800/80 rounded-xl space-y-2 shadow-xs">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
-                  <span className="text-xs text-sky-950 dark:text-sky-200">
-                    Security Code: <strong className="font-mono text-sm tracking-widest text-sky-700 dark:text-sky-300 font-bold">{otpSimulation}</strong>
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const arr = otpSimulation.split('').slice(0, 6);
-                    setDigits(arr);
-                    submitOtp(otpSimulation);
-                  }}
-                  className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-lg font-bold text-xs transition shrink-0 cursor-pointer shadow-xs"
-                >
-                  Auto-Fill Code
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed border-t border-sky-100 dark:border-sky-900/60 pt-1.5">
-                ℹ️ <strong>External Delivery Notice:</strong> In this cloud sandbox, external emails to your personal inbox require SMTP credentials (such as a Gmail App Password or Resend API key) in your project environment settings. Your code is provided above for instant access.
-              </p>
-            </div>
-          )}
-
           {!usePasswordFallback ? (
             <>
+              {currentOtpSimulation && (
+                <div className="bg-sky-50/90 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800/70 rounded-xl px-3 py-2 text-center shadow-2xs">
+                  <p className="text-[11px] text-sky-700 dark:text-sky-300 font-medium">
+                    Verification Code: <strong className="font-mono font-bold tracking-widest text-sm text-sky-900 dark:text-sky-100">{currentOtpSimulation}</strong>
+                  </p>
+                </div>
+              )}
+
               {/* 6-Digit OTP Inputs */}
               <div className="flex justify-center items-center gap-2 sm:gap-3 py-1">
                 {digits.map((digit, idx) => (

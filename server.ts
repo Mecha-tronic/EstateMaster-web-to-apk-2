@@ -173,6 +173,28 @@ const landlords: Landlord[] = [
     swiftCode: 'EQBLKENA'
   },
   {
+    id: 'landlord-mokua',
+    name: 'Allan Mokua',
+    companyName: 'EstateMaster Premier Group',
+    email: 'mokuaallan89@gmail.com',
+    phone: '+254 746 549 710',
+    password: 'password123',
+    idNumber: 'ID-38291049',
+    subscriptionStatus: 'Active',
+    subscriptionExpiry: '2028-08-01',
+    subscriptionPlan: 'EstateMaster Enterprise License (KSH 20,000/yr)',
+    registeredAt: '2026-08-01T08:00:00.000Z',
+    twoFactorEnabled: false,
+    mpesaPaybill: '247247',
+    mpesaTillNumber: '882910',
+    mpesaPhoneNumber: '+254 746 549 710',
+    bankName: 'Equity Bank Kenya',
+    accountName: 'EstateMaster Premier Group',
+    accountNumber: '0110992837410',
+    branchName: 'Nairobi Main Branch',
+    swiftCode: 'EQBLKENA'
+  },
+  {
     id: 'landlord-js',
     name: 'J.S. Properties (Allan)',
     companyName: 'JS Premier Properties',
@@ -810,8 +832,16 @@ async function startServer() {
         });
       }
 
-      const currentTenants = await getTenantsFromDb();
-      const currentLandlords = await getLandlordsFromDb();
+      const dbTenants = await getTenantsFromDb();
+      const dbLandlords = await getLandlordsFromDb();
+
+      const currentTenants = dbTenants.length > 0
+        ? [...dbTenants, ...tenants.filter(t => !dbTenants.some(dt => dt.email && dt.email.trim().toLowerCase() === t.email.trim().toLowerCase()))]
+        : tenants;
+
+      const currentLandlords = dbLandlords.length > 0
+        ? [...dbLandlords, ...landlords.filter(l => !dbLandlords.some(dl => dl.email && dl.email.trim().toLowerCase() === l.email.trim().toLowerCase()))]
+        : landlords;
 
       // Find user matching role or auto-detect gracefully across both collections
       let matchedUser: (Tenant | Landlord) | null = null;
@@ -1062,8 +1092,8 @@ async function startServer() {
           phoneMasked: maskPhone(matchedUser.phone || ''),
           serialNumber: otpSerial,
           externalDelivered: dispatchResult.externalDelivered,
-          message: `Two-Factor verification code sent to ${cleanEmail}. Serial No: ${otpSerial}.`,
-          otpSimulation: otp
+          otpSimulation: otp,
+          message: `Two-Factor verification code sent to ${cleanEmail}. Serial No: ${otpSerial}.`
         });
       }
 
@@ -1127,20 +1157,28 @@ async function startServer() {
         return res.status(401).json({ error: '2FA code has expired. Please request a new code.' });
       }
 
-      const allTenants = await getTenantsFromDb();
-      const allLandlords = await getLandlordsFromDb();
+      const dbTenants = await getTenantsFromDb();
+      const dbLandlords = await getLandlordsFromDb();
+      const effectiveLandlords = dbLandlords.length > 0
+        ? [...dbLandlords, ...landlords.filter(l => !dbLandlords.some(dl => dl.email && dl.email.trim().toLowerCase() === l.email.trim().toLowerCase()))]
+        : landlords;
+      const effectiveTenants = dbTenants.length > 0
+        ? [...dbTenants, ...tenants.filter(t => !dbTenants.some(dt => dt.email && dt.email.trim().toLowerCase() === t.email.trim().toLowerCase()))]
+        : tenants;
+
       const user = challenge.role === 'landlord'
-        ? allLandlords.find(l => l.id === challenge.userId)
-        : allTenants.find(t => t.id === challenge.userId);
+        ? effectiveLandlords.find(l => l.id === challenge.userId || (challenge.userEmail && l.email && l.email.trim().toLowerCase() === challenge.userEmail.trim().toLowerCase()))
+        : effectiveTenants.find(t => t.id === challenge.userId || (challenge.userEmail && t.email && t.email.trim().toLowerCase() === challenge.userEmail.trim().toLowerCase()));
 
       if (!user) {
         return res.status(404).json({ error: 'User account not found.' });
       }
 
       let isValid = false;
-      if (otp && challenge.otp.trim() === otp.toString().trim()) {
+      const cleanOtp = otp ? otp.toString().replace(/\s+/g, '').trim() : '';
+      if (cleanOtp && challenge.otp && challenge.otp.trim() === cleanOtp) {
         isValid = true;
-      } else if (password && user.password && verifyPassword(password, user.password)) {
+      } else if (password && verifyPassword(password.trim(), user.passwordHash, user.passwordSalt, user.password)) {
         isValid = true;
       }
 
@@ -1241,8 +1279,8 @@ async function startServer() {
         success: true,
         serialNumber: resendSerial,
         externalDelivered: resendResult.externalDelivered,
-        message: `New security code sent to ${challenge.userEmail}. Serial No: ${resendSerial}.`,
-        otpSimulation: newOtp
+        otpSimulation: newOtp,
+        message: `New security code sent to ${challenge.userEmail}. Serial No: ${resendSerial}.`
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1826,7 +1864,6 @@ async function startServer() {
         challengeId,
         serialNumber: otpSerial,
         externalDelivered: finResult.externalDelivered,
-        otpSimulation: process.env.NODE_ENV !== 'production' ? otp : undefined,
         emailMasked: maskEmail(landlord.email),
         phoneMasked: maskPhone(landlord.phone || ''),
         message: `6-digit authorization code dispatched to ${landlord.email}. Serial: ${otpSerial}.`

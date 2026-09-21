@@ -53,7 +53,6 @@ export const FinancialSecurityVerificationModal: React.FC<FinancialSecurityVerif
   const [otpRequested, setOtpRequested] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpSuccessMessage, setOtpSuccessMessage] = useState<string | null>(null);
-  const [otpSimulationHint, setOtpSimulationHint] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -68,10 +67,6 @@ export const FinancialSecurityVerificationModal: React.FC<FinancialSecurityVerif
       setChallengeId(res.challengeId);
       setOtpRequested(true);
       setOtpSuccessMessage(`Security code sent to ${res.emailMasked}`);
-      if (res.otpSimulation) {
-        setOtpSimulationHint(res.otpSimulation);
-        setOtpCode(res.otpSimulation);
-      }
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to dispatch security code. Please try using your password.');
     } finally {
@@ -297,19 +292,6 @@ export const FinancialSecurityVerificationModal: React.FC<FinancialSecurityVerif
                 placeholder="• • • • • •"
                 className="w-full bg-white border border-slate-300 rounded-xl p-3 text-center text-xl tracking-[0.5em] font-mono font-bold text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
               />
-
-              {otpSimulationHint && (
-                <div className="p-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-[10px] flex items-center justify-between">
-                  <span>Development OTP Code: <strong className="font-mono text-xs">{otpSimulationHint}</strong></span>
-                  <button
-                    type="button"
-                    onClick={() => setOtpCode(otpSimulationHint)}
-                    className="underline font-bold"
-                  >
-                    Auto-Fill
-                  </button>
-                </div>
-              )}
             </div>
           )}
 

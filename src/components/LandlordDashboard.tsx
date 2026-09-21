@@ -16,10 +16,13 @@ import {
   LogOut,
   ShieldCheck,
   Zap,
-  Layers
+  Layers,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
-import { Property, Unit, Tenant, Invoice, Quote, MaintenanceRequest, EmailLog, Landlord } from '../types';
+import { Property, Unit, Tenant, Invoice, Quote, MaintenanceRequest, EmailLog, Landlord, Payment } from '../types';
 import { formatKSH } from '../lib/formatters';
+import { exportLandlordPaymentLedgerToExcel } from '../lib/excelExport';
 
 interface LandlordDashboardProps {
   properties: Property[];
@@ -29,6 +32,7 @@ interface LandlordDashboardProps {
   quotes: Quote[];
   maintenance: MaintenanceRequest[];
   emails: EmailLog[];
+  payments?: Payment[];
   signedInLandlord?: Landlord | null;
   onSignOut?: () => void;
   onNavigate: (tab: string) => void;
@@ -45,6 +49,7 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
   quotes,
   maintenance,
   emails,
+  payments = [],
   signedInLandlord,
   onSignOut,
   onNavigate,
@@ -52,6 +57,26 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
   onOpenNewQuote,
   onSeedSampleData,
 }) => {
+  const [isExportingExcel, setIsExportingExcel] = React.useState(false);
+
+  const handleQuickExcelExport = () => {
+    setIsExportingExcel(true);
+    try {
+      exportLandlordPaymentLedgerToExcel({
+        properties,
+        tenants,
+        invoices,
+        payments,
+        landlordName: signedInLandlord?.name || 'Landlord',
+        companyName: signedInLandlord?.companyName || 'EstateMaster Properties',
+        buildingFilterId: 'all',
+      });
+    } catch (e) {
+      console.error('Failed to export Excel ledger from dashboard:', e);
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
   // Calculate total units and occupied units based on unit status and registered tenants
   const totalUnitsCount = units.length > 0 ? units.length : Math.max(tenants.length, 1);
   const occupiedUnitsCount = units.filter(
@@ -108,6 +133,15 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleQuickExcelExport}
+              disabled={isExportingExcel}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 text-xs sm:text-sm font-bold border border-emerald-500/40 transition-all flex items-center gap-2 shadow-sm cursor-pointer hover:scale-105 disabled:opacity-50"
+              title="Download Excel spreadsheet of all payment records, rent billed & arrears across separate buildings"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              {isExportingExcel ? 'Exporting...' : 'Excel Payment Ledger'}
+            </button>
             {onSignOut && (
               <button
                 onClick={onSignOut}

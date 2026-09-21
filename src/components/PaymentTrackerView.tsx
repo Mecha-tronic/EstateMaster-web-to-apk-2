@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Payment, Invoice, Tenant } from '../types';
+import { Payment, Invoice, Tenant, Property, Landlord } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { calculateTenantArrears } from '../lib/arrears';
+import { exportLandlordPaymentLedgerToExcel, calculateBuildingLedgers } from '../lib/excelExport';
 import { triggerMpesaStkPush, verifyMpesaReceiptCode, fetchMpesaConfigStatus } from '../lib/api';
 import { KENYA_BANKS } from '../lib/kenyaBanks';
-import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw, Users, Search, Building, AlertTriangle, TrendingDown, Landmark, Check, ShieldCheck, Zap } from 'lucide-react';
+import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw, Users, Search, Building, AlertTriangle, TrendingDown, Landmark, Check, ShieldCheck, Zap, FileSpreadsheet, Download, Building2, Table } from 'lucide-react';
 
 interface PaymentTrackerViewProps {
   payments: Payment[];
   invoices: Invoice[];
   tenants?: Tenant[];
+  properties?: Property[];
+  signedInLandlord?: Landlord | null;
   onRecordPayment: (data: any) => void;
   onPaymentProcessed?: () => void;
 }
@@ -19,6 +22,8 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   payments,
   invoices,
   tenants = [],
+  properties = [],
+  signedInLandlord,
   onRecordPayment,
   onPaymentProcessed
 }) => {
@@ -46,6 +51,12 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
 
   // Daraja Gateway Connection Info
   const [darajaStatus, setDarajaStatus] = useState<any>(null);
+
+  // Excel Ledger Export State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportBuildingFilter, setExportBuildingFilter] = useState<string>('all');
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     fetchMpesaConfigStatus().then(setDarajaStatus).catch(console.error);
@@ -193,6 +204,31 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   const totalPortfolioBilled = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalInvoiced, 0);
   const totalPortfolioPaid = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalPaid, 0);
 
+  // Multi-building Excel Calculation Summary
+  const buildingCalcData = calculateBuildingLedgers(properties, tenants, invoices, payments);
+
+  const handleDownloadExcel = (filterId: string = exportBuildingFilter) => {
+    setIsExporting(true);
+    try {
+      exportLandlordPaymentLedgerToExcel({
+        properties: properties.length > 0 ? properties : [],
+        tenants,
+        invoices,
+        payments,
+        landlordName: signedInLandlord?.name || 'Landlord',
+        companyName: signedInLandlord?.companyName || 'EstateMaster Properties',
+        buildingFilterId: filterId,
+      });
+      setExportSuccessMsg('Excel ledger downloaded successfully! Separate sheets created for each building.');
+      setTimeout(() => setExportSuccessMsg(null), 5000);
+      setShowExportModal(false);
+    } catch (err: any) {
+      console.error('Failed to export Excel ledger:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -223,7 +259,16 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            id="download-excel-ledger-header-btn"
+            onClick={() => setShowExportModal(true)}
+            className="px-4 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs sm:text-sm font-bold border border-emerald-300 transition flex items-center gap-2 cursor-pointer shadow-xs hover:scale-105 active:scale-95"
+            title="Download all payment records and rent calculations to an Excel spreadsheet (.xlsx)"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>Download Excel Ledger</span>
+          </button>
           <button
             onClick={() => setShowVerifyModal(true)}
             className="px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs sm:text-sm font-bold border border-blue-200 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -239,26 +284,63 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
         </div>
       </div>
 
+      {exportSuccessMsg && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-semibold flex items-center gap-2 animate-fadeIn">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{exportSuccessMsg}</span>
+        </div>
+      )}
+
       {/* Portfolio Arrears & Rent Collection KPI Banner */}
-      <div className="bg-slate-900 text-white rounded-2xl p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 shadow-md">
-        <div className="space-y-1">
-          <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Outstanding Arrears</span>
-          <p className={`text-2xl font-black ${totalPortfolioArrears > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-            {formatKSH(totalPortfolioArrears)}
-          </p>
-          <p className="text-[11px] text-slate-400">Arrears balance due across all active tenant accounts</p>
+      <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-md space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="space-y-1">
+            <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Outstanding Arrears</span>
+            <p className={`text-2xl font-black ${totalPortfolioArrears > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+              {formatKSH(totalPortfolioArrears)}
+            </p>
+            <p className="text-[11px] text-slate-400">Arrears balance due across all active tenant accounts</p>
+          </div>
+
+          <div className="space-y-1 sm:border-l border-slate-800 sm:pl-4">
+            <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Rent Billed</span>
+            <p className="text-xl font-bold text-white">{formatKSH(totalPortfolioBilled)}</p>
+            <p className="text-[11px] text-slate-400">Total invoice billing generated to date</p>
+          </div>
+
+          <div className="space-y-1 sm:border-l border-slate-800 sm:pl-4">
+            <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Collected to Date</span>
+            <p className="text-xl font-bold text-emerald-400">{formatKSH(totalPortfolioPaid)}</p>
+            <p className="text-[11px] text-slate-400">Settled rent & utility payments received</p>
+          </div>
         </div>
 
-        <div className="space-y-1 sm:border-l border-slate-800 sm:pl-4">
-          <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Rent Billed</span>
-          <p className="text-xl font-bold text-white">{formatKSH(totalPortfolioBilled)}</p>
-          <p className="text-[11px] text-slate-400">Total invoice billing generated to date</p>
-        </div>
-
-        <div className="space-y-1 sm:border-l border-slate-800 sm:pl-4">
-          <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Collected to Date</span>
-          <p className="text-xl font-bold text-emerald-400">{formatKSH(totalPortfolioPaid)}</p>
-          <p className="text-[11px] text-slate-400">Settled rent & utility payments received</p>
+        {/* Excel Export Quick Bar */}
+        <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-slate-400">
+            <Building2 className="w-4 h-4 text-emerald-400" />
+            <span>
+              {buildingCalcData.buildingSummaries.length} Building{buildingCalcData.buildingSummaries.length === 1 ? '' : 's'} in Portfolio • {portfolioArrearsList.length} Active Tenant Accounts
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleDownloadExcel('all')}
+              disabled={isExporting}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition shadow-xs cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-50"
+              title="Download full Excel workbook with separate sheets for all buildings"
+            >
+              <Download className="w-3.5 h-3.5" />
+              {isExporting ? 'Generating Excel...' : 'Quick Download All Buildings (.xlsx)'}
+            </button>
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              Custom Excel Options
+            </button>
+          </div>
         </div>
       </div>
 
@@ -735,6 +817,167 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* EXCEL EXPORT MODAL */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center border border-emerald-200 shadow-xs">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-700" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-900">Download Excel Payment Ledger</h3>
+                  <p className="text-xs text-slate-500">
+                    Export all calculations of rent billed, payments made to date, and arrears balances.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold p-1 rounded-md transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Scope Selection */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700">
+                Select Buildings to Include
+              </label>
+              <select
+                value={exportBuildingFilter}
+                onChange={(e) => setExportBuildingFilter(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 font-semibold focus:bg-white focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="all">
+                  📁 All Buildings Portfolio (Separate Worksheets per Building + Master Summary)
+                </option>
+                {buildingCalcData.buildingSummaries.map((bs) => (
+                  <option key={`exp-bld-${bs.property.id}`} value={bs.property.id}>
+                    🏢 {bs.property.name} ({bs.tenantsCount} Tenants • Billed: {formatKSH(bs.totalBilled)} • Arrears: {formatKSH(bs.totalArrears)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Calculations Preview Summary */}
+            {(() => {
+              const selectedSummary = exportBuildingFilter === 'all'
+                ? {
+                    name: 'All Buildings (Full Portfolio)',
+                    billed: buildingCalcData.grandTotalBilled,
+                    paid: buildingCalcData.grandTotalPaid,
+                    arrears: buildingCalcData.grandTotalArrears,
+                    rate: buildingCalcData.grandCollectionRate,
+                    tenants: buildingCalcData.buildingSummaries.reduce((sum, b) => sum + b.tenantsCount, 0),
+                    buildingsCount: buildingCalcData.buildingSummaries.length,
+                  }
+                : (() => {
+                    const found = buildingCalcData.buildingSummaries.find(
+                      (b) => b.property.id === exportBuildingFilter || b.property.name === exportBuildingFilter
+                    );
+                    return {
+                      name: found?.property.name || 'Selected Building',
+                      billed: found?.totalBilled || 0,
+                      paid: found?.totalPaid || 0,
+                      arrears: found?.totalArrears || 0,
+                      rate: found?.collectionRate || 0,
+                      tenants: found?.tenantsCount || 0,
+                      buildingsCount: 1,
+                    };
+                  })();
+
+              return (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Building2 className="w-4 h-4 text-emerald-600" />
+                      {selectedSummary.name}
+                    </span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      {selectedSummary.tenants} Tenant Accounts
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2.5 pt-1">
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Billed</span>
+                      <span className="text-sm font-extrabold text-slate-900 block">{formatKSH(selectedSummary.billed)}</span>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Payments Made</span>
+                      <span className="text-sm font-extrabold text-emerald-700 block">{formatKSH(selectedSummary.paid)}</span>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Outstanding Arrears</span>
+                      <span className={`text-sm font-extrabold block ${selectedSummary.arrears > 0 ? 'text-amber-600' : 'text-emerald-700'}`}>
+                        {formatKSH(selectedSummary.arrears)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Excel Sheet Structure Breakdown */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                Excel Sheet Structure Included in Download:
+              </h4>
+              <ul className="text-xs space-y-1.5 text-slate-600">
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Portfolio Summary Sheet:</strong> Overall KPI comparison of every building, unit counts, total rent billed, collections, arrears, and recovery rates.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Separate Worksheets per Building:</strong> Dedicated sheet for each building with tenant unit numbers, names, contacts, monthly rent, rent billed up to date, payments received, and arrears balances.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>All Payments History Sheet:</strong> Comprehensive ledger of all individual payment receipts, M-Pesa transaction codes, dates, and verification statuses.
+                  </span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-download-excel"
+                onClick={() => handleDownloadExcel(exportBuildingFilter)}
+                disabled={isExporting}
+                className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center gap-2 cursor-pointer disabled:opacity-50 hover:scale-105 active:scale-95"
+              >
+                {isExporting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Generating Excel File...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" /> Download Excel Workbook (.xlsx)
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

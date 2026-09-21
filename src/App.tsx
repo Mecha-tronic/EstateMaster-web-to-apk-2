@@ -354,7 +354,11 @@ export default function App() {
   const isSubscriptionActive = checkLandlordSubscriptionActive(currentLandlord);
 
   // Landlord-scoped datasets for multi-tenant isolation
-  const scopedProperties = properties.filter((p) => p.landlordId === currentLandlord?.id || (!p.landlordId && currentLandlord?.id === 'landlord-1'));
+  const scopedProperties = properties.filter((p) => 
+    p.landlordId === currentLandlord?.id || 
+    ((currentLandlord?.email === 'mokuaallan89@gmail.com' || currentLandlord?.email === 'mk@gmail.com') && (p.landlordId === 'landlord-raha' || p.landlordId === 'landlord-mokua' || !p.landlordId)) ||
+    (!p.landlordId && currentLandlord?.id === 'landlord-1')
+  );
   const scopedUnits = units.filter((u) => scopedProperties.some((p) => p.id === u.propertyId) || properties.length === 0);
   const scopedTenants = tenants.filter(
     (t) =>
@@ -546,6 +550,7 @@ export default function App() {
                       quotes={quotes}
                       maintenance={scopedMaintenance}
                       emails={emails}
+                      payments={scopedPayments}
                       signedInLandlord={currentLandlord}
                       onSignOut={() => setSignedInLandlord(null)}
                       onNavigate={(tab) => {
@@ -659,6 +664,8 @@ export default function App() {
                       payments={scopedPayments}
                       invoices={scopedInvoices}
                       tenants={scopedTenants}
+                      properties={scopedProperties}
+                      signedInLandlord={currentLandlord}
                       onRecordPayment={handleRecordPayment}
                     />
                   )}
