@@ -14,6 +14,7 @@ import { SubscriptionLockScreen } from './components/SubscriptionLockScreen';
 import { SubscriptionRenewalModal } from './components/SubscriptionRenewalModal';
 import { SignInView } from './components/SignInView';
 import { SecurityShieldDashboard } from './components/SecurityShieldDashboard';
+import { ServerConnectionModal } from './components/ServerConnectionModal';
 import { formatKSH } from './lib/formatters';
 
 import {
@@ -74,7 +75,8 @@ import {
   ArrowLeft,
   RefreshCw,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  Server
 } from 'lucide-react';
 
 export default function App() {
@@ -82,6 +84,7 @@ export default function App() {
   const [activeRole, setActiveRole] = useState<'landlord' | 'tenant' | 'register'>('landlord');
   const [landlordTab, setLandlordTab] = useState<string>('dashboard');
   const [preselectedUnitId, setPreselectedUnitId] = useState<string>('');
+  const [showServerSyncModal, setShowServerSyncModal] = useState<boolean>(false);
 
   // Browser History Management for Samsung/Android Back Button Navigation
   const navigateTab = (newTab: string) => {
@@ -515,6 +518,14 @@ export default function App() {
                     </button>
 
                     <button
+                      onClick={() => setShowServerSyncModal(true)}
+                      className="px-3.5 py-2.5 rounded-xl text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors"
+                      title="Backend & Mobile APK Server Connectivity"
+                    >
+                      <Server className="w-4 h-4 text-blue-600" /> Sync Server
+                    </button>
+
+                    <button
                       onClick={() => setShowRenewSubscriptionModal(true)}
                       className="px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm transition-all duration-200 flex items-center gap-2 shadow-md hover:shadow-lg shadow-emerald-600/20 whitespace-nowrap ml-auto cursor-pointer hover:scale-[1.02]"
                     >
@@ -756,6 +767,13 @@ export default function App() {
         onClose={() => setShowRenewSubscriptionModal(false)}
         activeLandlord={currentLandlord}
         onSubscriptionRenewed={() => loadAllData()}
+      />
+
+      {/* Backend & Mobile Sync Server Modal */}
+      <ServerConnectionModal
+        isOpen={showServerSyncModal}
+        onClose={() => setShowServerSyncModal(false)}
+        onConnectionUpdated={() => loadAllData()}
       />
     </AndroidFrame>
   );

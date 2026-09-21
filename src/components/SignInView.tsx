@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Tenant, Landlord, Unit, Property } from '../types';
 import { loginUser, registerTenant, registerLandlordAccount, LoginResponse } from '../lib/api';
 import { TwoFactorModal } from './TwoFactorModal';
+import { ServerConnectionModal } from './ServerConnectionModal';
 import { formatKSH } from '../lib/formatters';
 import { KENYA_BANKS } from '../lib/kenyaBanks';
 import {
@@ -27,7 +28,8 @@ import {
   FileText,
   Landmark,
   Check,
-  ShieldAlert
+  ShieldAlert,
+  Server
 } from 'lucide-react';
 
 interface SignInViewProps {
@@ -100,6 +102,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
   } | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState<number | null>(null);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const [showServerModal, setShowServerModal] = useState(false);
 
   // Countdown timer for lockout
   useEffect(() => {
@@ -352,6 +355,18 @@ export const SignInView: React.FC<SignInViewProps> = ({
         >
           <Building2 className="w-5 h-5 text-blue-600" />
           Landlord Platform
+        </button>
+      </div>
+
+      {/* Backend & Mobile Sync Quick Access */}
+      <div className="flex justify-center -mt-3">
+        <button
+          type="button"
+          onClick={() => setShowServerModal(true)}
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 shadow-xs border border-slate-200/80 dark:border-slate-700 transition-all cursor-pointer"
+        >
+          <Server className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+          <span>Mobile APK & Server Connection</span>
         </button>
       </div>
 
@@ -1028,6 +1043,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
             emailMasked={pending2Fa.emailMasked}
             phoneMasked={pending2Fa.phoneMasked}
             userEmail={pending2Fa.userEmail}
+            otpSimulation={pending2Fa.otpSimulation}
             onSuccess={(role, user) => {
               setPending2Fa(null);
               if (role === 'tenant') {
@@ -1039,6 +1055,15 @@ export const SignInView: React.FC<SignInViewProps> = ({
             onCancel={() => setPending2Fa(null)}
           />
         )}
+
+        {/* Server & Mobile Sync Configuration Modal */}
+        <ServerConnectionModal
+          isOpen={showServerModal}
+          onClose={() => setShowServerModal(false)}
+          onConnectionUpdated={() => {
+            if (onRefreshData) onRefreshData();
+          }}
+        />
       </div>
     </motion.div>
   );
