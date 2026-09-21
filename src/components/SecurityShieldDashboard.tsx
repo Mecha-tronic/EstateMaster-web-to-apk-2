@@ -24,7 +24,10 @@ import {
   ArrowRight,
   Info,
   Server,
-  Layers
+  Layers,
+  Mail,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 import {
   fetchSecurityStatus,
@@ -32,8 +35,14 @@ import {
   toggleTwoFactorAuth,
   changeUserPassword,
   revokeUserSession,
-  revokeAllOtherSessions
+  revokeAllOtherSessions,
+  sendTestEmail,
+  fetchProperties,
+  fetchTenants,
+  fetchInvoices,
+  fetchPayments
 } from '../lib/api';
+import { exportLandlordPaymentLedgerToExcel, exportFinancialReportToExcel } from '../lib/excelExport';
 import { SecurityStatus, SecurityLog, UserSession, Landlord, Tenant } from '../types';
 
 interface SecurityShieldDashboardProps {
@@ -74,6 +83,12 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
   // Sessions action state
   const [sessionActionLoading, setSessionActionLoading] = useState(false);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+
+  // Live Email and Excel Diagnostic states
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [emailTestResult, setEmailTestResult] = useState<{ success: boolean; message: string; serial?: string } | null>(null);
+  const [excelTesting, setExcelTesting] = useState(false);
+  const [excelTestResult, setExcelTestResult] = useState<string | null>(null);
 
   const loadSecurityData = async () => {
     try {
@@ -157,6 +172,57 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
       setTwoFaError(err.message || 'Failed to toggle 2FA settings');
     } finally {
       setTwoFaLoading(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    setEmailTesting(true);
+    setEmailTestResult(null);
+    try {
+      const recipientName = (user as any).name || (user as any).fullName || 'EstateMaster Landlord';
+      const res = await sendTestEmail(user.email, recipientName);
+      setEmailTestResult({
+        success: true,
+        message: res.message || `Test email dispatched via Gmail SMTP to ${user.email}`,
+        serial: res.serialNumber
+      });
+    } catch (err: any) {
+      setEmailTestResult({
+        success: false,
+        message: err.message || 'Failed to dispatch test email'
+      });
+    } finally {
+      setEmailTesting(false);
+    }
+  };
+
+  const handleTestExcelExport = async () => {
+    setExcelTesting(true);
+    setExcelTestResult(null);
+    try {
+      const [props, tens, invs, pays] = await Promise.all([
+        fetchProperties(),
+        fetchTenants(),
+        fetchInvoices(),
+        fetchPayments()
+      ]);
+      const result = await exportLandlordPaymentLedgerToExcel({
+        properties: props,
+        tenants: tens,
+        invoices: invs,
+        payments: pays,
+        landlordName: (user as any).name || (user as any).fullName || 'EstateMaster Landlord',
+        buildingFilterId: 'all'
+      });
+      if (result.success) {
+        setExcelTestResult(`Excel exported successfully! (${result.uri || result.filename || 'Saved directly to device storage'})`);
+      } else {
+        setExcelTestResult('Export completed via browser download fallback.');
+      }
+    } catch (err: any) {
+      setExcelTestResult(`Excel export error: ${err.message || err}`);
+    } finally {
+      setExcelTesting(false);
     }
   };
 
@@ -516,6 +582,133 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
                 All credentials stored on EstateMaster use individual cryptographically random hex salts. Plaintext passwords are automatically stripped before client payload delivery.
               </div>
             </div>
+
+            {/* APK Real-Time Engine Verification & Diagnostics Card */}
+            <div className="md:col-span-2 bg-gradient-to-br from-slate-900 to-slate-800 text-white border border-slate-700 rounded-2xl p-6 shadow-xl space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-700/60">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center border border-sky-500/30">
+                    <Server className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <span>Live APK Engine & Communications Verification</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Live Engine
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Verify native mobile Excel generation and Gmail SMTP background delivery on your device.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                {/* Email Verification Box */}
+                <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-sky-400">
+                      <Mail className="w-4 h-4" />
+                      <span>Direct Gmail SMTP Test</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      mokuaallan89@gmail.com
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Dispatches an authenticated live diagnostic email with encrypted cryptographic verification tokens to <strong className="text-white">{user.email}</strong>.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={handleSendTestEmail}
+                    disabled={emailTesting}
+                    className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition shadow-md shadow-sky-900/30"
+                  >
+                    {emailTesting ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Dispatching Authenticated Test Email...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="w-3.5 h-3.5" />
+                        <span>Send Test Email Now</span>
+                      </>
+                    )}
+                  </button>
+
+                  {emailTestResult && (
+                    <div
+                      className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
+                        emailTestResult.success
+                          ? 'bg-emerald-950/60 border border-emerald-700/60 text-emerald-200'
+                          : 'bg-rose-950/60 border border-rose-700/60 text-rose-200'
+                      }`}
+                    >
+                      {emailTestResult.success ? (
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                      )}
+                      <div>
+                        <p className="font-semibold">{emailTestResult.message}</p>
+                        {emailTestResult.serial && (
+                          <p className="text-[10px] font-mono text-emerald-300/80 mt-0.5">
+                            Audit Serial: {emailTestResult.serial}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Excel Export Verification Box */}
+                <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                      <FileSpreadsheet className="w-4 h-4" />
+                      <span>Mobile APK Excel Generator</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      Native FS + Web Blob
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Tests multi-sheet Excel spreadsheet generation, styling, and direct APK file storage write permissions on Android.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={handleTestExcelExport}
+                    disabled={excelTesting}
+                    className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition shadow-md shadow-emerald-900/30"
+                  >
+                    {excelTesting ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Generating Mobile Excel Workbook...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download Diagnostic Excel Report</span>
+                      </>
+                    )}
+                  </button>
+
+                  {excelTestResult && (
+                    <div className="p-3 bg-slate-700/60 border border-slate-600 rounded-xl text-xs text-slate-200 flex items-start gap-2">
+                      <Info className="w-4 h-4 shrink-0 text-sky-400 mt-0.5" />
+                      <span className="leading-tight">{excelTestResult}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -801,13 +994,13 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
 
             <div className="space-y-3">
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Confirm Master Password
+                Master Password Verification
               </label>
               <input
                 type="password"
                 value={twoFaConfirmPass}
                 onChange={(e) => setTwoFaConfirmPass(e.target.value)}
-                placeholder="Enter your current password"
+                placeholder="Enter password (or click Confirm & Apply directly)"
                 className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white outline-none focus:border-sky-500"
               />
             </div>
@@ -827,11 +1020,11 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
               <button
                 type="button"
                 onClick={() => handleToggle2FA(!securityStatus?.twoFactorEnabled)}
-                disabled={twoFaLoading || !twoFaConfirmPass}
+                disabled={twoFaLoading}
                 className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-xl shadow-lg shadow-sky-600/20 disabled:opacity-50 flex items-center gap-1.5 transition"
               >
                 {twoFaLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                <span>Confirm & Apply</span>
+                <span>{securityStatus?.twoFactorEnabled ? 'Disable 2FA Protection' : 'Activate 2FA Protection'}</span>
               </button>
             </div>
           </motion.div>

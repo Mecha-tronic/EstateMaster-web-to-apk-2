@@ -192,15 +192,60 @@ export default function App() {
     loadAllData();
 
     // Attach Firestore real-time cloud sync listeners (instant multi-device/multi-phone updates)
-    const unsubL = subscribeToLandlords((data) => { if (data && data.length > 0) setLandlords(data); });
-    const unsubP = subscribeToProperties((data) => { if (data) setProperties(data); });
-    const unsubU = subscribeToUnits((data) => { if (data) setUnits(data); });
-    const unsubT = subscribeToTenants((data) => { if (data) setTenants(data); });
-    const unsubI = subscribeToInvoices((data) => { if (data) setInvoices(data); });
-    const unsubQ = subscribeToQuotes((data) => { if (data) setQuotes(data); });
-    const unsubPay = subscribeToPayments((data) => { if (data) setPayments(data); });
-    const unsubM = subscribeToMaintenance((data) => { if (data) setMaintenance(data); });
-    const unsubE = subscribeToEmails((data) => { if (data) setEmails(data); });
+    const unsubL = subscribeToLandlords((data) => {
+      if (data && data.length > 0) {
+        setLandlords(data);
+        localStorage.setItem('estatemaster_landlords', JSON.stringify(data));
+      }
+    });
+    const unsubP = subscribeToProperties((data) => {
+      if (data && data.length > 0) {
+        setProperties(data);
+        localStorage.setItem('estatemaster_properties', JSON.stringify(data));
+      }
+    });
+    const unsubU = subscribeToUnits((data) => {
+      if (data && data.length > 0) {
+        setUnits(data);
+        localStorage.setItem('estatemaster_units', JSON.stringify(data));
+      }
+    });
+    const unsubT = subscribeToTenants((data) => {
+      if (data && data.length > 0) {
+        setTenants(data);
+        localStorage.setItem('estatemaster_tenants', JSON.stringify(data));
+      }
+    });
+    const unsubI = subscribeToInvoices((data) => {
+      if (data && data.length > 0) {
+        setInvoices(data);
+        localStorage.setItem('estatemaster_invoices', JSON.stringify(data));
+      }
+    });
+    const unsubQ = subscribeToQuotes((data) => {
+      if (data && data.length > 0) {
+        setQuotes(data);
+        localStorage.setItem('estatemaster_quotes', JSON.stringify(data));
+      }
+    });
+    const unsubPay = subscribeToPayments((data) => {
+      if (data && data.length > 0) {
+        setPayments(data);
+        localStorage.setItem('estatemaster_payments', JSON.stringify(data));
+      }
+    });
+    const unsubM = subscribeToMaintenance((data) => {
+      if (data && data.length > 0) {
+        setMaintenance(data);
+        localStorage.setItem('estatemaster_maintenance', JSON.stringify(data));
+      }
+    });
+    const unsubE = subscribeToEmails((data) => {
+      if (data && data.length > 0) {
+        setEmails(data);
+        localStorage.setItem('estatemaster_emails', JSON.stringify(data));
+      }
+    });
 
     return () => {
       unsubL();

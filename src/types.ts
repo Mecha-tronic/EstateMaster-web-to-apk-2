@@ -237,11 +237,11 @@ export interface EmailLog {
   recipientName: string;
   subject: string;
   bodyHtml: string;
-  emailType: 'Invoice' | 'Quote' | 'Welcome & Lease' | 'Payment Receipt' | 'Maintenance Update' | 'Security OTP' | 'Security Alert';
+  emailType: 'Invoice' | 'Quote' | 'Welcome & Lease' | 'Payment Receipt' | 'Maintenance Update' | 'Security OTP' | 'Security Alert' | 'System Diagnostics';
   sentAt: string;
   readStatus: boolean;
   documentId?: string; // invoice or quote id
-  externalDeliveryStatus?: 'delivered' | 'failed' | 'simulated_fallback';
+  externalDeliveryStatus?: 'delivered' | 'failed' | 'simulated_fallback' | 'pending';
   deliveryMessageId?: string;
   deliveryError?: string;
 }

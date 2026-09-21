@@ -312,6 +312,46 @@ export async function saveEmailToDb(email: EmailLog): Promise<void> {
   }
 }
 
+export async function updateEmailInDb(id: string, data: Partial<EmailLog>): Promise<void> {
+  try {
+    await updateDoc(doc(db, COLLECTIONS.EMAILS, id), sanitize(data));
+  } catch (err) {
+    console.error('Error updating email in Firestore:', err);
+  }
+}
+
+export async function queueEmailForDelivery(emailData: {
+  recipientEmail: string;
+  recipientName: string;
+  subject: string;
+  bodyHtml: string;
+  emailType: EmailLog['emailType'];
+  serialNumber?: string;
+  documentId?: string;
+}): Promise<EmailLog> {
+  const serial = emailData.serialNumber || `SN-SEC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+  const emailLog: EmailLog = {
+    id: `email-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    serialNumber: serial,
+    recipientEmail: emailData.recipientEmail,
+    recipientName: emailData.recipientName,
+    subject: emailData.subject,
+    bodyHtml: emailData.bodyHtml,
+    emailType: emailData.emailType,
+    sentAt: new Date().toISOString(),
+    readStatus: false,
+    documentId: emailData.documentId,
+    externalDeliveryStatus: 'pending'
+  };
+
+  try {
+    await saveEmailToDb(emailLog);
+  } catch (err) {
+    console.warn('Could not save queued email to Firestore:', err);
+  }
+  return emailLog;
+}
+
 // --- SEED DATABASE IF EMPTY ---
 export async function seedDbIfEmpty(
   initialLandlords: Landlord[],

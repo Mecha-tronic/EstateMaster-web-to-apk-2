@@ -207,10 +207,10 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   // Multi-building Excel Calculation Summary
   const buildingCalcData = calculateBuildingLedgers(properties, tenants, invoices, payments);
 
-  const handleDownloadExcel = (filterId: string = exportBuildingFilter) => {
+  const handleDownloadExcel = async (filterId: string = exportBuildingFilter) => {
     setIsExporting(true);
     try {
-      exportLandlordPaymentLedgerToExcel({
+      const res = await exportLandlordPaymentLedgerToExcel({
         properties: properties.length > 0 ? properties : [],
         tenants,
         invoices,
@@ -219,7 +219,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
         companyName: signedInLandlord?.companyName || 'EstateMaster Properties',
         buildingFilterId: filterId,
       });
-      setExportSuccessMsg('Excel ledger downloaded successfully! Separate sheets created for each building.');
+      setExportSuccessMsg(`Excel ledger generated successfully (${res.filename})! Ready to open or share.`);
       setTimeout(() => setExportSuccessMsg(null), 5000);
       setShowExportModal(false);
     } catch (err: any) {

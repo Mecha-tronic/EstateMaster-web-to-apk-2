@@ -1,6 +1,9 @@
 import * as XLSX from 'xlsx';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { Property, Tenant, Invoice, Payment } from '../types';
 import { calculateTenantArrears } from './arrears';
+import { isCapacitorPlatform } from './api';
 
 export interface ExportExcelOptions {
   properties: Property[];
@@ -219,7 +222,7 @@ function sanitizeSheetName(name: string, fallbackIndex: number): string {
 /**
  * Downloads a complete, multi-sheet Excel Workbook with rent collection calculations
  */
-export function exportLandlordPaymentLedgerToExcel(options: ExportExcelOptions): void {
+export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOptions): Promise<{ success: boolean; filename: string; uri?: string }> {
   const {
     properties,
     tenants,
@@ -488,10 +491,101 @@ export function exportLandlordPaymentLedgerToExcel(options: ExportExcelOptions):
   ];
   XLSX.utils.book_append_sheet(wb, paymentsWs, 'All Payments History');
 
-  // Trigger file download in browser
+  // Resolve export filename
   const filename = buildingFilterId === 'all'
     ? `EstateMaster_All_Buildings_Payment_Ledger_${currentDateStr}.xlsx`
     : `EstateMaster_${sanitizeSheetName(activeSummaries[0]?.property?.name || 'Building', 1)}_Ledger_${currentDateStr}.xlsx`;
 
-  XLSX.writeFile(wb, filename);
+  // Native Android / Capacitor APK handling
+  if (isCapacitorPlatform()) {
+    try {
+      const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+
+      // Save to device Cache directory for instant sharing and opening
+      const cacheResult = await Filesystem.writeFile({
+        path: filename,
+        data: base64Data,
+        directory: Directory.Cache
+      });
+
+      // Also persist to Documents directory if possible
+      try {
+        await Filesystem.writeFile({
+          path: filename,
+          data: base64Data,
+          directory: Directory.Documents
+        });
+      } catch (docErr) {
+        console.warn('Could not write to Documents directory, cache copy preserved:', docErr);
+      }
+
+      // Trigger native Android share/open system sheet
+      await Share.share({
+        title: filename,
+        text: `EstateMaster Kenya Excel Payment Ledger (${currentDateStr})`,
+        url: cacheResult.uri,
+        dialogTitle: 'Save or Open Excel Workbook'
+      });
+
+      return {
+        success: true,
+        filename,
+        uri: cacheResult.uri
+      };
+    } catch (mobileErr: any) {
+      console.warn('Capacitor native export failed, falling back to browser download method:', mobileErr);
+    }
+  }
+
+  // Web Browser fallback
+  try {
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    }, 2000);
+    return { success: true, filename };
+  } catch (webErr) {
+    XLSX.writeFile(wb, filename);
+    return { success: true, filename };
+  }
 }
+
+/**
+ * Convenient wrapper for financial report Excel export (used in diagnostics and dashboards)
+ */
+export async function exportFinancialReportToExcel(
+  properties: Property[],
+  invoices: Invoice[],
+  payments: Payment[],
+  fileName?: string
+): Promise<{ success: boolean; filePath?: string; filename?: string; error?: string }> {
+  try {
+    const res = await exportLandlordPaymentLedgerToExcel({
+      properties,
+      tenants: [],
+      invoices,
+      payments,
+      buildingFilterId: 'all'
+    });
+    return {
+      success: res.success,
+      filePath: res.uri || res.filename,
+      filename: res.filename
+    };
+  } catch (err: any) {
+    console.error('exportFinancialReportToExcel error:', err);
+    return {
+      success: false,
+      error: err.message || String(err)
+    };
+  }
+}
+

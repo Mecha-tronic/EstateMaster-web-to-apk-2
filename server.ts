@@ -45,6 +45,7 @@ import {
   updateMaintenanceInDb,
   getEmailsFromDb,
   saveEmailToDb,
+  updateEmailInDb,
   getSecurityLogsFromDb,
   saveSecurityLogToDb,
   seedDbIfEmpty
@@ -719,6 +720,39 @@ async function startServer() {
     };
   };
 
+  // Background Realtime Worker: Listen for pending emails queued by APK / mobile clients in Firestore
+  const processPendingEmailQueue = async () => {
+    try {
+      const allEmails = await getEmailsFromDb();
+      const pendingEmails = allEmails.filter(e => e.externalDeliveryStatus === 'pending');
+      for (const pending of pendingEmails) {
+        console.log(`[EmailQueue] Dispatching queued email from APK: ${pending.id} (${pending.subject}) to ${pending.recipientEmail}...`);
+        const deliveryResult = await sendPersonalizedEmail({
+          recipientEmail: pending.recipientEmail,
+          recipientName: pending.recipientName,
+          subject: pending.subject,
+          bodyHtml: pending.bodyHtml,
+          emailType: pending.emailType,
+          serialNumber: pending.serialNumber,
+          documentId: pending.documentId
+        });
+
+        await updateEmailInDb(pending.id, {
+          externalDeliveryStatus: deliveryResult.externalDelivered ? 'delivered' : 'simulated_fallback',
+          deliveryMessageId: deliveryResult.messageId,
+          deliveryError: deliveryResult.error
+        });
+        console.log(`[EmailQueue] Queued email ${pending.id} processed: ${deliveryResult.externalDelivered ? 'DELIVERED via SMTP' : 'Fallback marked'}`);
+      }
+    } catch (queueErr) {
+      console.warn('[EmailQueue] Error processing pending email queue:', queueErr);
+    }
+  };
+
+  // Run immediately and poll every 6 seconds for new emails queued by mobile APKs
+  setInterval(processPendingEmailQueue, 6000);
+  setTimeout(processPendingEmailQueue, 2000);
+
   // --- API ROUTES ---
 
   // Health check
@@ -791,6 +825,39 @@ async function startServer() {
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Generic Email Dispatch Endpoint (Used by Web & Mobile Clients)
+  app.post('/api/emails/send', async (req, res) => {
+    try {
+      const { recipientEmail, recipientName, subject, bodyHtml, emailType, prefix, documentId, serialNumber } = req.body;
+      if (!recipientEmail || !recipientEmail.includes('@')) {
+        return res.status(400).json({ error: 'Valid recipient email is required.' });
+      }
+
+      const dispatchResult = await dispatchSystemEmail({
+        recipientEmail,
+        recipientName: recipientName || 'EstateMaster Client',
+        subject: subject || 'EstateMaster Communication',
+        bodyHtml: bodyHtml || '<p>EstateMaster notification.</p>',
+        emailType: emailType || 'Security Alert',
+        prefix: prefix || 'SEC',
+        documentId,
+        serialNumber
+      });
+
+      res.json({
+        success: true,
+        serialNumber: dispatchResult.serialNumber,
+        externalDelivered: dispatchResult.externalDelivered,
+        emailLog: dispatchResult.emailLog,
+        message: dispatchResult.externalDelivered
+          ? `Email successfully delivered to ${recipientEmail}!`
+          : `Email registered in system inbox.`
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to dispatch email' });
     }
   });
 
@@ -1295,9 +1362,10 @@ async function startServer() {
 
       const allTenants = await getTenantsFromDb();
       const allLandlords = await getLandlordsFromDb();
+      const normUserId = String(userId || '').trim().toLowerCase();
       const user = role === 'landlord'
-        ? allLandlords.find(l => l.id === userId)
-        : allTenants.find(t => t.id === userId);
+        ? allLandlords.find(l => l.id === userId || (l.email && l.email.toLowerCase().trim() === normUserId))
+        : allTenants.find(t => t.id === userId || (t.email && t.email.toLowerCase().trim() === normUserId));
 
       if (!user) {
         return res.status(404).json({ error: 'Account not found.' });
@@ -1315,9 +1383,9 @@ async function startServer() {
       const newScore = calculateAccountSecurityScore({ ...user, twoFactorEnabled: shouldEnable });
 
       if (role === 'landlord') {
-        await updateLandlordInDb(userId, { twoFactorEnabled: shouldEnable, securityScore: newScore });
+        await updateLandlordInDb(user.id, { twoFactorEnabled: shouldEnable, securityScore: newScore });
       } else {
-        await updateTenantInDb(userId, { twoFactorEnabled: shouldEnable, securityScore: newScore });
+        await updateTenantInDb(user.id, { twoFactorEnabled: shouldEnable, securityScore: newScore });
       }
 
       const secSerial = generateUniqueSerialNumber('SEC');

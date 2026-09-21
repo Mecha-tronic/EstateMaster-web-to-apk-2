@@ -59,10 +59,10 @@ export const LandlordDashboard: React.FC<LandlordDashboardProps> = ({
 }) => {
   const [isExportingExcel, setIsExportingExcel] = React.useState(false);
 
-  const handleQuickExcelExport = () => {
+  const handleQuickExcelExport = async () => {
     setIsExportingExcel(true);
     try {
-      exportLandlordPaymentLedgerToExcel({
+      await exportLandlordPaymentLedgerToExcel({
         properties,
         tenants,
         invoices,
