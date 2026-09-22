@@ -252,9 +252,6 @@ export const FinancialSecurityVerificationModal: React.FC<FinancialSecurityVerif
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="text-[10px] text-slate-500">
-                Default demo landlord password is <strong className="font-mono">password123</strong>
-              </p>
             </div>
           )}
 

@@ -116,27 +116,6 @@ export const SignInView: React.FC<SignInViewProps> = ({
     return () => clearInterval(interval);
   }, [lockoutSeconds]);
 
-  const sortedLandlords = (() => {
-    const list = [...landlords];
-    if (!list.some(l => l.email.trim().toLowerCase() === 'mk@gmail.com')) {
-      list.unshift({
-        id: 'landlord-raha',
-        name: 'Allan (Raha)',
-        companyName: 'Raha Estate Management',
-        email: 'mk@gmail.com',
-        phone: '+254 712 000 111',
-        password: 'password123',
-        subscriptionPaid: true,
-        subscriptionStatus: 'Active'
-      } as Landlord);
-    }
-    return list.sort((a, b) => {
-      if (a.email.trim().toLowerCase() === 'mk@gmail.com') return -1;
-      if (b.email.trim().toLowerCase() === 'mk@gmail.com') return 1;
-      return 0;
-    });
-  })();
-
   // Handle standard Sign In with Anti-Hacking Protection
   const handleSignInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -201,8 +180,15 @@ export const SignInView: React.FC<SignInViewProps> = ({
     e.preventDefault();
     const cleanEmail = email ? email.trim().toLowerCase() : '';
     const cleanName = tenantFullName ? tenantFullName.trim() : '';
+    const cleanPassword = password ? password.trim() : '';
+
     if (!cleanName || !cleanEmail) {
       setErrorMessage('Full Name and Email Address are required.');
+      return;
+    }
+
+    if (!cleanPassword) {
+      setErrorMessage('Please provide a secure password for your tenant account.');
       return;
     }
 
@@ -213,7 +199,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
       const payload = {
         fullName: cleanName,
         email: cleanEmail,
-        password: password ? password.trim() : 'password123',
+        password: cleanPassword,
         phone: tenantPhone ? tenantPhone.trim() : '',
         idNumber: tenantIdNumber ? tenantIdNumber.trim() : '',
         occupation: tenantOccupation ? tenantOccupation.trim() : 'Resident',
@@ -256,7 +242,13 @@ export const SignInView: React.FC<SignInViewProps> = ({
     setErrorMessage(null);
 
     const cleanEmail = email ? email.trim().toLowerCase() : '';
-    const cleanPassword = password ? password.trim() : 'password123';
+    const cleanPassword = password ? password.trim() : '';
+
+    if (!cleanPassword) {
+      setErrorMessage('Please provide a secure password for your landlord account.');
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await registerLandlordAccount({

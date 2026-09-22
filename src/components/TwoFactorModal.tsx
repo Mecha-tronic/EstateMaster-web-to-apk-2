@@ -305,9 +305,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                  Default demo account password is <strong className="font-mono">password123</strong>
-                </p>
               </div>
 
               <div className="flex flex-col gap-2 pt-1">

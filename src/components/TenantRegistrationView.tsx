@@ -57,7 +57,7 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
   // Form State
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('password123');
+  const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('+254 ');
   const [idNumber, setIdNumber] = useState('');
   const [occupation, setOccupation] = useState('');
@@ -99,12 +99,18 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
     setErrorMsg('');
     setIsLoading(true);
 
+    if (!password.trim()) {
+      setErrorMsg('Please enter a secure password for your tenant account.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const targetUnitId = selectedUnitId || (availableUnits[0]?.id || units[0]?.id || '');
       const payload = {
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
-        password: password.trim() || 'password123',
+        password: password.trim(),
         phone: phone.trim(),
         idNumber: idNumber.trim(),
         occupation: occupation.trim() || 'Tenant',

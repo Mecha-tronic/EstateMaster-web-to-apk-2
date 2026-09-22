@@ -743,8 +743,8 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
     }
 
     const handleFoundUser = async (found: any, userRole: 'landlord' | 'tenant'): Promise<LoginResponse> => {
-      // Allow standard master password 'password123' as well as user password
-      if (cleanPassword && cleanPassword !== 'password123' && found.password && found.password.trim() !== cleanPassword) {
+      // Validate password strictly against user's account password
+      if (cleanPassword && found.password && found.password.trim() !== cleanPassword) {
         throw new Error('Invalid password. Please check your credentials.');
       }
 
@@ -1318,7 +1318,10 @@ export async function fetchFinancialAuditLog(landlordId: string): Promise<{
 
 export async function registerLandlordAccount(data: any): Promise<{ landlord: Landlord; receiptCode: string; message: string }> {
   const cleanEmail = data.email ? data.email.trim().toLowerCase() : '';
-  const cleanPassword = data.password ? data.password.trim() : 'password123';
+  const cleanPassword = data.password ? data.password.trim() : '';
+  if (!cleanPassword) {
+    throw new Error('A secure password is required to create a landlord account.');
+  }
   const payload = {
     ...data,
     email: cleanEmail,
@@ -1835,7 +1838,10 @@ export async function fetchTenants(): Promise<Tenant[]> {
 
 export async function registerTenant(data: any) {
   const cleanEmail = data.email ? data.email.trim().toLowerCase() : '';
-  const cleanPassword = data.password ? data.password.trim() : 'password123';
+  const cleanPassword = data.password ? data.password.trim() : '';
+  if (!cleanPassword) {
+    throw new Error('A secure password is required to create a tenant account.');
+  }
   const payload = {
     ...data,
     email: cleanEmail,

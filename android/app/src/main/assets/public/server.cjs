@@ -2228,7 +2228,10 @@ async function startServer() {
         return res.status(400).json({ error: "Full name, company name, email, and phone number are required." });
       }
       const cleanEmail = sanitizeInputString(email.toString().trim().toLowerCase());
-      const cleanPassword = password ? password.toString().trim() : "password123";
+      if (!password || !password.toString().trim()) {
+        return res.status(400).json({ error: "A secure password is required." });
+      }
+      const cleanPassword = password.toString().trim();
       const currentLandlords = await getLandlordsFromDb();
       const existing = currentLandlords.find((l) => l.email && l.email.trim().toLowerCase() === cleanEmail);
       if (existing) {
@@ -3433,7 +3436,10 @@ async function startServer() {
       const endDateObj = new Date(startDate);
       endDateObj.setMonth(endDateObj.getMonth() + parseInt(leaseTermMonths.toString()));
       const endDate = endDateObj.toISOString().split("T")[0];
-      const cleanPassword = password ? password.toString().trim() : "password123";
+      if (!password || !password.toString().trim()) {
+        return res.status(400).json({ error: "A secure password is required." });
+      }
+      const cleanPassword = password.toString().trim();
       const salt = generateSalt();
       const passHash = hashPassword(cleanPassword, salt);
       const newTenant = {

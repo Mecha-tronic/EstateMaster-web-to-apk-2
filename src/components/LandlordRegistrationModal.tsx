@@ -38,7 +38,7 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
   const [name, setName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('password123');
+  const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('+254 ');
   const [idNumber, setIdNumber] = useState('');
 
@@ -72,7 +72,13 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
     setErrorMessage(null);
 
     const cleanEmail = email ? email.trim().toLowerCase() : '';
-    const cleanPassword = password ? password.trim() : 'password123';
+    const cleanPassword = password ? password.trim() : '';
+
+    if (!cleanPassword) {
+      setErrorMessage('Please provide a secure password for your account.');
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       const res = await registerLandlordAccount({
