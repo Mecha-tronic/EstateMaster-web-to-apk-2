@@ -1,12 +1,46 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Payment, Invoice, Tenant, Property, Landlord } from '../types';
+import { Payment, Invoice, Tenant, Property, Landlord, UnaccountedPayment, BankStatementRecord } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { calculateTenantArrears } from '../lib/arrears';
 import { exportLandlordPaymentLedgerToExcel, calculateBuildingLedgers } from '../lib/excelExport';
-import { triggerMpesaStkPush, verifyMpesaReceiptCode, fetchMpesaConfigStatus } from '../lib/api';
+import {
+  triggerMpesaStkPush,
+  verifyMpesaReceiptCode,
+  fetchMpesaConfigStatus,
+  fetchUnaccountedPayments,
+  saveUnaccountedPayment,
+  assignUnaccountedPayment,
+  batchReconcileBankRecords
+} from '../lib/api';
+import { UnaccountedPaymentsQueue } from './UnaccountedPaymentsQueue';
+import { BankStatementReconciler } from './BankStatementReconciler';
 import { KENYA_BANKS } from '../lib/kenyaBanks';
-import { DollarSign, CheckCircle2, Clock, Plus, CreditCard, Receipt, Smartphone, RefreshCw, Users, Search, Building, AlertTriangle, TrendingDown, Landmark, Check, ShieldCheck, Zap, FileSpreadsheet, Download, Building2, Table } from 'lucide-react';
+import {
+  DollarSign,
+  CheckCircle2,
+  Clock,
+  Plus,
+  CreditCard,
+  Receipt,
+  Smartphone,
+  RefreshCw,
+  Users,
+  Search,
+  Building,
+  AlertTriangle,
+  TrendingDown,
+  Landmark,
+  Check,
+  ShieldCheck,
+  Zap,
+  FileSpreadsheet,
+  Download,
+  Building2,
+  Table,
+  HelpCircle,
+  Sparkles
+} from 'lucide-react';
 
 interface PaymentTrackerViewProps {
   payments: Payment[];
@@ -27,7 +61,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   onRecordPayment,
   onPaymentProcessed
 }) => {
-  const [activeTab, setActiveTab] = useState<'grouped' | 'all'>('grouped');
+  const [activeTab, setActiveTab] = useState<'grouped' | 'all' | 'unaccounted' | 'bank_reconcile'>('grouped');
   const [searchQuery, setSearchQuery] = useState('');
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [payInvoiceId, setPayInvoiceId] = useState(invoices[0]?.id || '');
@@ -35,6 +69,9 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   const [payMethod, setPayMethod] = useState<'M-Pesa' | 'Bank Transfer' | 'Credit Card' | 'Cash' | 'Check'>('M-Pesa');
   const [payRef, setPayRef] = useState('');
   const [payNotes, setPayNotes] = useState('');
+
+  // Unaccounted Payments State
+  const [unaccountedPayments, setUnaccountedPayments] = useState<UnaccountedPayment[]>([]);
 
   // M-Pesa Express STK Push State
   const [mpesaPhone, setMpesaPhone] = useState('+254 712 345 678');
@@ -58,8 +95,18 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
 
+  const loadUnaccounted = async () => {
+    try {
+      const list = await fetchUnaccountedPayments();
+      setUnaccountedPayments(list);
+    } catch (err) {
+      console.error('Failed to load unaccounted payments:', err);
+    }
+  };
+
   useEffect(() => {
     fetchMpesaConfigStatus().then(setDarajaStatus).catch(console.error);
+    loadUnaccounted();
   }, []);
 
   const unpaidInvoices = invoices.filter((i) => i.status !== 'Paid');
@@ -190,6 +237,46 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
       setIsVerifyingCode(false);
     }
   };
+
+  const handleAssignUnaccountedPayment = async (
+    unaccountedId: string,
+    tenantId: string,
+    invoiceId?: string,
+    notes?: string
+  ) => {
+    await assignUnaccountedPayment(unaccountedId, tenantId, invoiceId, notes);
+    await loadUnaccounted();
+    if (onPaymentProcessed) onPaymentProcessed();
+  };
+
+  const handleAddUnaccountedPayment = async (data: Partial<UnaccountedPayment>) => {
+    await saveUnaccountedPayment(data);
+    await loadUnaccounted();
+  };
+
+  const handleBatchReconcileRecords = async (records: BankStatementRecord[]) => {
+    const res = await batchReconcileBankRecords(records);
+    await loadUnaccounted();
+    if (onPaymentProcessed) onPaymentProcessed();
+    return res;
+  };
+
+  const handleRouteRecordToUnaccounted = async (record: BankStatementRecord) => {
+    await saveUnaccountedPayment({
+      source: record.bankName.toLowerCase().includes('mpesa') ? 'M-Pesa Till' : 'Bank Transfer',
+      referenceCode: record.referenceCode,
+      amount: record.amount,
+      receivedDate: new Date(record.date).toISOString(),
+      rawNarration: record.description,
+      bankName: record.bankName,
+      status: 'Pending Assignment',
+      notes: `Routed from Bank Statement Auto-Reconciler (${record.bankName})`
+    });
+    await loadUnaccounted();
+    alert(`Transaction ${record.referenceCode} added to Unaccounted Queue for manual review.`);
+  };
+
+  const unaccountedPendingCount = unaccountedPayments.filter((p) => p.status === 'Pending Assignment').length;
 
   const portfolioArrearsList = tenantGroups.map((g) => {
     const matchedTenant = tenants.find((t) => t.id === g.id || t.fullName.toLowerCase() === g.name.toLowerCase());
@@ -345,10 +432,10 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
       </div>
 
       {/* Sub Tabs Toggle */}
-      <div className="flex border-b border-slate-200 text-xs font-semibold overflow-x-auto">
+      <div className="flex border-b border-slate-200 text-xs font-semibold overflow-x-auto gap-1">
         <button
           onClick={() => setActiveTab('grouped')}
-          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === 'grouped'
               ? 'border-emerald-600 text-emerald-700 font-bold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -356,15 +443,50 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
         >
           <Users className="w-4 h-4" /> Single Tenant Ledgers ({tenantGroups.length})
         </button>
+
         <button
           onClick={() => setActiveTab('all')}
-          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === 'all'
               ? 'border-emerald-600 text-emerald-700 font-bold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Receipt className="w-4 h-4" /> All Transactions History ({payments.length})
+          <Receipt className="w-4 h-4" /> All Transactions ({payments.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('unaccounted')}
+          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            activeTab === 'unaccounted'
+              ? 'border-amber-600 text-amber-800 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <HelpCircle className="w-4 h-4 text-amber-600" />
+          <span>Unaccounted Queue</span>
+          {unaccountedPendingCount > 0 ? (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white animate-pulse">
+              {unaccountedPendingCount} pending
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-400">({unaccountedPayments.length})</span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('bank_reconcile')}
+          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            activeTab === 'bank_reconcile'
+              ? 'border-blue-600 text-blue-800 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4 text-blue-600" />
+          <span>Bank Statement Auto-Reconcile</span>
+          <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200 uppercase">
+            Smart CSV
+          </span>
         </button>
       </div>
 
@@ -548,6 +670,27 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
           </table>
         </div>
       </div>
+      )}
+
+      {/* UNACCOUNTED & ORPHAN PAYMENTS HOLDING QUEUE TAB */}
+      {activeTab === 'unaccounted' && (
+        <UnaccountedPaymentsQueue
+          unaccountedPayments={unaccountedPayments}
+          tenants={tenants}
+          invoices={invoices}
+          onAssignPayment={handleAssignUnaccountedPayment}
+          onAddUnaccountedPayment={handleAddUnaccountedPayment}
+        />
+      )}
+
+      {/* BANK STATEMENT & TILL CSV AUTO-RECONCILER TAB */}
+      {activeTab === 'bank_reconcile' && (
+        <BankStatementReconciler
+          tenants={tenants}
+          invoices={invoices}
+          onBatchReconcile={handleBatchReconcileRecords}
+          onRouteToUnaccountedQueue={handleRouteRecordToUnaccounted}
+        />
       )}
 
       {/* Record / STK Push Payment Modal */}

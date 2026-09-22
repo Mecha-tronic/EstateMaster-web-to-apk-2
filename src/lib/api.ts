@@ -11,7 +11,9 @@ import {
   SecurityLog,
   UserSession,
   SecurityStatus,
-  FinancialAuditEntry
+  FinancialAuditEntry,
+  UnaccountedPayment,
+  BankStatementRecord
 } from '../types';
 import {
   getLandlordsFromDb,
@@ -186,6 +188,7 @@ const STORAGE_KEYS = {
   INVOICES: 'em_fallback_invoices',
   QUOTES: 'em_fallback_quotes',
   PAYMENTS: 'em_fallback_payments',
+  UNACCOUNTED_PAYMENTS: 'em_fallback_unaccounted_payments',
   MAINTENANCE: 'em_fallback_maintenance',
   EMAILS: 'em_fallback_emails'
 };
@@ -2555,6 +2558,152 @@ export async function recordPayment(data: any) {
   }
 
   return { success: true, payment: pay, receiptCode };
+}
+
+// --- UNACCOUNTED PAYMENTS RECONCILIATION ---
+export async function fetchUnaccountedPayments(): Promise<UnaccountedPayment[]> {
+  const local = getLocalData<UnaccountedPayment[]>(STORAGE_KEYS.UNACCOUNTED_PAYMENTS, []);
+  if (!local || local.length === 0) {
+    // Import defaults from reconciliation
+    try {
+      const { DEFAULT_UNACCOUNTED_PAYMENTS } = await import('./reconciliation');
+      setLocalData(STORAGE_KEYS.UNACCOUNTED_PAYMENTS, DEFAULT_UNACCOUNTED_PAYMENTS);
+      return DEFAULT_UNACCOUNTED_PAYMENTS;
+    } catch {
+      return [];
+    }
+  }
+  return local;
+}
+
+export async function saveUnaccountedPayment(item: Partial<UnaccountedPayment>): Promise<UnaccountedPayment> {
+  const list = await fetchUnaccountedPayments();
+  const newItem: UnaccountedPayment = {
+    id: item.id || `unacc-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+    source: item.source || 'M-Pesa Till',
+    referenceCode: item.referenceCode || `REC-${Math.floor(100000 + Math.random() * 900000)}`,
+    senderName: item.senderName || 'Anonymous Payer',
+    senderPhone: item.senderPhone || '',
+    amount: Number(item.amount) || 0,
+    receivedDate: item.receivedDate || new Date().toISOString(),
+    rawNarration: item.rawNarration || '',
+    accountReferenceRaw: item.accountReferenceRaw || '',
+    bankName: item.bankName || '',
+    notes: item.notes || '',
+    status: 'Pending Assignment',
+    matchConfidence: item.matchConfidence || 0,
+    suggestedTenantId: item.suggestedTenantId,
+    suggestedTenantName: item.suggestedTenantName,
+    suggestedUnitNumber: item.suggestedUnitNumber
+  };
+
+  const updated = [newItem, ...list.filter((u) => u.id !== newItem.id)];
+  setLocalData(STORAGE_KEYS.UNACCOUNTED_PAYMENTS, updated);
+  return newItem;
+}
+
+export async function assignUnaccountedPayment(
+  unaccountedId: string,
+  tenantId: string,
+  invoiceId?: string,
+  notes?: string
+): Promise<{ payment: Payment; unaccounted: UnaccountedPayment }> {
+  const unaccountedList = await fetchUnaccountedPayments();
+  const target = unaccountedList.find((u) => u.id === unaccountedId);
+  if (!target) {
+    throw new Error('Unaccounted payment transaction record not found');
+  }
+
+  const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+  const tenant = tenants.find((t) => t.id === tenantId);
+  if (!tenant) {
+    throw new Error('Selected tenant profile not found');
+  }
+
+  const invoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
+  let targetInvoice: Invoice | undefined;
+
+  if (invoiceId) {
+    targetInvoice = invoices.find((i) => i.id === invoiceId);
+  }
+  if (!targetInvoice) {
+    // Find oldest unpaid invoice for this tenant
+    targetInvoice = invoices.find(
+      (i) => (i.tenantId === tenant.id || i.tenantName.toLowerCase() === tenant.fullName.toLowerCase()) && i.status !== 'Paid'
+    );
+  }
+
+  // Record payment into the primary payment ledger and settle invoice
+  const recordRes = await recordPayment({
+    invoiceId: targetInvoice?.id,
+    amount: target.amount,
+    paymentMethod: target.source.includes('Bank') ? 'Bank Transfer' : 'M-Pesa',
+    referenceCode: target.referenceCode,
+    notes: `Reconciled from Unaccounted Queue (${target.source}: ${target.senderName || 'Sender'}). ${notes || ''}`.trim(),
+    tenantId: tenant.id,
+    tenantName: tenant.fullName,
+    tenantEmail: tenant.email,
+    unitNumber: tenant.unitNumber,
+    propertyName: tenant.propertyName
+  });
+
+  // Mark the unaccounted record as Reconciled
+  target.status = 'Reconciled';
+  target.reconciledTenantId = tenant.id;
+  target.reconciledTenantName = tenant.fullName;
+  target.reconciledInvoiceId = targetInvoice?.id;
+  target.reconciledAt = new Date().toISOString();
+
+  setLocalData(STORAGE_KEYS.UNACCOUNTED_PAYMENTS, unaccountedList);
+
+  return { payment: recordRes.payment, unaccounted: target };
+}
+
+export async function batchReconcileBankRecords(
+  records: BankStatementRecord[]
+): Promise<{ reconciledCount: number; newPayments: Payment[] }> {
+  const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+  const invoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
+  const newPayments: Payment[] = [];
+  let count = 0;
+
+  for (const rec of records) {
+    if (!rec.matchedTenantId || rec.isReconciled) continue;
+
+    const tenant = tenants.find((t) => t.id === rec.matchedTenantId);
+    if (!tenant) continue;
+
+    const targetInvoice = rec.matchedInvoiceId
+      ? invoices.find((i) => i.id === rec.matchedInvoiceId)
+      : invoices.find(
+          (i) => (i.tenantId === tenant.id || i.tenantName.toLowerCase() === tenant.fullName.toLowerCase()) && i.status !== 'Paid'
+        );
+
+    try {
+      const res = await recordPayment({
+        invoiceId: targetInvoice?.id,
+        amount: rec.amount,
+        paymentMethod: rec.bankName.toLowerCase().includes('mpesa') ? 'M-Pesa' : 'Bank Transfer',
+        referenceCode: rec.referenceCode,
+        notes: `Auto-Reconciled from ${rec.bankName} Statement. Ref: ${rec.referenceCode} - ${rec.description}`,
+        tenantId: tenant.id,
+        tenantName: tenant.fullName,
+        tenantEmail: tenant.email,
+        unitNumber: tenant.unitNumber,
+        propertyName: tenant.propertyName
+      });
+
+      if (res && res.payment) {
+        newPayments.push(res.payment);
+        rec.isReconciled = true;
+        count++;
+      }
+    } catch (err) {
+      console.warn('Failed to auto-reconcile statement row:', rec, err);
+    }
+  }
+
+  return { reconciledCount: count, newPayments };
 }
 
 export async function fetchMaintenance(): Promise<MaintenanceRequest[]> {

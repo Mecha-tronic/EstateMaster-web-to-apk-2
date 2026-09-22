@@ -327,3 +327,43 @@ export interface SecurityStatus {
   activeSessions: UserSession[];
 }
 
+export interface UnaccountedPayment {
+  id: string;
+  source: 'M-Pesa Till' | 'M-Pesa Paybill' | 'Bank Transfer' | 'Pesalink' | 'EFT / Wire' | 'Direct Deposit';
+  referenceCode: string;
+  senderName?: string;
+  senderPhone?: string;
+  amount: number;
+  receivedDate: string;
+  rawNarration?: string;
+  accountReferenceRaw?: string;
+  bankName?: string;
+  notes?: string;
+  status: 'Pending Assignment' | 'Reconciled' | 'Ignored';
+  reconciledTenantId?: string;
+  reconciledTenantName?: string;
+  reconciledInvoiceId?: string;
+  reconciledAt?: string;
+  suggestedTenantId?: string;
+  suggestedTenantName?: string;
+  suggestedUnitNumber?: string;
+  matchConfidence?: number; // 0 - 100
+}
+
+export interface BankStatementRecord {
+  id: string;
+  date: string;
+  referenceCode: string;
+  description: string;
+  amount: number;
+  bankName: string;
+  matchedTenantId?: string;
+  matchedTenantName?: string;
+  matchedUnitNumber?: string;
+  matchedInvoiceId?: string;
+  matchConfidence?: number;
+  matchReason?: string;
+  isReconciled?: boolean;
+}
+
+
