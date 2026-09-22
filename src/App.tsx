@@ -402,15 +402,34 @@ export default function App() {
   const isSubscriptionActive = checkLandlordSubscriptionActive(currentLandlord);
 
   // Landlord-scoped datasets for multi-tenant isolation
-  const scopedProperties = properties.filter((p) => 
-    p.landlordId === currentLandlord?.id || 
-    ((currentLandlord?.email === 'mokuaallan89@gmail.com' || currentLandlord?.email === 'mk@gmail.com') && (p.landlordId === 'landlord-raha' || p.landlordId === 'landlord-mokua' || !p.landlordId)) ||
-    (!p.landlordId && currentLandlord?.id === 'landlord-1')
-  );
+  const currentLandlordEmail = (currentLandlord?.email || '').trim().toLowerCase();
+  const matchingLandlordIds = new Set<string>();
+  if (currentLandlord?.id) matchingLandlordIds.add(currentLandlord.id);
+  if (currentLandlordEmail) {
+    landlords
+      .filter((l) => l.email && l.email.trim().toLowerCase() === currentLandlordEmail)
+      .forEach((l) => matchingLandlordIds.add(l.id));
+    // Known aliases and database IDs for Allan Mokua
+    if (currentLandlordEmail === 'mokuaallan89@gmail.com' || currentLandlordEmail === 'mk@gmail.com') {
+      matchingLandlordIds.add('landlord-1786370548593');
+      matchingLandlordIds.add('landlord-mokua');
+      matchingLandlordIds.add('landlord-raha');
+      matchingLandlordIds.add('landlord-1786381154173');
+      matchingLandlordIds.add('landlord-1789304633125');
+    }
+  }
+
+  const scopedProperties = properties.filter((p) => {
+    if (!currentLandlord) return true;
+    if (p.landlordId && matchingLandlordIds.has(p.landlordId)) return true;
+    if (!p.landlordId && currentLandlord.id === 'landlord-1') return true;
+    if (!p.landlordId && (currentLandlordEmail === 'mokuaallan89@gmail.com' || currentLandlordEmail === 'mk@gmail.com')) return true;
+    return false;
+  });
   const scopedUnits = units.filter((u) => scopedProperties.some((p) => p.id === u.propertyId) || properties.length === 0);
   const scopedTenants = tenants.filter(
     (t) =>
-      t.landlordId === currentLandlord?.id ||
+      (t.landlordId && matchingLandlordIds.has(t.landlordId)) ||
       scopedProperties.some((p) => p.id === t.propertyId) ||
       scopedUnits.some((u) => u.id === t.unitId)
   );

@@ -537,19 +537,20 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
     }
   }
 
-  // Web Browser fallback
+  // Web Browser & Mobile WebView fallback
   try {
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const blobUrl = URL.createObjectURL(blob);
+    const base64Out = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+    const dataUri = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${base64Out}`;
     const link = document.createElement('a');
-    link.href = blobUrl;
+    link.href = dataUri;
     link.download = filename;
+    link.target = '_blank';
     document.body.appendChild(link);
     link.click();
     setTimeout(() => {
-      document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
+      if (document.body.contains(link)) {
+        document.body.removeChild(link);
+      }
     }, 2000);
     return { success: true, filename };
   } catch (webErr) {

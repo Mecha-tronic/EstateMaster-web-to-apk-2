@@ -151,13 +151,24 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
       setTwoFaConfirmPass('');
 
       // Update local state
-      if (securityStatus) {
-        setSecurityStatus({
-          ...securityStatus,
+      setSecurityStatus((prev) => {
+        if (!prev) {
+          return {
+            userId: user.id,
+            email: user.email,
+            twoFactorEnabled: res.twoFactorEnabled,
+            securityScore: res.securityScore,
+            activeSessions: [],
+            failedAttempts: 0,
+            isLocked: false
+          };
+        }
+        return {
+          ...prev,
           twoFactorEnabled: res.twoFactorEnabled,
           securityScore: res.securityScore
-        });
-      }
+        };
+      });
 
       if (onUserUpdated) {
         onUserUpdated({
@@ -167,7 +178,10 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
         });
       }
 
-      await loadSecurityData();
+      // Refresh security logs
+      fetchSecurityLogs(user.id, user.email).then((newLogs) => {
+        if (newLogs && newLogs.length > 0) setLogs(newLogs);
+      }).catch(() => {});
     } catch (err: any) {
       setTwoFaError(err.message || 'Failed to toggle 2FA settings');
     } finally {

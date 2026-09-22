@@ -292,6 +292,13 @@ async function saveEmailToDb(email) {
     console.error("Error saving email to Firestore:", err);
   }
 }
+async function updateEmailInDb(id, data) {
+  try {
+    await (0, import_firestore2.updateDoc)((0, import_firestore2.doc)(db, COLLECTIONS.EMAILS, id), sanitize(data));
+  } catch (err) {
+    console.error("Error updating email in Firestore:", err);
+  }
+}
 async function seedDbIfEmpty(initialLandlords, initialProperties, initialUnits, initialTenants, initialInvoices, initialQuotes, initialPayments, initialMaintenance, initialEmails) {
   try {
     const existingLandlords = await getLandlordsFromDb();
@@ -859,7 +866,7 @@ var landlords = [
     swiftCode: "EQBLKENA"
   },
   {
-    id: "landlord-mokua",
+    id: "landlord-1786370548593",
     name: "Allan Mokua",
     companyName: "EstateMaster Premier Group",
     email: "mokuaallan89@gmail.com",
@@ -1351,6 +1358,34 @@ async function startServer() {
       emailLog
     };
   };
+  const processPendingEmailQueue = async () => {
+    try {
+      const allEmails = await getEmailsFromDb();
+      const pendingEmails = allEmails.filter((e) => e.externalDeliveryStatus === "pending");
+      for (const pending of pendingEmails) {
+        console.log(`[EmailQueue] Dispatching queued email from APK: ${pending.id} (${pending.subject}) to ${pending.recipientEmail}...`);
+        const deliveryResult = await sendPersonalizedEmail({
+          recipientEmail: pending.recipientEmail,
+          recipientName: pending.recipientName,
+          subject: pending.subject,
+          bodyHtml: pending.bodyHtml,
+          emailType: pending.emailType,
+          serialNumber: pending.serialNumber,
+          documentId: pending.documentId
+        });
+        await updateEmailInDb(pending.id, {
+          externalDeliveryStatus: deliveryResult.externalDelivered ? "delivered" : "simulated_fallback",
+          deliveryMessageId: deliveryResult.messageId,
+          deliveryError: deliveryResult.error
+        });
+        console.log(`[EmailQueue] Queued email ${pending.id} processed: ${deliveryResult.externalDelivered ? "DELIVERED via SMTP" : "Fallback marked"}`);
+      }
+    } catch (queueErr) {
+      console.warn("[EmailQueue] Error processing pending email queue:", queueErr);
+    }
+  };
+  setInterval(processPendingEmailQueue, 6e3);
+  setTimeout(processPendingEmailQueue, 2e3);
   app2.get("/api/health", (req, res) => {
     res.json({ status: "ok", time: (/* @__PURE__ */ new Date()).toISOString() });
   });
@@ -1409,6 +1444,33 @@ async function startServer() {
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/emails/send", async (req, res) => {
+    try {
+      const { recipientEmail, recipientName, subject, bodyHtml, emailType, prefix, documentId, serialNumber } = req.body;
+      if (!recipientEmail || !recipientEmail.includes("@")) {
+        return res.status(400).json({ error: "Valid recipient email is required." });
+      }
+      const dispatchResult = await dispatchSystemEmail({
+        recipientEmail,
+        recipientName: recipientName || "EstateMaster Client",
+        subject: subject || "EstateMaster Communication",
+        bodyHtml: bodyHtml || "<p>EstateMaster notification.</p>",
+        emailType: emailType || "Security Alert",
+        prefix: prefix || "SEC",
+        documentId,
+        serialNumber
+      });
+      res.json({
+        success: true,
+        serialNumber: dispatchResult.serialNumber,
+        externalDelivered: dispatchResult.externalDelivered,
+        emailLog: dispatchResult.emailLog,
+        message: dispatchResult.externalDelivered ? `Email successfully delivered to ${recipientEmail}!` : `Email registered in system inbox.`
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message || "Failed to dispatch email" });
     }
   });
   app2.post("/api/auth/login", async (req, res) => {
@@ -1832,7 +1894,8 @@ async function startServer() {
       }
       const allTenants = await getTenantsFromDb();
       const allLandlords = await getLandlordsFromDb();
-      const user = role === "landlord" ? allLandlords.find((l) => l.id === userId) : allTenants.find((t) => t.id === userId);
+      const normUserId = String(userId || "").trim().toLowerCase();
+      const user = role === "landlord" ? allLandlords.find((l) => l.id === userId || l.email && l.email.toLowerCase().trim() === normUserId) : allTenants.find((t) => t.id === userId || t.email && t.email.toLowerCase().trim() === normUserId);
       if (!user) {
         return res.status(404).json({ error: "Account not found." });
       }
@@ -1845,9 +1908,9 @@ async function startServer() {
       const shouldEnable = Boolean(enable);
       const newScore = calculateAccountSecurityScore({ ...user, twoFactorEnabled: shouldEnable });
       if (role === "landlord") {
-        await updateLandlordInDb(userId, { twoFactorEnabled: shouldEnable, securityScore: newScore });
+        await updateLandlordInDb(user.id, { twoFactorEnabled: shouldEnable, securityScore: newScore });
       } else {
-        await updateTenantInDb(userId, { twoFactorEnabled: shouldEnable, securityScore: newScore });
+        await updateTenantInDb(user.id, { twoFactorEnabled: shouldEnable, securityScore: newScore });
       }
       const secSerial = generateUniqueSerialNumber("SEC");
       await logSecurityEvent(

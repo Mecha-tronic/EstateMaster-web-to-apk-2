@@ -34,7 +34,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
   const [usePasswordFallback, setUsePasswordFallback] = useState(false);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [activeSimulationOtp, setActiveSimulationOtp] = useState<string | undefined>(otpSimulation);
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -46,7 +45,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
     setSecondsRemaining(300);
     setUsePasswordFallback(false);
     setPassword('');
-    setActiveSimulationOtp(otpSimulation);
 
     // Focus first input box
     const timer = setTimeout(() => {
@@ -54,7 +52,7 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [isOpen, otpSimulation]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || secondsRemaining <= 0) return;
@@ -159,9 +157,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
 
     try {
       const res = await resend2FaOtp(tempToken);
-      if (res.otpSimulation) {
-        setActiveSimulationOtp(res.otpSimulation);
-      }
       setResendSuccess(res.message || 'New code sent to your registered email.');
       setSecondsRemaining(300);
       setDigits(['', '', '', '', '', '']);
@@ -209,30 +204,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
 
           {!usePasswordFallback ? (
             <>
-              {activeSimulationOtp && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-900 dark:text-blue-200 flex items-center justify-between shadow-xs">
-                  <div className="space-y-0.5">
-                    <span className="font-bold text-[11px] uppercase tracking-wider text-blue-700 dark:text-blue-300">
-                      Mobile Standalone 2FA:
-                    </span>
-                    <div className="font-mono font-extrabold text-base tracking-widest text-blue-950 dark:text-blue-100">
-                      {activeSimulationOtp}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = activeSimulationOtp.split('').slice(0, 6);
-                      setDigits(d);
-                      submitOtp(activeSimulationOtp);
-                    }}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-xs transition-colors cursor-pointer"
-                  >
-                    Auto-Fill
-                  </button>
-                </div>
-              )}
-
               {/* 6-Digit OTP Inputs */}
               <div className="flex justify-center items-center gap-2 sm:gap-3 py-1">
                 {digits.map((digit, idx) => (

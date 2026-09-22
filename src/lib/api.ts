@@ -742,7 +742,7 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
       console.warn('Direct Firestore check failed, checking local cached storage:', fsErr);
     }
 
-    const handleFoundUser = (found: any, userRole: 'landlord' | 'tenant') => {
+    const handleFoundUser = async (found: any, userRole: 'landlord' | 'tenant'): Promise<LoginResponse> => {
       // Allow standard master password 'password123' as well as user password
       if (cleanPassword && cleanPassword !== 'password123' && found.password && found.password.trim() !== cleanPassword) {
         throw new Error('Invalid password. Please check your credentials.');
@@ -751,6 +751,7 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
       // Check if 2FA is active on this account
       if (found.twoFactorEnabled) {
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpSerial = `SN-OTP-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
         const tempToken = 'loc-temp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
         saveLocal2FaChallenge({
           tempToken,
@@ -762,21 +763,32 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
           user: found
         });
 
-        // Record a local simulated email log for the 2FA code so it appears in communications
-        const currentEmails = getLocalData<EmailLog[]>(STORAGE_KEYS.EMAILS, []);
-        currentEmails.unshift({
-          id: `email-2fa-${Date.now()}`,
-          serialNumber: `SN-OTP-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`,
-          recipientEmail: cleanEmail,
-          recipientName: found.name || found.fullName || 'Account Owner',
-          subject: `[EstateMaster Security] Your 2FA Login Verification Code: ${otp}`,
-          bodyHtml: `<p>Your EstateMaster verification code is <strong>${otp}</strong>. Valid for 5 minutes.</p>`,
-          emailType: 'Security Alert',
-          sentAt: new Date().toISOString(),
-          readStatus: false,
-          externalDeliveryStatus: 'simulated_fallback'
-        });
-        setLocalData(STORAGE_KEYS.EMAILS, currentEmails);
+        // Queue real 2FA OTP security verification email to Firestore for immediate Gmail SMTP dispatch
+        try {
+          await queueEmailForDelivery({
+            recipientEmail: cleanEmail,
+            recipientName: found.name || found.fullName || 'EstateMaster User',
+            subject: `🔐 ${otp} is your EstateMaster 2FA Verification Code`,
+            bodyHtml: `
+              <div style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #f8fafc;">
+                <div style="background-color: #0284c7; color: #ffffff; padding: 14px 20px; border-radius: 8px; margin-bottom: 20px;">
+                  <h1 style="margin: 0; font-size: 20px;">EstateMaster Kenya &bull; 2FA Authentication</h1>
+                </div>
+                <p style="font-size: 15px; line-height: 1.6;">Hello <strong>${found.name || found.fullName || 'Account Owner'}</strong>,</p>
+                <p style="font-size: 14px; line-height: 1.6;">Your 6-digit EstateMaster 2FA sign-in verification code is:</p>
+                <div style="background-color: #ffffff; border: 2px dashed #0284c7; padding: 18px; border-radius: 10px; margin: 20px 0; text-align: center;">
+                  <span style="font-family: monospace; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0284c7;">${otp}</span>
+                </div>
+                <p style="font-size: 13px; color: #64748b;">Serial: <strong style="font-family: monospace;">${otpSerial}</strong> &bull; Valid for 5 minutes.</p>
+                <p style="font-size: 12px; color: #ef4444; margin-top: 20px;">⚠️ If you did not initiate this sign-in attempt, please protect your credentials immediately.</p>
+              </div>
+            `,
+            emailType: 'Security OTP',
+            serialNumber: otpSerial
+          });
+        } catch (mailErr) {
+          console.warn('Could not queue 2FA OTP email:', mailErr);
+        }
 
         return {
           success: false,
@@ -784,9 +796,8 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
           tempToken,
           emailMasked: cleanEmail.replace(/(.{2})(.*)(@.*)/, '$1***$3'),
           phoneMasked: found.phone ? found.phone.replace(/(.{4})(.*)(.{3})/, '$1***$3') : undefined,
-          expiresInSeconds: 300,
-          otpSimulation: otp,
-          message: `2FA Active: One-time verification code ${otp} generated for mobile standalone verification.`
+          remainingSeconds: 300,
+          message: `2FA Active: One-time verification code dispatched to ${cleanEmail}.`
         };
       }
 
@@ -799,22 +810,22 @@ export async function loginUser(email: string, password?: string, role?: 'tenant
       if (!found) {
         throw new Error('No registered landlord account found with this email address. Please register first.');
       }
-      return handleFoundUser(found, 'landlord');
+      return await handleFoundUser(found, 'landlord');
     } else if (role === 'tenant') {
       const tenants = getLocalTenants();
       const found = tenants.find(t => t.email && t.email.trim().toLowerCase() === cleanEmail);
       if (!found) {
         throw new Error('No registered tenant account found with this email address. Please register first.');
       }
-      return handleFoundUser(found, 'tenant');
+      return await handleFoundUser(found, 'tenant');
     } else {
       const landlords = getLocalLandlords();
       const landlord = landlords.find(l => l.email && l.email.trim().toLowerCase() === cleanEmail);
-      if (landlord) return handleFoundUser(landlord, 'landlord');
+      if (landlord) return await handleFoundUser(landlord, 'landlord');
 
       const tenants = getLocalTenants();
       const tenant = tenants.find(t => t.email && t.email.trim().toLowerCase() === cleanEmail);
-      if (tenant) return handleFoundUser(tenant, 'tenant');
+      if (tenant) return await handleFoundUser(tenant, 'tenant');
 
       throw new Error('No registered account found with this email address. Please register first.');
     }
@@ -892,26 +903,34 @@ export async function resend2FaOtp(tempToken: string): Promise<{ success: boolea
       challenge.expiresAt = Date.now() + 5 * 60 * 1000;
       saveLocal2FaChallenge(challenge);
 
-      // Record email log
-      const currentEmails = getLocalData<EmailLog[]>(STORAGE_KEYS.EMAILS, []);
-      currentEmails.unshift({
-        id: `email-2fa-${Date.now()}`,
-        serialNumber: `SN-OTP-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`,
-        recipientEmail: challenge.userEmail,
-        recipientName: challenge.user.name || challenge.user.fullName || 'Account Owner',
-        subject: `[EstateMaster Security] Resent 2FA Login Code: ${newOtp}`,
-        bodyHtml: `<p>Your resent EstateMaster verification code is <strong>${newOtp}</strong>.</p>`,
-        emailType: 'Security Alert',
-        sentAt: new Date().toISOString(),
-        readStatus: false,
-        externalDeliveryStatus: 'simulated_fallback'
-      });
-      setLocalData(STORAGE_KEYS.EMAILS, currentEmails);
+      const otpSerial = `SN-OTP-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+      // Queue real email to Firestore for background worker delivery
+      try {
+        await queueEmailForDelivery({
+          recipientEmail: challenge.userEmail,
+          recipientName: challenge.user?.name || challenge.user?.fullName || 'EstateMaster User',
+          subject: `🔐 New Security Code: ${newOtp}`,
+          bodyHtml: `
+            <div style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #f8fafc;">
+              <h2 style="color: #0284c7; margin-top: 0;">EstateMaster Kenya &bull; Resent 2FA Security Code</h2>
+              <p>Your newly requested verification code is:</p>
+              <div style="background-color: #ffffff; border: 2px dashed #0284c7; padding: 18px; border-radius: 10px; margin: 20px 0; text-align: center;">
+                <span style="font-family: monospace; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0284c7;">${newOtp}</span>
+              </div>
+              <p style="font-size: 13px; color: #64748b;">Serial: <strong style="font-family: monospace;">${otpSerial}</strong> &bull; Valid for 5 minutes.</p>
+            </div>
+          `,
+          emailType: 'Security OTP',
+          serialNumber: otpSerial
+        });
+      } catch (qErr) {
+        console.warn('Could not queue resent 2FA email:', qErr);
+      }
 
       return {
         success: true,
-        message: 'New 2FA code generated and sent to email.',
-        otpSimulation: newOtp
+        message: 'New 2FA verification code dispatched to your email.'
       };
     }
     throw err;
@@ -1090,16 +1109,93 @@ export async function verifyStepUpCode(challengeId: string, otp: string): Promis
 
 // --- SECURITY AUDIT & DEVICE SESSIONS ---
 export async function fetchSecurityStatus(userId: string): Promise<SecurityStatus> {
-  const res = await fetch(getApiUrl(`/api/security/status/${userId}`));
-  return handleResponse<SecurityStatus>(res, 'Failed to fetch security status');
+  try {
+    const res = await fetch(getApiUrl(`/api/security/status/${userId}`));
+    if (res.ok) {
+      return await handleResponse<SecurityStatus>(res, 'Failed to fetch security status');
+    }
+  } catch (err) {
+    // API endpoint unavailable / offline APK mode
+  }
+
+  // Fallback 1: Firestore live database
+  try {
+    const [landlords, tenants] = await Promise.all([
+      getLandlordsFromDb().catch(() => []),
+      getTenantsFromDb().catch(() => [])
+    ]);
+    const norm = String(userId || '').trim().toLowerCase();
+    const l = landlords.find(item => item.id === userId || (item.email && item.email.trim().toLowerCase() === norm));
+    if (l) {
+      return {
+        twoFactorEnabled: !!l.twoFactorEnabled,
+        failedLoginAttempts: l.failedLoginAttempts || 0,
+        isLocked: !!(l.lockoutUntil && new Date(l.lockoutUntil).getTime() > Date.now()),
+        lockoutRemainingSeconds: l.lockoutUntil ? Math.max(0, Math.floor((new Date(l.lockoutUntil).getTime() - Date.now()) / 1000)) : 0,
+        securityScore: l.securityScore || (l.twoFactorEnabled ? 100 : 65),
+        recentLogs: [],
+        activeSessions: []
+      };
+    }
+    const t = tenants.find(item => item.id === userId || (item.email && item.email.trim().toLowerCase() === norm));
+    if (t) {
+      return {
+        twoFactorEnabled: !!t.twoFactorEnabled,
+        failedLoginAttempts: t.failedLoginAttempts || 0,
+        isLocked: !!(t.lockoutUntil && new Date(t.lockoutUntil).getTime() > Date.now()),
+        lockoutRemainingSeconds: t.lockoutUntil ? Math.max(0, Math.floor((new Date(t.lockoutUntil).getTime() - Date.now()) / 1000)) : 0,
+        securityScore: t.securityScore || (t.twoFactorEnabled ? 100 : 65),
+        recentLogs: [],
+        activeSessions: []
+      };
+    }
+  } catch (fsErr) {
+    console.warn('Firestore security status fallback error:', fsErr);
+  }
+
+  // Fallback 2: Local storage
+  const landlords = getLocalLandlords();
+  const norm = String(userId || '').trim().toLowerCase();
+  const l = landlords.find(item => item.id === userId || (item.email && item.email.trim().toLowerCase() === norm));
+  if (l) {
+    return {
+      twoFactorEnabled: !!l.twoFactorEnabled,
+      failedLoginAttempts: l.failedLoginAttempts || 0,
+      isLocked: !!(l.lockoutUntil && new Date(l.lockoutUntil).getTime() > Date.now()),
+      lockoutRemainingSeconds: l.lockoutUntil ? Math.max(0, Math.floor((new Date(l.lockoutUntil).getTime() - Date.now()) / 1000)) : 0,
+      securityScore: l.securityScore || (l.twoFactorEnabled ? 100 : 65),
+      recentLogs: [],
+      activeSessions: []
+    };
+  }
+
+  throw new Error('Failed to fetch security status');
 }
 
 export async function fetchSecurityLogs(userId?: string, email?: string): Promise<SecurityLog[]> {
-  const params = new URLSearchParams();
-  if (userId) params.append('userId', userId);
-  if (email) params.append('email', email);
-  const res = await fetch(getApiUrl(`/api/security/logs?${params.toString()}`));
-  return handleResponse<SecurityLog[]>(res, 'Failed to fetch security logs');
+  try {
+    const params = new URLSearchParams();
+    if (userId) params.append('userId', userId);
+    if (email) params.append('email', email);
+    const res = await fetch(getApiUrl(`/api/security/logs?${params.toString()}`));
+    if (res.ok) {
+      return await handleResponse<SecurityLog[]>(res, 'Failed to fetch security logs');
+    }
+  } catch (err) {}
+
+  try {
+    const fsLogs = await getSecurityLogsFromDb();
+    if (fsLogs && fsLogs.length > 0) {
+      const normEmail = (email || '').trim().toLowerCase();
+      return fsLogs.filter(log => {
+        if (userId && log.userId === userId) return true;
+        if (normEmail && log.userEmail && log.userEmail.trim().toLowerCase() === normEmail) return true;
+        return !userId && !email;
+      });
+    }
+  } catch {}
+
+  return [];
 }
 
 export async function revokeUserSession(sessionId: string): Promise<{ success: boolean; message: string }> {

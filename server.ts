@@ -174,7 +174,7 @@ const landlords: Landlord[] = [
     swiftCode: 'EQBLKENA'
   },
   {
-    id: 'landlord-mokua',
+    id: 'landlord-1786370548593',
     name: 'Allan Mokua',
     companyName: 'EstateMaster Premier Group',
     email: 'mokuaallan89@gmail.com',
