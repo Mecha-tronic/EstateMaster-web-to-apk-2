@@ -1437,23 +1437,71 @@ export async function triggerSubscriptionStkPush(data: { phone: string; landlord
   }
 }
 
-export async function triggerMpesaStkPush(data: { phone: string; amount: number; invoiceId?: string; tenantId?: string; accountRef?: string }) {
+export async function triggerMpesaStkPush(data: {
+  phone: string;
+  amount: number;
+  invoiceId?: string;
+  tenantId?: string;
+  accountRef?: string;
+  tenantName?: string;
+  tenantEmail?: string;
+  unitNumber?: string;
+  propertyName?: string;
+  propertyId?: string;
+  landlordId?: string;
+  periodMonth?: string;
+}) {
+  const invoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
+  const inv = data.invoiceId ? invoices.find(i => i.id === data.invoiceId || i.invoiceNumber === data.invoiceId) : undefined;
+
   try {
     const res = await fetch(getApiUrl('/api/mpesa/stk-push'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        ...data,
+        tenantName: data.tenantName || inv?.tenantName,
+        tenantEmail: data.tenantEmail || inv?.tenantEmail,
+        unitNumber: data.unitNumber || inv?.unitNumber,
+        propertyName: data.propertyName || inv?.propertyName,
+        propertyId: data.propertyId || inv?.propertyId,
+        landlordId: data.landlordId || inv?.landlordId,
+        periodMonth: data.periodMonth || inv?.periodMonth,
+      }),
     });
-    return await handleResponse(res, 'M-Pesa STK Push failed');
+    const result = await handleResponse(res, 'M-Pesa STK Push failed');
+    if (result && result.payment) {
+      const currentPayments = getLocalData<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
+      currentPayments.unshift(result.payment);
+      setLocalData(STORAGE_KEYS.PAYMENTS, currentPayments);
+    }
+    if (inv && data.amount > 0) {
+      const newPaid = (inv.amountPaid || 0) + data.amount;
+      const newStatus = newPaid >= inv.totalAmount ? 'Paid' : (newPaid > 0 ? 'Partial' : inv.status);
+      const invIdx = invoices.findIndex(i => i.id === inv.id);
+      if (invIdx !== -1) {
+        invoices[invIdx] = { ...inv, amountPaid: newPaid, status: newStatus };
+        setLocalData(STORAGE_KEYS.INVOICES, invoices);
+      }
+      try {
+        await updateInvoiceInDb(inv.id, { amountPaid: newPaid, status: newStatus });
+      } catch (e) {}
+    }
+    return result;
   } catch (err: any) {
     console.warn('Backend fetch failed, executing local STK push fallback:', err);
     const receiptCode = `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
     const pay: Payment = {
       id: `pay-${Date.now()}`,
-      invoiceId: data.invoiceId || `RENT-${Date.now()}`,
-      tenantId: data.tenantId || 'tenant-1',
-      tenantName: data.accountRef || 'Tenant Rent Payment',
-      unitNumber: 'Apartment Unit',
+      invoiceId: data.invoiceId || (inv ? inv.id : `RENT-${Date.now()}`),
+      tenantId: data.tenantId || inv?.tenantId || 'tenant-1',
+      tenantName: data.tenantName || inv?.tenantName || data.accountRef || 'Tenant Rent Payment',
+      tenantEmail: data.tenantEmail || inv?.tenantEmail || '',
+      unitNumber: data.unitNumber || inv?.unitNumber || 'Apartment Unit',
+      propertyName: data.propertyName || inv?.propertyName || 'Property',
+      propertyId: data.propertyId || inv?.propertyId || '',
+      landlordId: data.landlordId || inv?.landlordId || '',
+      periodMonth: data.periodMonth || inv?.periodMonth || '',
       amount: data.amount,
       paymentMethod: 'M-Pesa',
       referenceCode: receiptCode,
@@ -1461,9 +1509,27 @@ export async function triggerMpesaStkPush(data: { phone: string; amount: number;
       status: 'Completed',
       notes: `M-Pesa Express STK Push completed for phone ${data.phone}.`
     };
+
+    try {
+      await savePaymentToDb(pay);
+    } catch (e) {}
+
     const currentPayments = getLocalData<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
     currentPayments.unshift(pay);
     setLocalData(STORAGE_KEYS.PAYMENTS, currentPayments);
+
+    if (inv) {
+      const newPaid = (inv.amountPaid || 0) + data.amount;
+      const newStatus = newPaid >= inv.totalAmount ? 'Paid' : (newPaid > 0 ? 'Partial' : inv.status);
+      const invIdx = invoices.findIndex(i => i.id === inv.id);
+      if (invIdx !== -1) {
+        invoices[invIdx] = { ...inv, amountPaid: newPaid, status: newStatus };
+        setLocalData(STORAGE_KEYS.INVOICES, invoices);
+      }
+      try {
+        await updateInvoiceInDb(inv.id, { amountPaid: newPaid, status: newStatus });
+      } catch (e) {}
+    }
 
     return {
       success: true,
@@ -2018,25 +2084,51 @@ export async function registerTenant(data: any) {
 }
 
 export async function updateTenantDetails(tenantId: string, data: Partial<Tenant>): Promise<Tenant> {
+  // Always update Firestore directly first
+  try {
+    await updateTenantInDb(tenantId, data);
+  } catch (fsErr) {
+    console.warn('Direct Firestore tenant update notice:', fsErr);
+  }
+
+  // Update localStorage tenants list
+  const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+  const idx = tenants.findIndex(t => t.id === tenantId);
+  let updatedTenant: Tenant;
+  if (idx !== -1) {
+    tenants[idx] = { ...tenants[idx], ...data };
+    updatedTenant = tenants[idx];
+    setLocalData(STORAGE_KEYS.TENANTS, tenants);
+  } else {
+    updatedTenant = { id: tenantId, fullName: 'Tenant', email: '', status: 'Active', ...data } as Tenant;
+    setLocalData(STORAGE_KEYS.TENANTS, [updatedTenant, ...tenants]);
+  }
+
+  // Update session user cache if current logged-in user
+  try {
+    const rawUser = localStorage.getItem('estatemaster_current_user');
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      if (parsed.id === tenantId) {
+        localStorage.setItem('estatemaster_current_user', JSON.stringify({ ...parsed, ...data }));
+      }
+    }
+  } catch (e) {}
+
+  // Also call backend API to keep backend memory state in sync
   try {
     const res = await fetch(getApiUrl(`/api/tenants/${tenantId}`), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    return await handleResponse(res, 'Failed to update tenant details');
+    const serverResult = await handleResponse(res, 'Failed to update tenant details');
+    if (serverResult) return serverResult;
   } catch (err) {
-    const tenants = await fetchTenants();
-    const idx = tenants.findIndex(t => t.id === tenantId);
-    if (idx !== -1) {
-      tenants[idx] = { ...tenants[idx], ...data };
-      setLocalData(STORAGE_KEYS.TENANTS, tenants);
-      return tenants[idx];
-    }
-    const updated = { id: tenantId, fullName: 'Tenant', email: '', status: 'Active', ...data } as Tenant;
-    setLocalData(STORAGE_KEYS.TENANTS, [updated, ...tenants]);
-    return updated;
+    // Backend offline / APK mode
   }
+
+  return updatedTenant;
 }
 
 export async function deleteTenantAccount(tenantId: string): Promise<boolean> {
@@ -2348,29 +2440,43 @@ export async function fetchPayments(): Promise<Payment[]> {
 }
 
 export async function recordPayment(data: any) {
+  const invoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
+  const inv = data.invoiceId ? invoices.find(i => i.id === data.invoiceId || i.invoiceNumber === data.invoiceId) : undefined;
+  const payAmt = Number(data.amount || 0) || (inv ? inv.totalAmount : 0);
   const receiptCode = data.referenceCode || `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
+
   const pay: Payment = {
     id: `pay-${Date.now()}`,
-    invoiceId: data.invoiceId || `INV-${Date.now()}`,
-    tenantId: data.tenantId || 'tenant-1',
-    tenantName: data.tenantName || 'Tenant',
-    unitNumber: data.unitNumber || '101',
-    propertyName: data.propertyName || 'Property',
-    amount: Number(data.amount || 0),
+    invoiceId: data.invoiceId || (inv ? inv.id : `INV-${Date.now()}`),
+    tenantId: data.tenantId || inv?.tenantId || 'tenant-1',
+    tenantName: data.tenantName || inv?.tenantName || 'Tenant',
+    tenantEmail: data.tenantEmail || inv?.tenantEmail || '',
+    unitNumber: data.unitNumber || inv?.unitNumber || '101',
+    propertyName: data.propertyName || inv?.propertyName || 'Property Premises',
+    propertyId: data.propertyId || inv?.propertyId || '',
+    landlordId: data.landlordId || inv?.landlordId || '',
+    periodMonth: data.periodMonth || inv?.periodMonth || '',
+    amount: payAmt,
     paymentMethod: data.paymentMethod || 'M-Pesa',
     referenceCode: receiptCode,
     paymentDate: new Date().toISOString(),
     status: 'Completed',
-    notes: data.notes || 'Recorded payment'
+    notes: data.notes || `Recorded payment of KSh ${payAmt.toLocaleString()}`
   };
 
   // 1. Direct Firestore save
   try {
     await savePaymentToDb(pay);
-    // If updating invoice
-    if (data.invoiceId) {
+    if (inv) {
+      const newPaid = (inv.amountPaid || 0) + payAmt;
+      const newStatus = newPaid >= inv.totalAmount ? 'Paid' : (newPaid > 0 ? 'Partial' : 'Paid');
+      await updateInvoiceInDb(inv.id, {
+        amountPaid: newPaid,
+        status: newStatus
+      });
+    } else if (data.invoiceId) {
       await updateInvoiceInDb(data.invoiceId, {
-        amountPaid: Number(data.amount || 0),
+        amountPaid: payAmt,
         status: 'Paid'
       });
     }
@@ -2379,10 +2485,10 @@ export async function recordPayment(data: any) {
   }
 
   // 2. Queue payment receipt email in Firestore if tenant email available
-  if (data.tenantEmail) {
+  if (pay.tenantEmail) {
     try {
       await queueEmailForDelivery({
-        recipientEmail: data.tenantEmail,
+        recipientEmail: pay.tenantEmail,
         recipientName: pay.tenantName,
         subject: `[EstateMaster] Official Payment Receipt [${receiptCode}] - KSh ${pay.amount.toLocaleString()}`,
         bodyHtml: `
@@ -2404,17 +2510,43 @@ export async function recordPayment(data: any) {
     }
   }
 
-  // 3. Local storage update
+  // 3. Local storage update for payments and invoices
   const payments = getLocalData<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
   payments.unshift(pay);
   setLocalData(STORAGE_KEYS.PAYMENTS, payments);
+
+  if (inv) {
+    const newPaid = (inv.amountPaid || 0) + payAmt;
+    const newStatus = newPaid >= inv.totalAmount ? 'Paid' : (newPaid > 0 ? 'Partial' : 'Paid');
+    const invIdx = invoices.findIndex(i => i.id === inv.id);
+    if (invIdx !== -1) {
+      invoices[invIdx] = {
+        ...inv,
+        amountPaid: newPaid,
+        status: newStatus
+      };
+      setLocalData(STORAGE_KEYS.INVOICES, invoices);
+    }
+  }
 
   // 4. Try backend API
   try {
     const res = await fetch(getApiUrl('/api/payments/record'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        ...data,
+        amount: payAmt,
+        referenceCode: receiptCode,
+        tenantId: pay.tenantId,
+        tenantName: pay.tenantName,
+        tenantEmail: pay.tenantEmail,
+        unitNumber: pay.unitNumber,
+        propertyName: pay.propertyName,
+        propertyId: pay.propertyId,
+        landlordId: pay.landlordId,
+        periodMonth: pay.periodMonth,
+      }),
     });
     const result = await handleResponse(res, 'Failed to record payment');
     if (result) return result;

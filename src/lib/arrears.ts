@@ -41,7 +41,8 @@ export function calculateTenantArrears(
   const tenantPayments = payments.filter(
     (p) =>
       p.tenantId === tenant.id ||
-      (tenant.fullName && p.tenantName && p.tenantName.toLowerCase().trim() === tenant.fullName.toLowerCase().trim())
+      (tenant.fullName && p.tenantName && p.tenantName.toLowerCase().trim() === tenant.fullName.toLowerCase().trim()) ||
+      (p.invoiceId && tenantInvoices.some((inv) => inv.id === p.invoiceId || inv.invoiceNumber === p.invoiceId))
   );
 
   let totalInvoiced = 0;
@@ -50,8 +51,12 @@ export function calculateTenantArrears(
   let partialMonthsCount = 0;
 
   const monthlyBreakdown = tenantInvoices.map((inv) => {
-    const invTotal = inv.totalAmount || 0;
-    const invPaid = inv.amountPaid || 0;
+    const invTotal = Number(inv.totalAmount) || 0;
+    // Check payments matching this specific invoice
+    const invPayments = tenantPayments
+      .filter((p) => (p.invoiceId === inv.id || p.invoiceId === inv.invoiceNumber) && (p.status === 'Completed' || !p.status))
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const invPaid = Math.max(Number(inv.amountPaid) || 0, invPayments);
     const remaining = Math.max(0, invTotal - invPaid);
 
     totalInvoiced += invTotal;
@@ -64,10 +69,12 @@ export function calculateTenantArrears(
     }
 
     let status: 'Paid' | 'Partial' | 'Unpaid' | 'Overdue' = inv.status as any;
-    if (!status) {
-      if (invPaid >= invTotal) status = 'Paid';
-      else if (invPaid > 0) status = 'Partial';
-      else status = 'Unpaid';
+    if (invPaid >= invTotal && invTotal > 0) {
+      status = 'Paid';
+    } else if (invPaid > 0 && invPaid < invTotal) {
+      status = 'Partial';
+    } else if (!status) {
+      status = 'Unpaid';
     }
 
     return {
@@ -82,8 +89,13 @@ export function calculateTenantArrears(
     };
   });
 
-  // Calculate total arrears (totalInvoiced - totalPaid)
-  const totalArrears = Math.max(0, totalInvoiced - totalPaid);
+  const sumAllPayments = tenantPayments
+    .filter((p) => p.status === 'Completed' || !p.status)
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const effectiveTotalPaid = Math.max(totalPaid, sumAllPayments);
+
+  // Calculate total arrears (totalInvoiced - effectiveTotalPaid)
+  const totalArrears = Math.max(0, totalInvoiced - effectiveTotalPaid);
 
   let status: 'Up-To-Date' | 'Partial Arrears' | 'Heavy Arrears' = 'Up-To-Date';
   if (totalArrears > 0) {

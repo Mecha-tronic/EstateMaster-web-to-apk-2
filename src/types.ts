@@ -135,6 +135,8 @@ export interface Invoice {
   unitId?: string;
   unitNumber?: string;
   propertyName?: string;
+  propertyId?: string;
+  landlordId?: string;
   issueDate?: string;
   dueDate?: string;
   periodMonth?: string; // e.g. "August 2026"
@@ -196,8 +198,12 @@ export interface Payment {
   serialNumber?: string;
   tenantId?: string;
   tenantName: string;
+  tenantEmail?: string;
   unitNumber?: string;
   propertyName?: string;
+  propertyId?: string;
+  landlordId?: string;
+  periodMonth?: string;
   amount: number;
   paymentMethod: 'M-Pesa' | 'Bank Transfer' | 'Credit Card' | 'Cash' | 'Check';
   referenceCode: string;

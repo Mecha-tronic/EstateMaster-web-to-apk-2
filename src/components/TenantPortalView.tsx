@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Tenant, Invoice, Payment, Quote, MaintenanceRequest, EmailLog, Landlord, Unit, Property } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { calculateTenantArrears } from '../lib/arrears';
+import { compressImageFile } from '../lib/imageUtils';
 import { KENYA_BANKS, getBankByNameOrId } from '../lib/kenyaBanks';
 import { SignInView } from './SignInView';
 import { SecurityShieldDashboard } from './SecurityShieldDashboard';
@@ -126,6 +127,8 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [photoUrl, setPhotoUrl] = useState('');
   const [isUpdatingPhoto, setIsUpdatingPhoto] = useState(false);
+  const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
+  const [photoFeedback, setPhotoFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const PRESET_TENANT_AVATARS = [
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
@@ -134,16 +137,43 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
     'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80',
   ];
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setPhotoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setIsCompressingPhoto(true);
+    setPhotoFeedback(null);
+    try {
+      // Compress and scale down avatar image to optimal size (<50KB, 400x400 max)
+      const compressedDataUrl = await compressImageFile(file, {
+        maxWidth: 400,
+        maxHeight: 400,
+        quality: 0.85,
+        cropToSquare: true
+      });
+      setPhotoUrl(compressedDataUrl);
+      setPhotoFeedback({
+        type: 'success',
+        message: 'Photo optimized and ready to save!'
+      });
+    } catch (err: any) {
+      console.warn('Image compression fallback to standard reader:', err);
+      try {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setPhotoUrl(reader.result);
+          }
+        };
+        reader.readAsDataURL(file);
+      } catch (fErr) {
+        setPhotoFeedback({
+          type: 'error',
+          message: 'Could not process selected image. Please try another photo.'
+        });
+      }
+    } finally {
+      setIsCompressingPhoto(false);
     }
   };
 
@@ -151,13 +181,25 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
     e.preventDefault();
     if (!photoUrl || !currentTenant) return;
     setIsUpdatingPhoto(true);
+    setPhotoFeedback(null);
     try {
       const updated = await updateTenantDetails(currentTenant.id, { profilePictureUrl: photoUrl });
       if (onSignIn) onSignIn(updated);
       onRefreshData();
-      setShowPhotoModal(false);
-    } catch (err) {
-      console.error(err);
+      setPhotoFeedback({
+        type: 'success',
+        message: 'Profile picture saved and synced successfully!'
+      });
+      setTimeout(() => {
+        setShowPhotoModal(false);
+        setPhotoFeedback(null);
+      }, 1200);
+    } catch (err: any) {
+      console.error('Error saving profile photo:', err);
+      setPhotoFeedback({
+        type: 'error',
+        message: err?.message || 'Failed to update profile picture. Please try again.'
+      });
     } finally {
       setIsUpdatingPhoto(false);
     }
@@ -199,10 +241,20 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   const landlordBranchName = activeLandlord?.branchName || 'Kilimani Branch';
   const landlordSwiftCode = activeLandlord?.swiftCode || 'EQBLKENX';
 
-  const tenantInvoices = invoices.filter((i) => i.tenantId === currentTenant?.id || i.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
+  const tenantInvoices = invoices.filter(
+    (i) =>
+      i.tenantId === currentTenant?.id ||
+      (currentTenant?.email && i.tenantEmail?.toLowerCase() === currentTenant.email.toLowerCase()) ||
+      (currentTenant?.fullName && i.tenantName && i.tenantName.toLowerCase().trim() === currentTenant.fullName.toLowerCase().trim())
+  );
   const tenantQuotes = quotes.filter((q) => q.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
   const tenantMaintenance = maintenance.filter((m) => m.tenantId === currentTenant?.id || m.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
-  const tenantPayments = payments.filter((p) => p.tenantId === currentTenant?.id || p.tenantName?.toLowerCase().trim() === currentTenant?.fullName?.toLowerCase().trim());
+  const tenantPayments = payments.filter(
+    (p) =>
+      p.tenantId === currentTenant?.id ||
+      (currentTenant?.fullName && p.tenantName && p.tenantName.toLowerCase().trim() === currentTenant.fullName.toLowerCase().trim()) ||
+      (p.invoiceId && tenantInvoices.some((inv) => inv.id === p.invoiceId || inv.invoiceNumber === p.invoiceId))
+  );
   const tenantArrears = calculateTenantArrears(currentTenant, invoices, payments);
 
   const handleSendAiChat = async (userPrompt?: string) => {
@@ -296,6 +348,13 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
         amount: finalAmount,
         invoiceId: payingInvoice.id,
         tenantId: currentTenant?.id,
+        tenantName: currentTenant?.fullName,
+        tenantEmail: currentTenant?.email,
+        unitNumber: payingInvoice.unitNumber || currentTenant?.unitNumber,
+        propertyName: payingInvoice.propertyName || currentTenant?.propertyName,
+        propertyId: payingInvoice.propertyId || currentTenant?.propertyId,
+        landlordId: payingInvoice.landlordId || currentTenant?.landlordId || activeLandlord?.id,
+        periodMonth: payingInvoice.periodMonth,
         accountRef: `Unit ${currentTenant?.unitNumber || 'Apartment'}`
       });
 
@@ -327,10 +386,10 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   };
 
   const handlePayInvoice = async () => {
-    if (!payingInvoice) return;
+    if (!payingInvoice || !currentTenant) return;
     setIsProcessingPay(true);
 
-    const dueRemaining = payingInvoice.totalAmount - (payingInvoice.amountPaid || 0);
+    const dueRemaining = Math.max(0, payingInvoice.totalAmount - (payingInvoice.amountPaid || 0));
     const parsedAmount = parseFloat(payAmountInput);
     const finalAmount = !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : dueRemaining;
 
@@ -340,7 +399,15 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
         amount: finalAmount,
         paymentMethod,
         referenceCode: payRef || `REF-${Math.floor(Math.random() * 899999 + 100000)}`,
-        notes: payNotesInput || `Tenant portal payment via ${paymentMethod} (Amount: KSh ${finalAmount.toLocaleString()})`
+        notes: payNotesInput || `Tenant portal payment via ${paymentMethod} for period ${payingInvoice.periodMonth || 'bill'} (Amount: KSh ${finalAmount.toLocaleString()})`,
+        tenantId: currentTenant.id,
+        tenantName: currentTenant.fullName,
+        tenantEmail: currentTenant.email,
+        unitNumber: payingInvoice.unitNumber || currentTenant.unitNumber,
+        propertyName: payingInvoice.propertyName || currentTenant.propertyName,
+        propertyId: payingInvoice.propertyId || currentTenant.propertyId,
+        landlordId: payingInvoice.landlordId || currentTenant.landlordId || activeLandlord?.id,
+        periodMonth: payingInvoice.periodMonth,
       });
 
       setPayingInvoice(null);
@@ -773,7 +840,10 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
           <h3 className="font-bold text-slate-900 text-sm">My Monthly Invoices</h3>
           <div className="space-y-3">
             {tenantInvoices.map((inv, invIdx) => {
-              const isPaid = inv.status === 'Paid';
+              const invTotal = Number(inv.totalAmount) || 0;
+              const invPaid = Number(inv.amountPaid) || 0;
+              const isPaid = inv.status === 'Paid' || (invPaid >= invTotal && invTotal > 0);
+              const dueRem = Math.max(0, invTotal - invPaid);
               const prop = properties.find((p) => p.id === inv.propertyId || p.name === inv.propertyName);
               const targetLandlord = landlords.find((l) => l.id === (inv.landlordId || currentTenant?.landlordId || prop?.landlordId)) || activeLandlord;
 
@@ -791,7 +861,7 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                             isPaid ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
                           }`}
                         >
-                          {inv.status}
+                          {isPaid ? 'PAID' : (invPaid > 0 ? 'PARTIAL' : (inv.status || 'UNPAID'))}
                         </span>
                       </div>
                       <p className="text-xs text-slate-700 font-medium">
@@ -800,6 +870,11 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                       <p className="text-[11px] text-slate-500">
                         Rent: {formatKSH(inv.rentAmount || inv.totalAmount * 0.85)} + Water: {formatKSH(inv.waterFee || 0)} + Trash: {formatKSH(inv.trashFee || 0)}
                       </p>
+                      {invPaid > 0 && !isPaid && (
+                        <p className="text-[11px] text-emerald-700 font-bold">
+                          Paid so far: {formatKSH(invPaid)} &bull; Remaining: {formatKSH(dueRem)}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-0 border-slate-200 pt-2 sm:pt-0">
@@ -808,13 +883,17 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                         <p className="text-lg font-extrabold text-slate-900">{formatKSH(inv.totalAmount)}</p>
                       </div>
 
-                      {!isPaid && (
+                      {!isPaid ? (
                         <button
                           onClick={() => setPayingInvoice(inv)}
                           className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
                         >
                           <DollarSign className="w-4 h-4" /> Pay Bill Now
                         </button>
+                      ) : (
+                        <span className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-1">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Settled in Full
+                        </span>
                       )}
                     </div>
                   </div>
@@ -825,7 +904,7 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                       <p className="font-bold text-slate-900 flex items-center gap-1.5">
                         💳 Direct Payment Options for Invoice {inv.invoiceNumber}:
                       </p>
-                      {!isPaid && (
+                      {!isPaid ? (
                         <button
                           type="button"
                           onClick={() => setPayingInvoice(inv)}
@@ -833,6 +912,8 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                         >
                           Open Checkout <ChevronRight className="w-3.5 h-3.5" />
                         </button>
+                      ) : (
+                        <span className="text-[11px] font-bold text-emerald-600">Bill Settled</span>
                       )}
                     </div>
 
@@ -872,6 +953,77 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 </div>
               );
             })}
+          </div>
+
+          {/* Payment Receipts & Records History */}
+          <div className="space-y-3 pt-4 border-t border-slate-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-emerald-600" /> Payment Receipts & Transaction History
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Verified real-time records of all rent payments and settlements made for your tenancy.
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                {tenantPayments.length} Record{tenantPayments.length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            {tenantPayments.length === 0 ? (
+              <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-6 text-center text-slate-500 text-xs">
+                No payment receipts found yet for your account. Once a bill or arrears is paid, your official receipt and transaction code will appear here instantly.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {tenantPayments.map((pay, pIdx) => {
+                  return (
+                    <div
+                      key={`tpay-${pay.id || pIdx}`}
+                      className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-emerald-700 text-sm">
+                            {pay.referenceCode || `RCT-${pay.id?.slice(-6)}`}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            {pay.status || 'Completed'}
+                          </span>
+                          {pay.serialNumber && (
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {pay.serialNumber}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-700 font-medium">
+                          Method: <strong className="text-slate-900">{pay.paymentMethod || 'M-Pesa'}</strong> &bull; Paid on:{' '}
+                          <strong className="text-slate-900">
+                            {new Date(pay.paymentDate).toLocaleString('en-KE', {
+                              dateStyle: 'medium',
+                              timeStyle: 'short'
+                            })}
+                          </strong>
+                        </p>
+                        {pay.notes && (
+                          <p className="text-[11px] text-slate-500 italic">
+                            {pay.notes}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="text-left sm:text-right flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-0 border-slate-100 pt-2 sm:pt-0">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold">Amount Paid</span>
+                        <span className="text-lg font-black text-emerald-600">
+                          {formatKSH(pay.amount)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1476,18 +1628,37 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="cursor-pointer py-2.5 px-4 border border-dashed border-blue-400 rounded-xl bg-blue-50/70 hover:bg-blue-100/70 transition flex items-center justify-center gap-2 text-blue-700 font-bold text-xs">
-                  <Upload className="w-4 h-4 text-blue-600" />
-                  <span>Choose Photo File from Device</span>
+              <div className="relative">
+                <label className="cursor-pointer py-3 px-4 border-2 border-dashed border-blue-400 rounded-xl bg-blue-50/80 hover:bg-blue-100 transition flex items-center justify-center gap-2 text-blue-700 font-bold text-xs relative overflow-hidden">
+                  <Upload className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>{isCompressingPhoto ? 'Optimizing & resizing photo...' : 'Select Photo from Phone / Device'}</span>
                   <input
                     type="file"
                     accept="image/*"
-                    className="hidden"
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                     onChange={handleFileChange}
+                    onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
+                    disabled={isCompressingPhoto || isUpdatingPhoto}
                   />
                 </label>
               </div>
+
+              {photoFeedback && (
+                <div
+                  className={`p-2.5 rounded-xl text-xs font-medium flex items-center gap-2 ${
+                    photoFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}
+                >
+                  {photoFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{photoFeedback.message}</span>
+                </div>
+              )}
 
               <div>
                 <p className="text-[11px] font-semibold text-slate-700 mb-2">Or choose a preset profile avatar:</p>

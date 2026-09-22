@@ -125,7 +125,7 @@ export async function updateTenantInDb(id: string, data: Partial<Tenant>): Promi
     if (data.email) {
       (cleanData as any).emailLower = data.email.trim().toLowerCase();
     }
-    await updateDoc(doc(db, COLLECTIONS.TENANTS, id), cleanData);
+    await setDoc(doc(db, COLLECTIONS.TENANTS, id), cleanData, { merge: true });
   } catch (err) {
     console.error('Error updating tenant in Firestore:', err);
   }
@@ -222,7 +222,7 @@ export async function saveInvoiceToDb(invoice: Invoice): Promise<void> {
 
 export async function updateInvoiceInDb(id: string, data: Partial<Invoice>): Promise<void> {
   try {
-    await updateDoc(doc(db, COLLECTIONS.INVOICES, id), sanitize(data));
+    await setDoc(doc(db, COLLECTIONS.INVOICES, id), sanitize(data), { merge: true });
   } catch (err) {
     console.error('Error updating invoice in Firestore:', err);
   }
