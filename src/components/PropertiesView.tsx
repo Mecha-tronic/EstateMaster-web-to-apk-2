@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Property, Unit } from '../types';
 import { formatKSH } from '../lib/formatters';
+import { registerBackHandler } from '../lib/backNavigation';
 import { Building2, Plus, Home, MapPin, CheckCircle, AlertTriangle, Layers, Trash2, AlertCircle, X, ShieldAlert, Camera, Upload, Image as ImageIcon } from 'lucide-react';
 import { updatePropertyDetails } from '../lib/api';
 
@@ -31,6 +32,34 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
   const [propertyToEditPhoto, setPropertyToEditPhoto] = useState<Property | null>(null);
   const [editPhotoUrl, setEditPhotoUrl] = useState<string>('');
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
+
+  // Android Hardware Back Button Dismissal
+  useEffect(() => {
+    if (!showPropertyModal && !showUnitModal && !showRemoveSection && !propertyToDelete && !propertyToEditPhoto) return;
+    return registerBackHandler(() => {
+      if (propertyToEditPhoto) {
+        setPropertyToEditPhoto(null);
+        return true;
+      }
+      if (propertyToDelete) {
+        setPropertyToDelete(null);
+        return true;
+      }
+      if (showPropertyModal) {
+        setShowPropertyModal(false);
+        return true;
+      }
+      if (showUnitModal) {
+        setShowUnitModal(false);
+        return true;
+      }
+      if (showRemoveSection) {
+        setShowRemoveSection(false);
+        return true;
+      }
+      return false;
+    });
+  }, [showPropertyModal, showUnitModal, showRemoveSection, propertyToDelete, propertyToEditPhoto]);
 
   // New property form state
   const [propName, setPropName] = useState('');

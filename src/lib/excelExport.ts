@@ -21,6 +21,7 @@ export interface BuildingCalculationSummary {
   totalBilled: number;
   totalPaid: number;
   totalArrears: number;
+  totalOverpaid: number;
   collectionRate: number;
   tenantRecords: Array<{
     unitNumber: string;
@@ -32,6 +33,8 @@ export interface BuildingCalculationSummary {
     totalBilled: number;
     totalPaid: number;
     outstandingArrears: number;
+    totalOverpaid: number;
+    netBalance: number;
     status: string;
     skippedMonths: number;
     lastPaymentDate: string;
@@ -53,6 +56,7 @@ export function calculateBuildingLedgers(
   grandTotalBilled: number;
   grandTotalPaid: number;
   grandTotalArrears: number;
+  grandTotalOverpaid: number;
   grandCollectionRate: number;
 } {
   // Ensure we have property representations even if none are explicitly declared
@@ -96,6 +100,7 @@ export function calculateBuildingLedgers(
   let grandTotalBilled = 0;
   let grandTotalPaid = 0;
   let grandTotalArrears = 0;
+  let grandTotalOverpaid = 0;
 
   const buildingSummaries: BuildingCalculationSummary[] = effectiveProperties.map((prop) => {
     const propNameNorm = prop.name.trim().toLowerCase();
@@ -143,6 +148,7 @@ export function calculateBuildingLedgers(
     let bBilled = 0;
     let bPaid = 0;
     let bArrears = 0;
+    let bOverpaid = 0;
 
     const tenantRecords = Array.from(buildingTenantMap.values()).map((t) => {
       const arrearsSummary = calculateTenantArrears(t, buildingInvoices, buildingPayments);
@@ -157,6 +163,7 @@ export function calculateBuildingLedgers(
       bBilled += arrearsSummary.totalInvoiced;
       bPaid += arrearsSummary.totalPaid;
       bArrears += arrearsSummary.totalArrears;
+      bOverpaid += arrearsSummary.totalOverpaid;
 
       return {
         unitNumber: t.unitNumber || arrearsSummary.unitNumber || 'N/A',
@@ -168,7 +175,9 @@ export function calculateBuildingLedgers(
         totalBilled: arrearsSummary.totalInvoiced,
         totalPaid: arrearsSummary.totalPaid,
         outstandingArrears: arrearsSummary.totalArrears,
-        status: arrearsSummary.status,
+        totalOverpaid: arrearsSummary.totalOverpaid,
+        netBalance: arrearsSummary.netBalance,
+        status: arrearsSummary.totalOverpaid > 0 ? `Overpaid (+KSh ${arrearsSummary.totalOverpaid.toLocaleString()})` : arrearsSummary.status,
         skippedMonths: arrearsSummary.skippedMonthsCount,
         lastPaymentDate: lastP ? new Date(lastP.paymentDate).toLocaleDateString() : 'None',
         lastPaymentAmount: lastP ? lastP.amount : 0,
@@ -182,6 +191,7 @@ export function calculateBuildingLedgers(
     grandTotalBilled += bBilled;
     grandTotalPaid += bPaid;
     grandTotalArrears += bArrears;
+    grandTotalOverpaid += bOverpaid;
 
     const collectionRate = bBilled > 0 ? Math.min(100, Math.round((bPaid / bBilled) * 100)) : (bPaid > 0 ? 100 : 0);
 
@@ -191,6 +201,7 @@ export function calculateBuildingLedgers(
       totalBilled: bBilled,
       totalPaid: bPaid,
       totalArrears: bArrears,
+      totalOverpaid: bOverpaid,
       collectionRate,
       tenantRecords,
     };
@@ -205,6 +216,7 @@ export function calculateBuildingLedgers(
     grandTotalBilled,
     grandTotalPaid,
     grandTotalArrears,
+    grandTotalOverpaid,
     grandCollectionRate,
   };
 }
@@ -233,7 +245,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
     buildingFilterId = 'all',
   } = options;
 
-  const { buildingSummaries, grandTotalBilled, grandTotalPaid, grandTotalArrears, grandCollectionRate } =
+  const { buildingSummaries, grandTotalBilled, grandTotalPaid, grandTotalArrears, grandTotalOverpaid, grandCollectionRate } =
     calculateBuildingLedgers(properties, tenants, invoices, payments);
 
   // Filter summaries if user chose a specific building
@@ -257,6 +269,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
     ['Total Rent Billed to Date', grandTotalBilled, 'Cumulative rent & utility charges invoiced across all buildings'],
     ['Total Payments Collected to Date', grandTotalPaid, 'Total verified payments settled across all tenant accounts'],
     ['Total Outstanding Arrears', grandTotalArrears, 'Uncollected balances currently due to landlord'],
+    ['Total Overpayments / Advance Credits', grandTotalOverpaid, 'Prepaid surplus balances held in credit across tenant accounts'],
     ['Overall Collection Efficiency', `${grandCollectionRate}%`, 'Percentage of billed rent successfully received'],
     [''],
     ['BUILDINGS BREAKDOWN OVERVIEW'],
@@ -268,6 +281,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
       'Total Rent Billed (KSh)',
       'Total Payments Made (KSh)',
       'Outstanding Arrears (KSh)',
+      'Overpayments / Credits (KSh)',
       'Collection Rate (%)',
       'Health Status',
     ],
@@ -275,7 +289,9 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
 
   activeSummaries.forEach((bs) => {
     let health = 'Good (Up-To-Date)';
-    if (bs.totalArrears > 0) {
+    if (bs.totalOverpaid > 0) {
+      health = `Overpaid (+KSh ${bs.totalOverpaid.toLocaleString()})`;
+    } else if (bs.totalArrears > 0) {
       if (bs.collectionRate < 70) health = 'Critical Arrears';
       else health = 'Moderate Arrears';
     }
@@ -288,6 +304,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
       bs.totalBilled,
       bs.totalPaid,
       bs.totalArrears,
+      bs.totalOverpaid,
       `${bs.collectionRate}%`,
       health,
     ]);
@@ -302,8 +319,9 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
     grandTotalBilled,
     grandTotalPaid,
     grandTotalArrears,
+    grandTotalOverpaid,
     `${grandCollectionRate}%`,
-    grandTotalArrears === 0 ? 'All Cleared' : 'Active Balances',
+    grandTotalOverpaid > 0 ? `Advance Credits Held (+KSh ${grandTotalOverpaid.toLocaleString()})` : (grandTotalArrears === 0 ? 'All Cleared' : 'Active Balances'),
   ]);
 
   const summaryWs = XLSX.utils.aoa_to_sheet(summarySheetRows);
@@ -315,8 +333,9 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
     { wch: 24 }, // Total Billed
     { wch: 26 }, // Total Paid
     { wch: 25 }, // Outstanding Arrears
+    { wch: 26 }, // Overpayments / Credits
     { wch: 20 }, // Collection Rate
-    { wch: 20 }, // Status
+    { wch: 24 }, // Status
   ];
   XLSX.utils.book_append_sheet(wb, summaryWs, 'Portfolio Summary');
 
@@ -345,6 +364,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
       ['Total Rent Billed to Date (KSh)', bs.totalBilled],
       ['Total Payments Made to Date (KSh)', bs.totalPaid],
       ['Outstanding Arrears Balance (KSh)', bs.totalArrears],
+      ['Total Overpayment Credits Held (KSh)', bs.totalOverpaid],
       ['Collection Rate', `${bs.collectionRate}%`],
       [''],
       ['TENANT-BY-TENANT PAYMENT & ARREARS BREAKDOWN'],
@@ -358,6 +378,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
         'Total Rent Billed (KSh)',
         'Total Payments Made (KSh)',
         'Outstanding Arrears (KSh)',
+        'Overpaid / Credit (KSh)',
         'Account Status',
         'Skipped Months',
         'Last Payment Date',
@@ -377,6 +398,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
         tr.totalBilled,
         tr.totalPaid,
         tr.outstandingArrears,
+        tr.totalOverpaid,
         tr.status,
         tr.skippedMonths,
         tr.lastPaymentDate,
@@ -396,7 +418,8 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
       bs.totalBilled,
       bs.totalPaid,
       bs.totalArrears,
-      bs.totalArrears > 0 ? 'Arrears Outstanding' : 'Fully Settled',
+      bs.totalOverpaid,
+      bs.totalOverpaid > 0 ? `Advance Credits (+KSh ${bs.totalOverpaid.toLocaleString()})` : (bs.totalArrears > 0 ? 'Arrears Outstanding' : 'Fully Settled'),
       '',
       '',
       '',
@@ -414,7 +437,8 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
       { wch: 22 }, // Total Billed
       { wch: 24 }, // Total Paid
       { wch: 24 }, // Outstanding Arrears
-      { wch: 18 }, // Account Status
+      { wch: 24 }, // Overpaid / Credit
+      { wch: 26 }, // Account Status
       { wch: 16 }, // Skipped Months
       { wch: 18 }, // Last Payment Date
       { wch: 24 }, // Last Payment Amount

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { AndroidFrame } from './components/AndroidFrame';
 import { LandlordDashboard } from './components/LandlordDashboard';
 import { PropertiesView } from './components/PropertiesView';
@@ -15,6 +16,9 @@ import { SubscriptionRenewalModal } from './components/SubscriptionRenewalModal'
 import { SignInView } from './components/SignInView';
 import { SecurityShieldDashboard } from './components/SecurityShieldDashboard';
 import { ServerConnectionModal } from './components/ServerConnectionModal';
+import { InactivityWarningBanner } from './components/InactivityWarningBanner';
+import { App as CapApp } from '@capacitor/app';
+import { registerBackHandler, executeBackHandlers, exitAppSafely } from './lib/backNavigation';
 import { formatKSH } from './lib/formatters';
 
 import {
@@ -76,7 +80,8 @@ import {
   RefreshCw,
   Sparkles,
   ShieldCheck,
-  Server
+  Server,
+  Clock
 } from 'lucide-react';
 
 export default function App() {
@@ -85,43 +90,6 @@ export default function App() {
   const [landlordTab, setLandlordTab] = useState<string>('dashboard');
   const [preselectedUnitId, setPreselectedUnitId] = useState<string>('');
   const [showServerSyncModal, setShowServerSyncModal] = useState<boolean>(false);
-
-  // Browser History Management for Samsung/Android Back Button Navigation
-  const navigateTab = (newTab: string) => {
-    setLandlordTab(newTab);
-    window.history.pushState({ activeRole, landlordTab: newTab }, '', window.location.pathname);
-  };
-
-  const navigateRole = (newRole: 'landlord' | 'tenant' | 'register', newTab?: string) => {
-    setActiveRole(newRole);
-    if (newTab) setLandlordTab(newTab);
-    window.history.pushState({ activeRole: newRole, landlordTab: newTab || landlordTab }, '', window.location.pathname);
-  };
-
-  useEffect(() => {
-    if (!window.history.state) {
-      window.history.replaceState({ activeRole: 'landlord', landlordTab: 'dashboard' }, '');
-    }
-
-    const handlePopState = (event: PopStateEvent) => {
-      if (event.state) {
-        if (event.state.activeRole) {
-          setActiveRole(event.state.activeRole);
-        }
-        if (event.state.landlordTab) {
-          setLandlordTab(event.state.landlordTab);
-        }
-      } else {
-        setActiveRole('landlord');
-        setLandlordTab('dashboard');
-      }
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, []);
 
   // Authentication States
   const [signedInTenant, setSignedInTenant] = useState<Tenant | null>(null);
@@ -147,6 +115,169 @@ export default function App() {
   const [recentRegisteredEmail, setRecentRegisteredEmail] = useState<string>('');
   const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
   const [hasInitialLoaded, setHasInitialLoaded] = useState(false);
+
+  // Native Android Back Navigation & Double-Tap to Exit Guard
+  const [showExitToast, setShowExitToast] = useState(false);
+  const lastExitPressRef = useRef<number>(0);
+  const activeRoleRef = useRef(activeRole);
+  const landlordTabRef = useRef(landlordTab);
+  const navigationHistoryRef = useRef<Array<{ role: 'landlord' | 'tenant' | 'register'; tab: string }>>([
+    { role: 'landlord', tab: 'dashboard' }
+  ]);
+
+  useEffect(() => {
+    activeRoleRef.current = activeRole;
+  }, [activeRole]);
+
+  useEffect(() => {
+    landlordTabRef.current = landlordTab;
+  }, [landlordTab]);
+
+  const navigateTab = useCallback((newTab: string) => {
+    if (newTab === landlordTabRef.current && activeRoleRef.current === 'landlord') return;
+    setLandlordTab(newTab);
+    navigationHistoryRef.current.push({ role: activeRoleRef.current, tab: newTab });
+  }, []);
+
+  const navigateRole = useCallback((newRole: 'landlord' | 'tenant' | 'register', newTab?: string) => {
+    setActiveRole(newRole);
+    const targetTab = newTab || (newRole === 'landlord' ? 'dashboard' : landlordTabRef.current);
+    setLandlordTab(targetTab);
+    navigationHistoryRef.current.push({ role: newRole, tab: targetTab });
+  }, []);
+
+  // Back Button-aware Modal Handlers (Phone back button dismisses modal without exiting)
+  const openInvoiceModal = () => setShowCreateInvoiceModal(true);
+  const closeInvoiceModal = () => setShowCreateInvoiceModal(false);
+
+  const openQuoteModal = () => setShowCreateQuoteModal(true);
+  const closeQuoteModal = () => setShowCreateQuoteModal(false);
+
+  const openLandlordRegModal = () => setShowLandlordRegModal(true);
+  const closeLandlordRegModal = () => setShowLandlordRegModal(false);
+
+  const openRenewSubscriptionModal = () => setShowRenewSubscriptionModal(true);
+  const closeRenewSubscriptionModal = () => setShowRenewSubscriptionModal(false);
+
+  const openServerSyncModal = () => setShowServerSyncModal(true);
+  const closeServerSyncModal = () => setShowServerSyncModal(false);
+
+  // Register Back Handlers for Root Modals (LIFO execution)
+  useEffect(() => {
+    if (!showCreateInvoiceModal) return;
+    return registerBackHandler(() => {
+      setShowCreateInvoiceModal(false);
+      return true;
+    });
+  }, [showCreateInvoiceModal]);
+
+  useEffect(() => {
+    if (!showCreateQuoteModal) return;
+    return registerBackHandler(() => {
+      setShowCreateQuoteModal(false);
+      return true;
+    });
+  }, [showCreateQuoteModal]);
+
+  useEffect(() => {
+    if (!showLandlordRegModal) return;
+    return registerBackHandler(() => {
+      setShowLandlordRegModal(false);
+      return true;
+    });
+  }, [showLandlordRegModal]);
+
+  useEffect(() => {
+    if (!showRenewSubscriptionModal) return;
+    return registerBackHandler(() => {
+      setShowRenewSubscriptionModal(false);
+      return true;
+    });
+  }, [showRenewSubscriptionModal]);
+
+  useEffect(() => {
+    if (!showServerSyncModal) return;
+    return registerBackHandler(() => {
+      setShowServerSyncModal(false);
+      return true;
+    });
+  }, [showServerSyncModal]);
+
+  // Central Universal Back Handler (Works for hardware Android back button in APK and browser popstate)
+  const handleUniversalBack = useCallback(() => {
+    // 1. Check local registered modal / drawer / sub-view back handlers
+    if (executeBackHandlers()) {
+      return;
+    }
+
+    // 2. Step back through screen navigation history if the user moved between pages/tabs
+    if (navigationHistoryRef.current.length > 1) {
+      // Pop current screen
+      navigationHistoryRef.current.pop();
+      const prevScreen = navigationHistoryRef.current[navigationHistoryRef.current.length - 1];
+      if (prevScreen) {
+        setActiveRole(prevScreen.role);
+        setLandlordTab(prevScreen.tab);
+        return;
+      }
+    }
+
+    // If on a sub-tab in Landlord mode (e.g. Invoices, Tenants), go back to Dashboard
+    if (activeRoleRef.current === 'landlord' && landlordTabRef.current !== 'dashboard') {
+      setLandlordTab('dashboard');
+      navigationHistoryRef.current = [{ role: 'landlord', tab: 'dashboard' }];
+      return;
+    }
+
+    // If on Tenant or Register role, return to Landlord Dashboard
+    if (activeRoleRef.current !== 'landlord') {
+      setActiveRole('landlord');
+      setLandlordTab('dashboard');
+      navigationHistoryRef.current = [{ role: 'landlord', tab: 'dashboard' }];
+      return;
+    }
+
+    // 3. User is at the root screen (Dashboard or Sign In) -> Double-tap to exit guard
+    const now = Date.now();
+    if (now - lastExitPressRef.current < 2500) {
+      exitAppSafely();
+    } else {
+      lastExitPressRef.current = now;
+      setShowExitToast(true);
+      setTimeout(() => setShowExitToast(false), 2500);
+    }
+  }, []);
+
+  useEffect(() => {
+    // 1. Android Native Back Button via Capacitor App Plugin
+    let capListenerHandle: any = null;
+    try {
+      CapApp.addListener('backButton', () => {
+        handleUniversalBack();
+      }).then((handle) => {
+        capListenerHandle = handle;
+      });
+    } catch {
+      // Not running in Capacitor
+    }
+
+    // 2. Web Browser Popstate Handler
+    const onPopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      handleUniversalBack();
+      window.history.pushState({ app: true }, '', window.location.pathname);
+    };
+
+    window.history.pushState({ app: true }, '', window.location.pathname);
+    window.addEventListener('popstate', onPopState);
+
+    return () => {
+      if (capListenerHandle && typeof capListenerHandle.remove === 'function') {
+        capListenerHandle.remove();
+      }
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, [handleUniversalBack]);
 
   const loadAllData = async () => {
     try {
@@ -260,32 +391,94 @@ export default function App() {
     };
   }, []);
 
-  // Automatic Sign Out on Inactivity (2 Minutes)
+  // High-Performance Inactivity Engine (2-Minute Wall-Clock Guard)
+  // Completely eliminates touch/scroll jank and handles APK wake/backgrounding seamlessly
+  const [inactivityDeadline, setInactivityDeadline] = useState<number | null>(null);
+  const lastActivityTimeRef = useRef<number>(Date.now());
+
+  const resetInactivity = useCallback(() => {
+    lastActivityTimeRef.current = Date.now();
+    setInactivityDeadline(null);
+  }, []);
+
+  const handleAutoLogout = useCallback(() => {
+    setSignedInLandlord(null);
+    setSignedInTenant(null);
+    setInactivityDeadline(null);
+    setInactivityNotice('⚡ You were automatically signed out due to 2 minutes of inactivity for security.');
+  }, []);
+
   useEffect(() => {
-    if (!signedInLandlord && !signedInTenant) return;
+    if (!signedInLandlord && !signedInTenant) {
+      setInactivityDeadline(null);
+      return;
+    }
 
-    let timer: any = null;
-    const INACTIVITY_TIMEOUT = 2 * 60 * 1000; // 2 minutes (120,000 ms)
+    const INACTIVITY_TIMEOUT = 2 * 60 * 1000; // 120,000 ms (2 minutes)
+    const WARNING_THRESHOLD = 20 * 1000; // 20 seconds remaining
 
-    const resetInactivityTimer = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        setSignedInLandlord(null);
-        setSignedInTenant(null);
-        setInactivityNotice('⚡ You were automatically signed out due to 2 minutes of inactivity for security.');
-      }, INACTIVITY_TIMEOUT);
+    lastActivityTimeRef.current = Date.now();
+
+    // Discrete user interactions only (touchstart, mousedown, keydown).
+    // Intentionally NEVER touchmove, pointermove, or scroll to maintain 60/120Hz smooth scrolling in Android APK.
+    const onUserActivity = () => {
+      lastActivityTimeRef.current = Date.now();
+      setInactivityDeadline((prev) => (prev !== null ? null : prev));
     };
 
-    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
-    activityEvents.forEach((evt) => window.addEventListener(evt, resetInactivityTimer));
+    const activityEvents = ['touchstart', 'mousedown', 'keydown'];
+    activityEvents.forEach((evt) => {
+      window.addEventListener(evt, onUserActivity, { passive: true });
+    });
 
-    resetInactivityTimer();
+    // Check on phone wake / tab focus / visibility change / Capacitor appStateChange
+    const checkElapsed = () => {
+      if (document.visibilityState === 'visible' || document.hasFocus()) {
+        const elapsed = Date.now() - lastActivityTimeRef.current;
+        if (elapsed >= INACTIVITY_TIMEOUT) {
+          handleAutoLogout();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', checkElapsed);
+    window.addEventListener('focus', checkElapsed);
+
+    let appStateHandle: any = null;
+    try {
+      CapApp.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) checkElapsed();
+      }).then((h) => {
+        appStateHandle = h;
+      });
+    } catch {}
+
+    // 1-second interval to evaluate wall-clock elapsed time
+    const intervalId = setInterval(() => {
+      const elapsed = Date.now() - lastActivityTimeRef.current;
+      const remainingMs = INACTIVITY_TIMEOUT - elapsed;
+
+      if (remainingMs <= 0) {
+        handleAutoLogout();
+      } else if (remainingMs <= WARNING_THRESHOLD) {
+        setInactivityDeadline((prev) => (prev !== null ? prev : lastActivityTimeRef.current + INACTIVITY_TIMEOUT));
+      } else {
+        setInactivityDeadline((prev) => (prev !== null ? null : prev));
+      }
+    }, 1000);
 
     return () => {
-      if (timer) clearTimeout(timer);
-      activityEvents.forEach((evt) => window.removeEventListener(evt, resetInactivityTimer));
+      activityEvents.forEach((evt) => {
+        window.removeEventListener(evt, onUserActivity);
+      });
+      document.removeEventListener('visibilitychange', checkElapsed);
+      window.removeEventListener('focus', checkElapsed);
+      if (appStateHandle && typeof appStateHandle.remove === 'function') {
+        appStateHandle.remove();
+      }
+      clearInterval(intervalId);
     };
-  }, [signedInLandlord, signedInTenant]);
+  }, [signedInLandlord, signedInTenant, handleAutoLogout]);
 
   const handleCreateInvoice = async (data: any) => {
     try {
@@ -448,7 +641,7 @@ export default function App() {
       isAndroidView={isAndroidView}
       setIsAndroidView={setIsAndroidView}
       activeRole={activeRole}
-      setActiveRole={setActiveRole}
+      setActiveRole={navigateRole}
       unreadEmailCount={emails.length}
       subscriptionStatus={isSubscriptionActive ? 'Active' : 'Expired'}
     >
@@ -582,7 +775,7 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setShowServerSyncModal(true)}
+                      onClick={openServerSyncModal}
                       className="px-3.5 py-2.5 rounded-xl text-slate-700 hover:text-blue-600 hover:bg-blue-50/70 font-semibold text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors"
                       title="Backend & Mobile APK Server Connectivity"
                     >
@@ -590,7 +783,7 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setShowRenewSubscriptionModal(true)}
+                      onClick={openRenewSubscriptionModal}
                       className="px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm transition-all duration-200 flex items-center gap-2 shadow-md hover:shadow-lg shadow-emerald-600/20 whitespace-nowrap ml-auto cursor-pointer hover:scale-[1.02]"
                     >
                       <Sparkles className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-200 animate-spin-slow" /> Renew Subscription ({formatKSH(20000)}/yr)
@@ -634,11 +827,11 @@ export default function App() {
                       }}
                       onOpenNewInvoice={() => {
                         navigateTab('invoices');
-                        setShowCreateInvoiceModal(true);
+                        openInvoiceModal();
                       }}
                       onOpenNewQuote={() => {
                         navigateTab('invoices');
-                        setShowCreateQuoteModal(true);
+                        openQuoteModal();
                       }}
                       onSeedSampleData={handleSeedSampleDataForLandlord}
                     />
@@ -650,7 +843,7 @@ export default function App() {
                       activeLandlordId={currentLandlord?.id || activeLandlordId}
                       onSelectLandlord={setActiveLandlordId}
                       onLandlordUpdated={() => loadAllData()}
-                      onOpenRegisterModal={() => setShowLandlordRegModal(true)}
+                      onOpenRegisterModal={openLandlordRegModal}
                     />
                   )}
 
@@ -710,7 +903,7 @@ export default function App() {
                       onNavigateRegister={() => navigateRole('register')}
                       onOpenInvoiceModal={() => {
                         navigateTab('invoices');
-                        setShowCreateInvoiceModal(true);
+                        openInvoiceModal();
                       }}
                       onRefreshData={() => loadAllData()}
                     />
@@ -728,9 +921,9 @@ export default function App() {
                       onCreateInvoice={handleCreateInvoice}
                       onCreateQuote={handleCreateQuote}
                       showCreateInvoiceModal={showCreateInvoiceModal}
-                      setShowCreateInvoiceModal={setShowCreateInvoiceModal}
+                      setShowCreateInvoiceModal={(show) => (show ? openInvoiceModal() : closeInvoiceModal())}
                       showCreateQuoteModal={showCreateQuoteModal}
-                      setShowCreateQuoteModal={setShowCreateQuoteModal}
+                      setShowCreateQuoteModal={(show) => (show ? openQuoteModal() : closeQuoteModal())}
                     />
                   )}
 
@@ -814,10 +1007,35 @@ export default function App() {
         </>
       )}
 
+      {/* Floating 20-Second Inactivity Warning Notification */}
+      <AnimatePresence>
+        {inactivityDeadline !== null && (
+          <InactivityWarningBanner
+            deadlineMs={inactivityDeadline}
+            onStaySignedIn={resetInactivity}
+            onLogoutNow={handleAutoLogout}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Android Back-Press Toast */}
+      <AnimatePresence>
+        {showExitToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white text-xs sm:text-sm font-semibold px-5 py-2.5 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-2 border border-slate-700/80 pointer-events-none"
+          >
+            <span>Press back again to exit EstateMaster</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Landlord Registration & KSH 20,000 Annual Subscription Modal */}
       <LandlordRegistrationModal
         isOpen={showLandlordRegModal}
-        onClose={() => setShowLandlordRegModal(false)}
+        onClose={closeLandlordRegModal}
         onRegistered={(newLandlord) => {
           setLandlords((prev) => [newLandlord, ...prev]);
           setActiveLandlordId(newLandlord.id);
@@ -828,7 +1046,7 @@ export default function App() {
       {/* Annual Subscription Renewal Modal */}
       <SubscriptionRenewalModal
         isOpen={showRenewSubscriptionModal}
-        onClose={() => setShowRenewSubscriptionModal(false)}
+        onClose={closeRenewSubscriptionModal}
         activeLandlord={currentLandlord}
         onSubscriptionRenewed={() => loadAllData()}
       />
@@ -836,7 +1054,7 @@ export default function App() {
       {/* Backend & Mobile Sync Server Modal */}
       <ServerConnectionModal
         isOpen={showServerSyncModal}
-        onClose={() => setShowServerSyncModal(false)}
+        onClose={closeServerSyncModal}
         onConnectionUpdated={() => loadAllData()}
       />
     </AndroidFrame>

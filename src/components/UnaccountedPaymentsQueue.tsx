@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UnaccountedPayment, Tenant, Invoice } from '../types';
 import { formatKSH } from '../lib/formatters';
+import { registerBackHandler } from '../lib/backNavigation';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -57,6 +58,22 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
   const [newNarration, setNewNarration] = useState('');
   const [newBankName, setNewBankName] = useState('Equity Bank');
   const [isAdding, setIsAdding] = useState(false);
+
+  // Android Back Button handler
+  useEffect(() => {
+    if (!showAddModal && !selectedPayment) return;
+    return registerBackHandler(() => {
+      if (showAddModal) {
+        setShowAddModal(false);
+        return true;
+      }
+      if (selectedPayment) {
+        setSelectedPayment(null);
+        return true;
+      }
+      return false;
+    });
+  }, [showAddModal, selectedPayment]);
 
   // Filtered payments
   const filteredList = unaccountedPayments.filter((p) => {

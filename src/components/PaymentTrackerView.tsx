@@ -4,6 +4,7 @@ import { Payment, Invoice, Tenant, Property, Landlord, UnaccountedPayment, BankS
 import { formatKSH } from '../lib/formatters';
 import { calculateTenantArrears } from '../lib/arrears';
 import { exportLandlordPaymentLedgerToExcel, calculateBuildingLedgers } from '../lib/excelExport';
+import { registerBackHandler } from '../lib/backNavigation';
 import {
   triggerMpesaStkPush,
   verifyMpesaReceiptCode,
@@ -39,7 +40,10 @@ import {
   Building2,
   Table,
   HelpCircle,
-  Sparkles
+  Sparkles,
+  FileText,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface PaymentTrackerViewProps {
@@ -94,6 +98,32 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   const [exportBuildingFilter, setExportBuildingFilter] = useState<string>('all');
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
+
+  // Android Hardware Back Button Modal Dismissal
+  useEffect(() => {
+    if (!showRecordModal && !showVerifyModal && !showExportModal) return;
+    return registerBackHandler(() => {
+      if (showRecordModal) {
+        setShowRecordModal(false);
+        return true;
+      }
+      if (showVerifyModal) {
+        setShowVerifyModal(false);
+        return true;
+      }
+      if (showExportModal) {
+        setShowExportModal(false);
+        return true;
+      }
+      return false;
+    });
+  }, [showRecordModal, showVerifyModal, showExportModal]);
+
+  // Expanded monthly breakdowns for tenant cards
+  const [expandedBreakdowns, setExpandedBreakdowns] = useState<Record<string, boolean>>({});
+  const toggleBreakdown = (tenantId: string) => {
+    setExpandedBreakdowns((prev) => ({ ...prev, [tenantId]: !prev[tenantId] }));
+  };
 
   const loadUnaccounted = async () => {
     try {
@@ -290,6 +320,8 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   const totalPortfolioArrears = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalArrears, 0);
   const totalPortfolioBilled = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalInvoiced, 0);
   const totalPortfolioPaid = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalPaid, 0);
+  const totalPortfolioOverpaid = portfolioArrearsList.reduce((sum, item) => sum + item.arrears.totalOverpaid, 0);
+  const totalOverpaidTenantsCount = portfolioArrearsList.filter((item) => item.arrears.totalOverpaid > 0).length;
 
   // Multi-building Excel Calculation Summary
   const buildingCalcData = calculateBuildingLedgers(properties, tenants, invoices, payments);
@@ -380,13 +412,13 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
 
       {/* Portfolio Arrears & Rent Collection KPI Banner */}
       <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-md space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="space-y-1">
             <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Outstanding Arrears</span>
             <p className={`text-2xl font-black ${totalPortfolioArrears > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
               {formatKSH(totalPortfolioArrears)}
             </p>
-            <p className="text-[11px] text-slate-400">Arrears balance due across all active tenant accounts</p>
+            <p className="text-[11px] text-slate-400">Arrears balance due across active accounts</p>
           </div>
 
           <div className="space-y-1 sm:border-l border-slate-800 sm:pl-4">
@@ -395,10 +427,24 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
             <p className="text-[11px] text-slate-400">Total invoice billing generated to date</p>
           </div>
 
-          <div className="space-y-1 sm:border-l border-slate-800 sm:pl-4">
+          <div className="space-y-1 lg:border-l border-slate-800 lg:pl-4">
             <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Collected to Date</span>
             <p className="text-xl font-bold text-emerald-400">{formatKSH(totalPortfolioPaid)}</p>
             <p className="text-[11px] text-slate-400">Settled rent & utility payments received</p>
+          </div>
+
+          <div className="space-y-1 sm:border-l border-slate-800 sm:pl-4">
+            <span className="text-[11px] text-emerald-400 font-extrabold uppercase tracking-wider flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> Overpayments & Credits
+            </span>
+            <p className="text-xl font-black text-emerald-400">
+              +{formatKSH(totalPortfolioOverpaid)}
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {totalOverpaidTenantsCount > 0
+                ? `Held across ${totalOverpaidTenantsCount} tenant account${totalOverpaidTenantsCount === 1 ? '' : 's'}`
+                : 'No overpayments or prepaid credits held'}
+            </p>
           </div>
         </div>
 
@@ -544,13 +590,19 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                               <Building className="w-3 h-3 text-slate-400" /> {group.propertyName}
                             </span>
                           )}
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            arrearsData.status === 'Up-To-Date' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
-                            arrearsData.status === 'Partial Arrears' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
-                            'bg-rose-100 text-rose-800 border border-rose-200'
-                          }`}>
-                            {arrearsData.status}
-                          </span>
+                          {arrearsData.totalOverpaid > 0 ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-600 text-white border border-emerald-700 flex items-center gap-1 shadow-2xs">
+                              <Sparkles className="w-3 h-3" /> Overpaid (+{formatKSH(arrearsData.totalOverpaid)})
+                            </span>
+                          ) : (
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              arrearsData.status === 'Up-To-Date' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                              arrearsData.status === 'Partial Arrears' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                              'bg-rose-100 text-rose-800 border border-rose-200'
+                            }`}>
+                              {arrearsData.status}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">
                           {groupPayments.length} Transaction{groupPayments.length === 1 ? '' : 's'} | Total Billed: {formatKSH(arrearsData.totalInvoiced)}
@@ -558,7 +610,16 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      {arrearsData.totalOverpaid > 0 && (
+                        <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-2.5 text-center sm:text-right shadow-2xs">
+                          <p className="text-[10px] text-emerald-800 font-bold uppercase flex items-center justify-center sm:justify-end gap-1">
+                            <Sparkles className="w-3 h-3 text-emerald-600" /> Overpaid Credit
+                          </p>
+                          <p className="text-base font-black text-emerald-700">+{formatKSH(arrearsData.totalOverpaid)}</p>
+                        </div>
+                      )}
+
                       <div className={`border rounded-xl p-2.5 text-center sm:text-right shadow-2xs ${
                         arrearsData.totalArrears > 0 ? 'bg-amber-50 border-amber-300' : 'bg-emerald-50 border-emerald-200'
                       }`}>
@@ -574,6 +635,34 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  {/* Overpayment & Advance Credit Notice Section */}
+                  {arrearsData.totalOverpaid > 0 && (
+                    <div className="mx-4 sm:mx-5 mt-4 p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-white border border-emerald-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-2xs shrink-0">
+                          <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="font-extrabold text-slate-900 flex items-center gap-2">
+                            <span>Overpayment Balance Credit:</span>
+                            <span className="text-emerald-700 text-sm font-black">+{formatKSH(arrearsData.totalOverpaid)}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900 uppercase">
+                              Advance Held
+                            </span>
+                          </p>
+                          <p className="text-[11px] text-slate-600 mt-0.5">
+                            This tenant has settled {formatKSH(arrearsData.totalPaid)} against total billing of {formatKSH(arrearsData.totalInvoiced)}.
+                            The overpayment of <strong className="text-emerald-700 font-extrabold">+{formatKSH(arrearsData.totalOverpaid)}</strong> is held in credit to discount future invoices or be refunded.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="bg-white px-3.5 py-2 rounded-lg border border-emerald-200 text-center sm:text-right shrink-0">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold block">Next Bill Offset</span>
+                        <span className="text-sm font-black text-emerald-700">+{formatKSH(arrearsData.totalOverpaid)}</span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Payment Table for this Single Tenant */}
                   {groupPayments.length === 0 ? (
@@ -614,6 +703,82 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+
+                  {/* Monthly Invoices & Overpayments Breakdown Toggle */}
+                  {arrearsData.monthlyBreakdown.length > 0 && (
+                    <div className="border-t border-slate-200 bg-slate-50/70 p-3 sm:p-4">
+                      <button
+                        type="button"
+                        onClick={() => toggleBreakdown(group.id || group.name)}
+                        className="w-full flex items-center justify-between text-xs font-bold text-slate-700 hover:text-slate-900 cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-emerald-600" />
+                          <span>Monthly Invoices &amp; Overpayment Ledger ({arrearsData.monthlyBreakdown.length} Invoices)</span>
+                          {arrearsData.overpaidInvoicesCount > 0 && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              {arrearsData.overpaidInvoicesCount} Overpaid Month{arrearsData.overpaidInvoicesCount === 1 ? '' : 's'}
+                            </span>
+                          )}
+                        </span>
+                        <span className="flex items-center gap-1 text-[11px] text-slate-500 font-semibold">
+                          {expandedBreakdowns[group.id || group.name] ? 'Hide Invoices' : 'View Breakdown'}
+                          {expandedBreakdowns[group.id || group.name] ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </span>
+                      </button>
+
+                      {expandedBreakdowns[group.id || group.name] && (
+                        <div className="mt-3 overflow-x-auto">
+                          <table className="w-full text-left text-xs bg-white rounded-lg border border-slate-200">
+                            <thead className="bg-slate-100/70 text-slate-500 uppercase text-[10px] font-bold border-b border-slate-200">
+                              <tr>
+                                <th className="p-2.5">Invoice #</th>
+                                <th className="p-2.5">Period / Month</th>
+                                <th className="p-2.5 text-right">Billed (KSh)</th>
+                                <th className="p-2.5 text-right">Paid (KSh)</th>
+                                <th className="p-2.5 text-right">Overpaid Credit</th>
+                                <th className="p-2.5 text-center">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                              {arrearsData.monthlyBreakdown.map((m, mIdx) => (
+                                <tr key={`mb-${m.invoiceNumber}-${mIdx}`} className="hover:bg-slate-50/70">
+                                  <td className="p-2.5 font-mono font-bold text-blue-700">{m.invoiceNumber}</td>
+                                  <td className="p-2.5 text-slate-700">{m.periodMonth}</td>
+                                  <td className="p-2.5 text-right font-bold text-slate-900">{formatKSH(m.totalAmount)}</td>
+                                  <td className="p-2.5 text-right font-bold text-emerald-700">{formatKSH(m.amountPaid)}</td>
+                                  <td className="p-2.5 text-right">
+                                    {m.overpaidAmount > 0 ? (
+                                      <span className="font-extrabold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1">
+                                        <Sparkles className="w-3 h-3" /> +{formatKSH(m.overpaidAmount)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400 font-mono text-[11px]">-</span>
+                                    )}
+                                  </td>
+                                  <td className="p-2.5 text-center">
+                                    {m.status === 'Overpaid' ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-600 text-white">
+                                        OVERPAID
+                                      </span>
+                                    ) : m.status === 'Paid' ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                        PAID
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                                        {m.status.toUpperCase()}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -757,6 +922,28 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                   </select>
                 </div>
               </div>
+
+              {/* Live Overpayment Detection in Record Modal */}
+              {(() => {
+                const targetInv = invoices.find((i) => i.id === payInvoiceId);
+                if (!targetInv) return null;
+                const remDue = Math.max(0, targetInv.totalAmount - (targetInv.amountPaid || 0));
+                const entered = parseFloat(payAmount) || 0;
+                if (entered <= remDue) return null;
+                const overpaySurplus = entered - remDue;
+
+                return (
+                  <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl space-y-1 text-slate-800">
+                    <div className="flex items-center gap-1.5 font-bold text-emerald-900">
+                      <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Overpayment Detected: +{formatKSH(overpaySurplus)}</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-800 leading-snug">
+                      Recording <strong>{formatKSH(entered)}</strong> against an invoice due balance of <strong>{formatKSH(remDue)}</strong> creates a credit surplus of <strong className="font-extrabold text-emerald-950">+{formatKSH(overpaySurplus)}</strong>. This will be credited to {targetInv.tenantName}&apos;s account ledger.
+                    </p>
+                  </div>
+                );
+              })()}
 
               {payMethod === 'M-Pesa' && (
                 <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 space-y-2">

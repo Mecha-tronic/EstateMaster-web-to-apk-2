@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Invoice, Quote, Tenant, Unit, Landlord, Property } from '../types';
 import { formatKSH } from '../lib/formatters';
+import { registerBackHandler } from '../lib/backNavigation';
 import {
   FileText,
   Tag,
@@ -59,6 +60,14 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'grouped' | 'invoices' | 'quotes'>('grouped');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDocument, setSelectedDocument] = useState<{ type: 'invoice' | 'quote'; data: any } | null>(null);
+
+  useEffect(() => {
+    if (!selectedDocument) return;
+    return registerBackHandler(() => {
+      setSelectedDocument(null);
+      return true;
+    });
+  }, [selectedDocument]);
 
   // Grouping by single tenant logic
   const tenantMap = new Map<string, { id: string; name: string; email: string; phone: string; unitNumber: string; propertyName: string }>();
@@ -399,6 +408,7 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                 0
               );
               const balanceDue = totalBilled - totalPaid;
+              const totalOverpaid = Math.max(0, totalPaid - totalBilled);
 
               return (
                 <div
@@ -439,14 +449,45 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                         <p className="text-[10px] text-emerald-600 font-medium">Total Paid</p>
                         <p className="font-extrabold text-emerald-700">{formatKSH(totalPaid)}</p>
                       </div>
-                      <div className={`bg-white border rounded-xl p-2.5 text-center min-w-[100px] shadow-2xs ${balanceDue > 0 ? 'border-amber-300 bg-amber-50/50' : 'border-slate-200'}`}>
-                        <p className="text-[10px] text-slate-500 font-medium">Balance Due</p>
-                        <p className={`font-extrabold ${balanceDue > 0 ? 'text-amber-700' : 'text-slate-700'}`}>
-                          {formatKSH(balanceDue)}
-                        </p>
-                      </div>
+                      {totalOverpaid > 0 ? (
+                        <div className="bg-emerald-50 border-2 border-emerald-400 rounded-xl p-2.5 text-center min-w-[110px] shadow-2xs">
+                          <p className="text-[10px] text-emerald-800 font-bold uppercase flex items-center justify-center gap-1">
+                            <Sparkles className="w-3 h-3 text-emerald-600" /> Overpaid Credit
+                          </p>
+                          <p className="font-black text-emerald-700 text-sm">+{formatKSH(totalOverpaid)}</p>
+                        </div>
+                      ) : (
+                        <div className={`bg-white border rounded-xl p-2.5 text-center min-w-[100px] shadow-2xs ${balanceDue > 0 ? 'border-amber-300 bg-amber-50/50' : 'border-slate-200'}`}>
+                          <p className="text-[10px] text-slate-500 font-medium">Balance Due</p>
+                          <p className={`font-extrabold ${balanceDue > 0 ? 'text-amber-700' : 'text-slate-700'}`}>
+                            {formatKSH(Math.max(0, balanceDue))}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {/* Overpayment Surplus Notice Section */}
+                  {totalOverpaid > 0 && (
+                    <div className="mx-4 sm:mx-5 mt-4 p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-white border border-emerald-300 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-emerald-950 shadow-xs">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-emerald-600 text-white rounded-lg shrink-0">
+                          <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="font-extrabold text-slate-900 text-xs sm:text-sm">
+                            Surplus Overpayment on Record: <span className="text-emerald-700 font-black">+{formatKSH(totalOverpaid)}</span>
+                          </p>
+                          <p className="text-[11px] text-slate-600 mt-0.5">
+                            Total payments settled ({formatKSH(totalPaid)}) exceed total billed invoices ({formatKSH(totalBilled)}). This overpayment credit is preserved on the tenant ledger to automatically discount upcoming invoices.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="px-3 py-1 bg-emerald-200 text-emerald-950 font-black rounded-lg text-xs self-start sm:self-center shrink-0 border border-emerald-300">
+                        +{formatKSH(totalOverpaid)} Surplus
+                      </span>
+                    </div>
+                  )}
 
                   {/* Tenant's Invoices & Quotes Content */}
                   <div className="p-4 sm:p-5 space-y-5">
@@ -481,16 +522,22 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                                 <div>
                                   <div className="flex items-center gap-2">
                                     <span className="font-mono font-bold text-blue-700">{inv.invoiceNumber}</span>
-                                    <span
-                                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 ${
-                                        isPaid
-                                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                          : 'bg-amber-100 text-amber-800 border border-amber-200'
-                                      }`}
-                                    >
-                                      {isPaid ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                                      {inv.status}
-                                    </span>
+                                    {inv.amountPaid && inv.amountPaid > inv.totalAmount ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-600 text-white border border-emerald-700 flex items-center gap-1 shadow-2xs">
+                                        <Sparkles className="w-3 h-3" /> Overpaid (+{formatKSH(inv.amountPaid - inv.totalAmount)})
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 ${
+                                          isPaid
+                                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                            : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                        }`}
+                                      >
+                                        {isPaid ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                                        {inv.status}
+                                      </span>
+                                    )}
                                     {inv.emailedToTenant && (
                                       <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-50 text-blue-700 border border-blue-200 font-semibold flex items-center gap-1">
                                         <Mail className="w-3 h-3" /> Emailed
@@ -598,6 +645,35 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
       {/* INVOICES LIST TAB */}
       {activeSubTab === 'invoices' && (
         <div className="space-y-3">
+          {(() => {
+            const totalOverpaidAcrossInvoices = invoices.reduce((sum, inv) => {
+              return sum + Math.max(0, (inv.amountPaid || 0) - (inv.totalAmount || 0));
+            }, 0);
+
+            if (totalOverpaidAcrossInvoices <= 0) return null;
+
+            return (
+              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-white border border-emerald-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs text-emerald-950 mb-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-emerald-600 text-white rounded-lg shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-slate-900 text-xs sm:text-sm">
+                      Total Invoice Overpayments Recorded: <span className="text-emerald-700 font-black">+{formatKSH(totalOverpaidAcrossInvoices)}</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Cumulative excess payments recorded against tenant invoices, maintained as surplus ledger credits.
+                    </p>
+                  </div>
+                </div>
+                <span className="px-3 py-1 bg-emerald-200 text-emerald-950 font-black rounded-lg text-xs self-start sm:self-center shrink-0 border border-emerald-300">
+                  +{formatKSH(totalOverpaidAcrossInvoices)} Credit Balance
+                </span>
+              </div>
+            );
+          })()}
+
           {invoices.map((inv, invIdx) => {
             const isPaid = inv.status === 'Paid';
             return (
@@ -608,16 +684,22 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold text-blue-700 text-sm">{inv.invoiceNumber}</span>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 ${
-                        isPaid
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          : 'bg-amber-100 text-amber-800 border border-amber-200'
-                      }`}
-                    >
-                      {isPaid ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                      {inv.status}
-                    </span>
+                    {inv.amountPaid && inv.amountPaid > inv.totalAmount ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-600 text-white border border-emerald-700 flex items-center gap-1 shadow-2xs">
+                        <Sparkles className="w-3 h-3" /> Overpaid (+{formatKSH(inv.amountPaid - inv.totalAmount)})
+                      </span>
+                    ) : (
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 ${
+                          isPaid
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : 'bg-amber-100 text-amber-800 border border-amber-200'
+                        }`}
+                      >
+                        {isPaid ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                        {inv.status}
+                      </span>
+                    )}
                     {inv.emailedToTenant && (
                       <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1 font-semibold">
                         <Mail className="w-3 h-3" /> Emailed

@@ -140,7 +140,7 @@ async function updateTenantInDb(id, data) {
     if (data.email) {
       cleanData.emailLower = data.email.trim().toLowerCase();
     }
-    await (0, import_firestore2.updateDoc)((0, import_firestore2.doc)(db, COLLECTIONS.TENANTS, id), cleanData);
+    await (0, import_firestore2.setDoc)((0, import_firestore2.doc)(db, COLLECTIONS.TENANTS, id), cleanData, { merge: true });
   } catch (err) {
     console.error("Error updating tenant in Firestore:", err);
   }
@@ -216,7 +216,7 @@ async function saveInvoiceToDb(invoice) {
 }
 async function updateInvoiceInDb(id, data) {
   try {
-    await (0, import_firestore2.updateDoc)((0, import_firestore2.doc)(db, COLLECTIONS.INVOICES, id), sanitize(data));
+    await (0, import_firestore2.setDoc)((0, import_firestore2.doc)(db, COLLECTIONS.INVOICES, id), sanitize(data), { merge: true });
   } catch (err) {
     console.error("Error updating invoice in Firestore:", err);
   }
@@ -1267,7 +1267,8 @@ var emailLogs = [
 ];
 async function startServer() {
   const app2 = (0, import_express.default)();
-  app2.use(import_express.default.json());
+  app2.use(import_express.default.json({ limit: "25mb" }));
+  app2.use(import_express.default.urlencoded({ limit: "25mb", extended: true }));
   seedDbIfEmpty(landlords, properties, units, tenants, invoices, quotes, payments, maintenanceRequests, emailLogs).catch((err) => {
     console.warn("Background Firestore seed notice:", err?.message || err);
   });
@@ -2923,8 +2924,11 @@ async function startServer() {
       const allTenants = await getTenantsFromDb();
       const allLandlords = await getLandlordsFromDb();
       const allProps = await getPropertiesFromDb();
-      const inv = invoiceId ? currentInvoices.find((i) => i.id === invoiceId) : void 0;
+      let inv = invoiceId ? currentInvoices.find((i) => i.id === invoiceId || i.invoiceNumber === invoiceId) : void 0;
       const tenant = (tenantId ? allTenants.find((t) => t.id === tenantId) : void 0) || (inv ? allTenants.find((t) => t.id === inv.tenantId) : void 0);
+      if (!inv && (tenant?.id || tenantId) && req.body.periodMonth) {
+        inv = currentInvoices.find((i) => i.tenantId === (tenant?.id || tenantId) && i.periodMonth === req.body.periodMonth);
+      }
       const matchedProp = tenant ? allProps.find((p) => p.id === tenant.propertyId) : void 0;
       const matchedLandlord = allLandlords.find((l) => l.id === tenant?.landlordId || l.id === matchedProp?.landlordId) || allLandlords[0];
       const receivingChannel = matchedLandlord?.mpesaTillNumber ? `Till Number: ${matchedLandlord.mpesaTillNumber}` : matchedLandlord?.mpesaPaybill ? `Paybill: ${matchedLandlord.mpesaPaybill}` : `Phone: ${matchedLandlord?.mpesaPhoneNumber || "+254 700 000 000"}`;
@@ -3037,41 +3041,56 @@ async function startServer() {
           inv.status = "Partial";
         }
         await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
-        if (inv.tenantEmail) {
-          const receiptEmailHtml = `
-            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 16px 0;">
-              <h3 style="color: #166534; margin: 0 0 10px 0; font-size: 16px;">\u{1F4F2} M-Pesa Rent Payment Confirmed</h3>
-              <p style="color: #15803d; font-size: 14px; margin: 0 0 12px 0;">
-                We have confirmed receipt of <strong>KSh ${payAmt.toLocaleString()}</strong> via M-Pesa Express STK Push for <strong>Invoice #${inv.invoiceNumber}</strong> (${inv.propertyName} - Unit ${inv.unitNumber}).
-              </p>
-              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size: 13px; color: #166534; line-height: 1.8;">
-                <tr><td width="35%"><strong>Receipt Serial:</strong></td><td><code style="font-family: monospace; font-weight: bold; color: #0284c7;">${rentReceiptSerial}</code></td></tr>
-                <tr><td><strong>M-Pesa Receipt:</strong></td><td><span style="font-family: monospace; font-weight: bold;">${receiptCode}</span></td></tr>
-                <tr><td><strong>Recipient Landlord:</strong></td><td>${matchedLandlord?.companyName || matchedLandlord?.name} (${receivingChannel})</td></tr>
-                <tr><td><strong>Phone Paid From:</strong></td><td>${formattedPhone}</td></tr>
-                <tr><td><strong>Amount Received:</strong></td><td><strong>KSh ${payAmt.toLocaleString()}</strong></td></tr>
-                <tr><td><strong>Payment Date:</strong></td><td>${(/* @__PURE__ */ new Date()).toLocaleString("en-KE")}</td></tr>
-                <tr><td><strong>Invoice Status:</strong></td><td><strong>${inv.status.toUpperCase()}</strong></td></tr>
-              </table>
-            </div>
-            <p style="color: #64748b; font-size: 13px;">
-              Thank you for paying your rent on time! This statement has been automatically recorded in your Tenant Portal.
+      } else if (invoiceId) {
+        await updateInvoiceInDb(invoiceId, {
+          amountPaid: payAmt,
+          status: "Paid",
+          tenantId: pay.tenantId,
+          tenantName: pay.tenantName,
+          tenantEmail: pay.tenantEmail,
+          unitNumber: pay.unitNumber,
+          propertyName: pay.propertyName,
+          periodMonth: req.body.periodMonth || "Monthly Rent",
+          totalAmount: payAmt
+        });
+      }
+      const invEmailTarget = inv?.tenantEmail || tenant?.email || req.body.tenantEmail;
+      const invNameTarget = inv?.tenantName || tenant?.fullName || req.body.tenantName || "Tenant";
+      const invNumLabel = inv?.invoiceNumber || invoiceId || "Monthly Rent";
+      if (invEmailTarget) {
+        const receiptEmailHtml = `
+          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 16px 0;">
+            <h3 style="color: #166534; margin: 0 0 10px 0; font-size: 16px;">\u{1F4F2} M-Pesa Rent Payment Confirmed</h3>
+            <p style="color: #15803d; font-size: 14px; margin: 0 0 12px 0;">
+              We have confirmed receipt of <strong>KSh ${payAmt.toLocaleString()}</strong> via M-Pesa Express STK Push for <strong>Invoice #${invNumLabel}</strong> (${pay.propertyName} - Unit ${pay.unitNumber}).
             </p>
-          `;
-          const rentEmailResult = await dispatchSystemEmail({
-            recipientEmail: inv.tenantEmail,
-            recipientName: inv.tenantName,
-            subject: `\u{1F4F2} M-Pesa Receipt ${receiptCode} [${rentReceiptSerial}]: KSh ${payAmt.toLocaleString()} for Invoice #${inv.invoiceNumber}`,
-            bodyHtml: receiptEmailHtml,
-            emailType: "Payment Receipt",
-            serialNumber: rentReceiptSerial,
-            prefix: "RCT",
-            documentId: pay.id
-          });
-          if (rentEmailResult.externalDelivered) {
-            pay.externalDeliveryStatus = "delivered";
-            await savePaymentToDb(pay);
-          }
+            <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size: 13px; color: #166534; line-height: 1.8;">
+              <tr><td width="35%"><strong>Receipt Serial:</strong></td><td><code style="font-family: monospace; font-weight: bold; color: #0284c7;">${rentReceiptSerial}</code></td></tr>
+              <tr><td><strong>M-Pesa Receipt:</strong></td><td><span style="font-family: monospace; font-weight: bold;">${receiptCode}</span></td></tr>
+              <tr><td><strong>Recipient Landlord:</strong></td><td>${matchedLandlord?.companyName || matchedLandlord?.name} (${receivingChannel})</td></tr>
+              <tr><td><strong>Phone Paid From:</strong></td><td>${formattedPhone}</td></tr>
+              <tr><td><strong>Amount Received:</strong></td><td><strong>KSh ${payAmt.toLocaleString()}</strong></td></tr>
+              <tr><td><strong>Payment Date:</strong></td><td>${(/* @__PURE__ */ new Date()).toLocaleString("en-KE")}</td></tr>
+              <tr><td><strong>Status:</strong></td><td><strong>PAID</strong></td></tr>
+            </table>
+          </div>
+          <p style="color: #64748b; font-size: 13px;">
+            Thank you for paying your rent on time! This statement has been automatically recorded in your Tenant Portal.
+          </p>
+        `;
+        const rentEmailResult = await dispatchSystemEmail({
+          recipientEmail: invEmailTarget,
+          recipientName: invNameTarget,
+          subject: `\u{1F4F2} M-Pesa Receipt ${receiptCode} [${rentReceiptSerial}]: KSh ${payAmt.toLocaleString()} for Invoice #${invNumLabel}`,
+          bodyHtml: receiptEmailHtml,
+          emailType: "Payment Receipt",
+          serialNumber: rentReceiptSerial,
+          prefix: "RCT",
+          documentId: pay.id
+        });
+        if (rentEmailResult.externalDelivered) {
+          pay.externalDeliveryStatus = "delivered";
+          await savePaymentToDb(pay);
         }
       }
       res.status(200).json({
@@ -3819,59 +3838,103 @@ async function startServer() {
   });
   app2.post("/api/payments/record", async (req, res) => {
     try {
-      const { invoiceId, amount, paymentMethod, referenceCode, notes } = req.body;
+      const {
+        invoiceId,
+        amount,
+        paymentMethod,
+        referenceCode,
+        notes,
+        tenantId,
+        tenantName,
+        tenantEmail,
+        unitNumber,
+        propertyName,
+        propertyId,
+        landlordId,
+        periodMonth
+      } = req.body;
       const allInvoices = await getInvoicesFromDb();
-      const inv = allInvoices.find((i) => i.id === invoiceId);
-      if (!inv) {
-        return res.status(404).json({ error: "Invoice not found" });
+      const allTenants = await getTenantsFromDb();
+      let inv = invoiceId ? allInvoices.find((i) => i.id === invoiceId || i.invoiceNumber === invoiceId) : void 0;
+      if (!inv && (tenantId || tenantEmail) && periodMonth) {
+        inv = allInvoices.find(
+          (i) => (i.tenantId === tenantId || tenantEmail && i.tenantEmail?.toLowerCase() === tenantEmail.toLowerCase()) && i.periodMonth === periodMonth
+        );
       }
-      const payAmt = Number(amount) || inv.totalAmount;
+      const payAmt = Number(amount) || (inv ? inv.totalAmount : 0);
       const paymentReceiptSerial = generateUniqueSerialNumber("RCT");
+      const targetTenantId = inv?.tenantId || tenantId || (tenantEmail ? allTenants.find((t) => t.email?.toLowerCase() === tenantEmail.toLowerCase())?.id : void 0) || "tenant-1";
+      const targetTenant = allTenants.find((t) => t.id === targetTenantId);
+      const targetTenantName = inv?.tenantName || tenantName || targetTenant?.fullName || "Tenant";
+      const targetTenantEmail = inv?.tenantEmail || tenantEmail || targetTenant?.email || "";
+      const targetUnitNumber = inv?.unitNumber || unitNumber || targetTenant?.unitNumber || "Unit";
+      const targetPropertyName = inv?.propertyName || propertyName || targetTenant?.propertyName || "Property";
       const pay = {
         id: `pay-${Date.now()}`,
         serialNumber: paymentReceiptSerial,
-        invoiceId,
-        tenantId: inv.tenantId,
-        tenantName: inv.tenantName,
-        unitNumber: inv.unitNumber,
-        propertyName: inv.propertyName,
+        invoiceId: inv ? inv.id : invoiceId || `RENT-${Date.now()}`,
+        tenantId: targetTenantId,
+        tenantName: targetTenantName,
+        tenantEmail: targetTenantEmail,
+        unitNumber: targetUnitNumber,
+        propertyName: targetPropertyName,
+        propertyId: inv?.propertyId || propertyId || targetTenant?.propertyId || "",
+        landlordId: inv?.landlordId || landlordId || targetTenant?.landlordId || "",
+        periodMonth: inv?.periodMonth || periodMonth || "",
         amount: payAmt,
         paymentMethod: paymentMethod || "M-Pesa",
         referenceCode: referenceCode || `REF-${Math.floor(Math.random() * 899999 + 1e5)}`,
         paymentDate: (/* @__PURE__ */ new Date()).toISOString(),
         status: "Completed",
         externalDeliveryStatus: "simulated_fallback",
-        notes: notes ? `${notes} (Serial: ${paymentReceiptSerial})` : `Payment for ${inv.propertyName} - Unit ${inv.unitNumber}. Serial: ${paymentReceiptSerial}`
+        notes: notes ? `${notes} (Serial: ${paymentReceiptSerial})` : `Payment for ${targetPropertyName} - Unit ${targetUnitNumber}. Serial: ${paymentReceiptSerial}`
       };
       await savePaymentToDb(pay);
-      inv.amountPaid = (inv.amountPaid || 0) + payAmt;
-      if (inv.amountPaid >= inv.totalAmount) {
-        inv.status = "Paid";
-      } else if (inv.amountPaid > 0) {
-        inv.status = "Partial";
+      if (inv) {
+        inv.amountPaid = (inv.amountPaid || 0) + payAmt;
+        if (inv.amountPaid >= inv.totalAmount) {
+          inv.status = "Paid";
+        } else if (inv.amountPaid > 0) {
+          inv.status = "Partial";
+        }
+        await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
+      } else if (invoiceId) {
+        await updateInvoiceInDb(invoiceId, {
+          amountPaid: payAmt,
+          status: "Paid",
+          tenantId: targetTenantId,
+          tenantName: targetTenantName,
+          tenantEmail: targetTenantEmail,
+          unitNumber: targetUnitNumber,
+          propertyName: targetPropertyName,
+          periodMonth: periodMonth || "Monthly Rent",
+          totalAmount: payAmt
+        });
       }
-      await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
+      const invoiceNumLabel = inv ? inv.invoiceNumber : invoiceId || "Monthly Bill";
+      const invoicePaidTotal = inv ? inv.amountPaid : payAmt;
+      const invoiceFullTotal = inv ? inv.totalAmount : payAmt;
       const receiptEmailHtml = `
         <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 16px 0;">
           <h3 style="color: #166534; margin-top: 0; font-size: 16px;">Payment Received Confirmation</h3>
-          <p style="color: #15803d; font-size: 14px;">Dear <strong>${inv.tenantName}</strong>,</p>
-          <p style="color: #15803d; font-size: 14px;">We have successfully received your payment of <strong>KSh ${payAmt.toLocaleString()}</strong> for Invoice <strong>#${inv.invoiceNumber}</strong>.</p>
+          <p style="color: #15803d; font-size: 14px;">Dear <strong>${targetTenantName}</strong>,</p>
+          <p style="color: #15803d; font-size: 14px;">We have successfully received your payment of <strong>KSh ${payAmt.toLocaleString()}</strong> for Invoice <strong>#${invoiceNumLabel}</strong>.</p>
           <div style="background-color: #ffffff; border: 1px solid #bbf7d0; padding: 16px; border-radius: 8px; margin: 16px 0;">
             <p style="margin: 4px 0; font-size: 13px;"><strong>Receipt Serial:</strong> <code style="font-family: monospace; font-weight: bold; color: #0284c7;">${paymentReceiptSerial}</code></p>
             <p style="margin: 4px 0; font-size: 13px;"><strong>Payment Method:</strong> ${pay.paymentMethod}</p>
             <p style="margin: 4px 0; font-size: 13px;"><strong>Reference Code:</strong> ${pay.referenceCode}</p>
             <p style="margin: 4px 0; font-size: 13px;"><strong>Payment Date:</strong> ${new Date(pay.paymentDate).toLocaleString("en-KE")}</p>
             <hr style="border: 0; border-top: 1px solid #dcfce7; margin: 8px 0;"/>
-            <p style="margin: 4px 0; color: #15803d; font-size: 15px; font-weight: bold;">Invoice Amount Settled: KSh ${inv.amountPaid?.toLocaleString()} / KSh ${inv.totalAmount?.toLocaleString()}</p>
+            <p style="margin: 4px 0; color: #15803d; font-size: 15px; font-weight: bold;">Invoice Amount Settled: KSh ${invoicePaidTotal?.toLocaleString()} / KSh ${invoiceFullTotal?.toLocaleString()}</p>
           </div>
           <p style="font-size: 13px; color: #475569;">Thank you for choosing EstateMaster Property Management.</p>
         </div>
       `;
-      if (inv.tenantEmail) {
+      if (targetTenantEmail) {
         const receiptEmailResult = await dispatchSystemEmail({
-          recipientEmail: inv.tenantEmail,
-          recipientName: inv.tenantName,
-          subject: `\u2705 Payment Receipt #${pay.referenceCode} [${paymentReceiptSerial}] for Invoice #${inv.invoiceNumber} (KSh ${payAmt.toLocaleString()})`,
+          recipientEmail: targetTenantEmail,
+          recipientName: targetTenantName,
+          subject: `\u2705 Payment Receipt #${pay.referenceCode} [${paymentReceiptSerial}] for Invoice #${invoiceNumLabel} (KSh ${payAmt.toLocaleString()})`,
           bodyHtml: receiptEmailHtml,
           emailType: "Payment Receipt",
           serialNumber: paymentReceiptSerial,
