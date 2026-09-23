@@ -201,6 +201,14 @@ export async function updateUnitInDb(id: string, data: Partial<Unit>): Promise<v
   }
 }
 
+export async function deleteUnitFromDb(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.UNITS, id));
+  } catch (err) {
+    console.error('Error deleting unit from Firestore:', err);
+  }
+}
+
 // --- INVOICES ---
 export async function getInvoicesFromDb(): Promise<Invoice[]> {
   try {

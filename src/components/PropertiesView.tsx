@@ -561,8 +561,8 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
                 <AlertCircle className="w-3.5 h-3.5 text-rose-600" /> Consequences of removal:
               </span>
               <ul className="list-disc list-inside text-rose-800 space-y-0.5">
-                <li>The building record will be deleted from your landlord database.</li>
-                <li>Associated units and active listings for this building will be removed.</li>
+                <li>All tenant accounts associated with this building will be automatically deleted.</li>
+                <li>The building record and all its units will be permanently removed from your portfolio.</li>
               </ul>
             </div>
 

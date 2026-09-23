@@ -1,9 +1,90 @@
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { Property, Tenant, Invoice, Payment } from '../types';
 import { calculateTenantArrears } from './arrears';
 import { isCapacitorPlatform } from './api';
+
+/**
+ * Applies bold titles, headers, section banners, and styled totals to Excel worksheets.
+ */
+function applyExcelStyles(
+  ws: any,
+  options: {
+    titleRows?: number[];
+    sectionRows?: number[];
+    headerRows?: number[];
+    totalRows?: number[];
+  }
+) {
+  if (!ws || !ws['!ref']) return;
+  const range = XLSX.utils.decode_range(ws['!ref']);
+
+  const titleSet = new Set(options.titleRows || []);
+  const sectionSet = new Set(options.sectionRows || []);
+  const headerSet = new Set(options.headerRows || []);
+  const totalSet = new Set(options.totalRows || []);
+
+  for (let R = range.s.r; R <= range.e.r; ++R) {
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[cellAddress];
+      if (!cell) continue;
+
+      if (titleSet.has(R)) {
+        // Main Title Row: Bold, 14pt, Dark Navy Theme
+        cell.s = {
+          font: { name: 'Arial', bold: true, sz: 14, color: { rgb: 'FFFFFF' } },
+          fill: { fgColor: { rgb: '0F172A' } },
+          alignment: { horizontal: 'left', vertical: 'center' }
+        };
+      } else if (sectionSet.has(R)) {
+        // Section Subheader: Bold, 11pt, Sky Blue
+        cell.s = {
+          font: { name: 'Arial', bold: true, sz: 11, color: { rgb: '0369A1' } },
+          fill: { fgColor: { rgb: 'E0F2FE' } },
+          alignment: { horizontal: 'left', vertical: 'center' },
+          border: {
+            bottom: { style: 'thin', color: { rgb: 'BAE6FD' } }
+          }
+        };
+      } else if (headerSet.has(R)) {
+        // Table Column Header: Bold, 10pt, Light Slate Gray
+        cell.s = {
+          font: { name: 'Arial', bold: true, sz: 10, color: { rgb: '0F172A' } },
+          fill: { fgColor: { rgb: 'E2E8F0' } },
+          alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+          border: {
+            top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+            bottom: { style: 'medium', color: { rgb: '64748B' } },
+            left: { style: 'thin', color: { rgb: 'E2E8F0' } },
+            right: { style: 'thin', color: { rgb: 'E2E8F0' } }
+          }
+        };
+      } else if (totalSet.has(R)) {
+        // Totals Row: Bold, 11pt, Golden Yellow Highlight
+        cell.s = {
+          font: { name: 'Arial', bold: true, sz: 11, color: { rgb: '713F12' } },
+          fill: { fgColor: { rgb: 'FEF08A' } },
+          alignment: { vertical: 'center' },
+          border: {
+            top: { style: 'thin', color: { rgb: 'CA8A04' } },
+            bottom: { style: 'double', color: { rgb: '854D0E' } }
+          }
+        };
+      } else {
+        // Standard Data Rows
+        cell.s = {
+          font: { name: 'Arial', sz: 10, color: { rgb: '1E293B' } },
+          alignment: { vertical: 'center' },
+          border: {
+            bottom: { style: 'thin', color: { rgb: 'F1F5F9' } }
+          }
+        };
+      }
+    }
+  }
+}
 
 export interface ExportExcelOptions {
   properties: Property[];
@@ -337,6 +418,15 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
     { wch: 20 }, // Collection Rate
     { wch: 24 }, // Status
   ];
+
+  // Apply bold titles, subheaders, and totals formatting
+  applyExcelStyles(summaryWs, {
+    titleRows: [0],
+    sectionRows: [3, 11],
+    headerRows: [4, 12],
+    totalRows: [13 + activeSummaries.length],
+  });
+
   XLSX.utils.book_append_sheet(wb, summaryWs, 'Portfolio Summary');
 
   // ==========================================
@@ -444,6 +534,15 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
       { wch: 24 }, // Last Payment Amount
       { wch: 24 }, // Last Payment Ref
     ];
+
+    // Apply bold titles, subheaders, and totals formatting
+    applyExcelStyles(buildingWs, {
+      titleRows: [0],
+      sectionRows: [4, 12],
+      headerRows: [13],
+      totalRows: [14 + bs.tenantRecords.length],
+    });
+
     XLSX.utils.book_append_sheet(wb, buildingWs, finalSheetName);
   });
 
@@ -513,6 +612,14 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
     { wch: 18 }, // Status
     { wch: 30 }, // Notes
   ];
+
+  // Apply bold titles, headers, and totals formatting
+  applyExcelStyles(paymentsWs, {
+    titleRows: [0],
+    headerRows: [3],
+    totalRows: [4 + sortedPayments.length],
+  });
+
   XLSX.utils.book_append_sheet(wb, paymentsWs, 'All Payments History');
 
   // Resolve export filename

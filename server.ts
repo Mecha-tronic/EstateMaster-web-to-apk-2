@@ -33,6 +33,7 @@ import {
   getUnitsFromDb,
   saveUnitToDb,
   updateUnitInDb,
+  deleteUnitFromDb,
   getInvoicesFromDb,
   saveInvoiceToDb,
   updateInvoiceInDb,
@@ -68,6 +69,7 @@ import {
   generateUniqueSerialNumber,
   getEmailConfig
 } from './src/lib/emailService.js';
+import { generatePaymentReceiptAndStatementPdf } from './src/lib/pdfStatementGenerator.js';
 
 dotenv.config();
 
@@ -673,6 +675,13 @@ async function startServer() {
     prefix?: 'INV' | 'RCT' | 'OTP' | 'SEC' | 'QTE' | 'WLC' | 'MNT' | 'SUB';
     documentId?: string;
     serialNumber?: string;
+    attachments?: Array<{
+      filename: string;
+      content?: any;
+      path?: string;
+      contentType?: string;
+      encoding?: string;
+    }>;
   }): Promise<{
     success: boolean;
     serialNumber: string;
@@ -688,7 +697,8 @@ async function startServer() {
       bodyHtml: options.bodyHtml,
       emailType: options.emailType,
       serialNumber: serial,
-      documentId: options.documentId
+      documentId: options.documentId,
+      attachments: options.attachments
     });
 
     const emailLog: EmailLog = {
@@ -753,6 +763,247 @@ async function startServer() {
   // Run immediately and poll every 6 seconds for new emails queued by mobile APKs
   setInterval(processPendingEmailQueue, 6000);
   setTimeout(processPendingEmailQueue, 2000);
+
+  /**
+   * Dispatches an official payment confirmation email containing:
+   * 1. Payment receipt breakdown for current payment
+   * 2. Complete statement of all individual payments made by this tenant since move-in
+   * 3. Cumulative amount paid to date
+   * 4. Direct download button for PDF receipt & statement
+   * 5. PDF attachment (generated via pdfkit)
+   */
+  const dispatchPaymentReceiptAndStatementEmail = async (options: {
+    payment: Payment;
+    invoice?: Invoice;
+    serialNumber?: string;
+  }) => {
+    try {
+      const pay = options.payment;
+      const inv = options.invoice;
+      const serialNumber = options.serialNumber || pay.serialNumber || generateUniqueSerialNumber('RCT');
+
+      // Fetch tenant & payment history
+      const allTenants = await getTenantsFromDb();
+      const targetTenant =
+        allTenants.find(
+          (t) =>
+            t.id === pay.tenantId ||
+            (pay.tenantEmail && t.email?.toLowerCase() === pay.tenantEmail.toLowerCase())
+        ) || tenants.find((t) => t.id === pay.tenantId);
+
+      const recipientEmail = pay.tenantEmail || targetTenant?.email;
+      const recipientName = pay.tenantName || targetTenant?.fullName || 'Resident';
+      if (!recipientEmail) {
+        console.log('[PaymentEmail] No recipient email found for payment', pay.id);
+        return { success: false, reason: 'No recipient email' };
+      }
+
+      // Fetch all payments for this tenant
+      const allPaymentsFromDb = await getPaymentsFromDb();
+      const combinedPaymentsMap = new Map<string, Payment>();
+      [...payments, ...allPaymentsFromDb, pay].forEach((p) => {
+        if (p && p.id) combinedPaymentsMap.set(p.id, p);
+      });
+
+      const tenantPayments = Array.from(combinedPaymentsMap.values()).filter((p) => {
+        const matchesId = p.tenantId && (p.tenantId === pay.tenantId || p.tenantId === targetTenant?.id);
+        const matchesEmail =
+          p.tenantEmail &&
+          recipientEmail &&
+          p.tenantEmail.trim().toLowerCase() === recipientEmail.trim().toLowerCase();
+        return Boolean(matchesId || matchesEmail);
+      });
+
+      // Sort chronologically ascending (from move-in date to current)
+      tenantPayments.sort(
+        (a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime()
+      );
+
+      // Cumulative amount paid since move-in
+      const cumulativeTotalPaid = tenantPayments.reduce(
+        (sum, p) => sum + (Number(p.amount) || 0),
+        0
+      );
+
+      // Generate publication-grade PDF buffer
+      let pdfBuffer: Buffer | null = null;
+      try {
+        pdfBuffer = await generatePaymentReceiptAndStatementPdf({
+          tenantName: recipientName,
+          tenantEmail: recipientEmail,
+          tenantPhone: targetTenant?.phone || '',
+          unitNumber: pay.unitNumber || targetTenant?.unitNumber || '',
+          propertyName: pay.propertyName || targetTenant?.propertyName || '',
+          moveInDate: targetTenant?.moveInDate || '',
+          currentPayment: {
+            serialNumber,
+            amount: pay.amount,
+            paymentMethod: pay.paymentMethod,
+            referenceCode: pay.referenceCode,
+            paymentDate: pay.paymentDate,
+            periodMonth: pay.periodMonth || inv?.periodMonth || 'Monthly Rent',
+            invoiceNumber: inv?.invoiceNumber,
+          },
+          paymentHistory: tenantPayments.map((p) => ({
+            paymentDate: p.paymentDate,
+            amount: p.amount,
+            paymentMethod: p.paymentMethod,
+            referenceCode: p.referenceCode,
+            periodMonth: p.periodMonth || p.notes,
+            notes: p.notes,
+          })),
+          cumulativeTotalPaid,
+        });
+      } catch (pdfErr) {
+        console.warn('[PaymentEmail] Could not generate PDF buffer:', pdfErr);
+      }
+
+      // Build HTML Statement Table
+      const historyRowsHtml = tenantPayments
+        .map(
+          (p, idx) => `
+        <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'}; border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 8px 10px; font-size: 12px; color: #475569;">${idx + 1}</td>
+          <td style="padding: 8px 10px; font-size: 12px; color: #1e293b;">${p.paymentDate ? new Date(p.paymentDate).toLocaleDateString('en-KE') : 'Recent'}</td>
+          <td style="padding: 8px 10px; font-size: 12px; font-family: monospace; font-weight: bold; color: #0284c7;">${p.referenceCode || p.serialNumber || 'REF'}</td>
+          <td style="padding: 8px 10px; font-size: 12px; color: #334155;">${p.periodMonth || p.notes || 'Rent'}</td>
+          <td style="padding: 8px 10px; font-size: 12px; color: #475569;">${p.paymentMethod || 'M-Pesa'}</td>
+          <td style="padding: 8px 10px; font-size: 12px; font-weight: bold; color: #0f172a; text-align: right;">KSh ${Number(p.amount || 0).toLocaleString()}</td>
+        </tr>
+      `
+        )
+        .join('');
+
+      const invoiceNumLabel = inv ? inv.invoiceNumber : pay.invoiceId || 'Monthly Rent';
+      const pdfFilename = `Receipt_Statement_${serialNumber}.pdf`;
+
+      const emailHtml = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0f172a;">
+          <!-- 1. Verified Payment Receipt Banner -->
+          <div style="background-color: #f0fdf4; border: 1px solid #86efac; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <h3 style="color: #166534; margin: 0; font-size: 18px; font-weight: bold;">
+                ✅ Payment Received & Verified
+              </h3>
+              <span style="font-family: monospace; font-size: 11px; background-color: #dcfce7; color: #15803d; padding: 4px 8px; border-radius: 6px; font-weight: bold;">
+                SERIAL: ${serialNumber}
+              </span>
+            </div>
+            <p style="color: #15803d; font-size: 14px; margin: 0 0 16px 0;">
+              Dear <strong>${recipientName}</strong>, we have successfully received and processed your payment of 
+              <strong style="font-size: 16px; color: #166534;"> KSh ${Number(pay.amount).toLocaleString()}</strong> for 
+              <strong>Invoice #${invoiceNumLabel}</strong> (${pay.propertyName || 'Property'} - Unit ${pay.unitNumber || 'Unit'}).
+            </p>
+            <div style="background-color: #ffffff; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; font-size: 13px; color: #1e293b;">
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="4">
+                <tr><td width="35%" style="color: #64748b;"><strong>Receipt Serial:</strong></td><td style="font-family: monospace; font-weight: bold; color: #0284c7;">${serialNumber}</td></tr>
+                <tr><td style="color: #64748b;"><strong>Reference / Code:</strong></td><td style="font-family: monospace; font-weight: bold;">${pay.referenceCode}</td></tr>
+                <tr><td style="color: #64748b;"><strong>Payment Method:</strong></td><td>${pay.paymentMethod}</td></tr>
+                <tr><td style="color: #64748b;"><strong>Payment Date:</strong></td><td>${new Date(pay.paymentDate).toLocaleString('en-KE')}</td></tr>
+                <tr><td style="color: #64748b;"><strong>Payment Status:</strong></td><td style="color: #16a34a; font-weight: bold;">COMPLETED</td></tr>
+              </table>
+            </div>
+          </div>
+
+          <!-- 2. Statement of Individual Payments Ever Since Move-In -->
+          <div style="margin-bottom: 24px;">
+            <h4 style="margin: 0 0 6px 0; color: #0f172a; font-size: 15px; font-weight: bold;">
+              📋 Lifetime Payment Statement (All Payments Since Move-In)
+            </h4>
+            <p style="margin: 0 0 12px 0; color: #64748b; font-size: 12px;">
+              Below is the comprehensive audit record of every payment received from your tenancy since registration:
+            </p>
+            <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; width: 100%;">
+              <thead>
+                <tr style="background-color: #0f172a; color: #ffffff; text-align: left;">
+                  <th style="padding: 8px 10px; font-size: 11px;">#</th>
+                  <th style="padding: 8px 10px; font-size: 11px;">Date</th>
+                  <th style="padding: 8px 10px; font-size: 11px;">Reference</th>
+                  <th style="padding: 8px 10px; font-size: 11px;">Period / Purpose</th>
+                  <th style="padding: 8px 10px; font-size: 11px;">Method</th>
+                  <th style="padding: 8px 10px; font-size: 11px; text-align: right;">Amount (KSh)</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${historyRowsHtml}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 3. Cumulative Total Paid Card -->
+          <div style="background-color: #fef9c3; border: 1px solid #fde047; border-radius: 12px; padding: 18px; margin-bottom: 24px;">
+            <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+              <tr>
+                <td>
+                  <span style="font-size: 11px; font-weight: bold; color: #854d0e; text-transform: uppercase; letter-spacing: 0.5px;">
+                    Cumulative Rent Paid Since Move-In
+                  </span>
+                  <div style="font-size: 12px; color: #713f12; margin-top: 2px;">
+                    Total Transactions Recorded: <strong>${tenantPayments.length}</strong>
+                  </div>
+                </td>
+                <td align="right">
+                  <div style="font-size: 22px; font-weight: 800; color: #713f12;">
+                    KSh ${cumulativeTotalPaid.toLocaleString()}
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- 4. Downloadable PDF Attachment Banner -->
+          <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 16px;">
+            <p style="margin: 0 0 8px 0; font-size: 13px; color: #334155; font-weight: 600;">
+              📎 Official PDF Receipt & Tenancy Statement
+            </p>
+            <p style="margin: 0 0 16px 0; font-size: 12px; color: #64748b;">
+              The official signed PDF document (<strong>${pdfFilename}</strong>) is attached to this email and ready to download.
+            </p>
+            <a href="/api/tenants/${targetTenant?.id || pay.tenantId}/statement-pdf?paymentId=${pay.id}&serial=${serialNumber}" 
+               style="display: inline-block; background-color: #0284c7; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2);">
+              ⬇️ Download Official Statement & Receipt PDF
+            </a>
+          </div>
+
+          <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 20px;">
+            Thank you for being a valued resident with EstateMaster Kenya.
+          </p>
+        </div>
+      `;
+
+      const attachments = pdfBuffer
+        ? [
+            {
+              filename: pdfFilename,
+              content: pdfBuffer,
+              contentType: 'application/pdf',
+            },
+          ]
+        : undefined;
+
+      const emailResult = await dispatchSystemEmail({
+        recipientEmail,
+        recipientName,
+        subject: `✅ Payment Receipt #${pay.referenceCode} [${serialNumber}] & Statement (KSh ${Number(pay.amount).toLocaleString()})`,
+        bodyHtml: emailHtml,
+        emailType: 'Payment Receipt',
+        serialNumber,
+        prefix: 'RCT',
+        documentId: pay.id,
+        attachments,
+      });
+
+      if (emailResult.externalDelivered) {
+        pay.externalDeliveryStatus = 'delivered';
+        await savePaymentToDb(pay);
+      }
+
+      return { success: true, emailResult };
+    } catch (err: any) {
+      console.error('[PaymentEmail] Error in dispatchPaymentReceiptAndStatementEmail:', err);
+      return { success: false, error: err.message };
+    }
+  };
 
   // --- API ROUTES ---
 
@@ -2797,21 +3048,11 @@ async function startServer() {
           </p>
         `;
 
-        const rentEmailResult = await dispatchSystemEmail({
-          recipientEmail: invEmailTarget,
-          recipientName: invNameTarget,
-          subject: `📲 M-Pesa Receipt ${receiptCode} [${rentReceiptSerial}]: KSh ${payAmt.toLocaleString()} for Invoice #${invNumLabel}`,
-          bodyHtml: receiptEmailHtml,
-          emailType: 'Payment Receipt',
+        await dispatchPaymentReceiptAndStatementEmail({
+          payment: pay,
+          invoice: inv,
           serialNumber: rentReceiptSerial,
-          prefix: 'RCT',
-          documentId: pay.id
         });
-
-        if (rentEmailResult.externalDelivered) {
-          pay.externalDeliveryStatus = 'delivered';
-          await savePaymentToDb(pay);
-        }
       }
 
       res.status(200).json({
@@ -3071,14 +3312,10 @@ async function startServer() {
             </div>
           `;
 
-          await dispatchSystemEmail({
-            recipientEmail: inv.tenantEmail,
-            recipientName: inv.tenantName,
-            subject: `✅ Payment Receipt [${rctSerialNumber}]: M-Pesa ${cleanCode} (KSh ${payAmt.toLocaleString()}) for Invoice #${inv.invoiceNumber}`,
-            bodyHtml: receiptEmailHtml,
-            emailType: 'Payment Receipt',
-            documentId: verifiedPayment.id,
-            serialNumber: rctSerialNumber
+          await dispatchPaymentReceiptAndStatementEmail({
+            payment: verifiedPayment,
+            invoice: inv,
+            serialNumber: rctSerialNumber,
           });
         }
       }
@@ -3141,8 +3378,49 @@ async function startServer() {
   app.delete('/api/properties/:id', async (req, res) => {
     try {
       const { id } = req.params;
+      const allProps = await getPropertiesFromDb();
+      const targetProp = allProps.find((p) => p.id === id) || properties.find((p) => p.id === id);
+
+      // 1. Find all units associated with this property
+      const allUnits = await getUnitsFromDb();
+      const propUnits = allUnits.filter(
+        (u) => u.propertyId === id || (targetProp && u.propertyName?.trim().toLowerCase() === targetProp.name?.trim().toLowerCase())
+      );
+      const propUnitIds = new Set(propUnits.map((u) => u.id));
+
+      // 2. Automatically delete all tenant accounts associated with this building / units
+      const allTenants = await getTenantsFromDb();
+      const tenantsToDelete = allTenants.filter(
+        (t) =>
+          t.propertyId === id ||
+          (t.unitId && propUnitIds.has(t.unitId)) ||
+          (targetProp && t.propertyName?.trim().toLowerCase() === targetProp.name?.trim().toLowerCase())
+      );
+
+      for (const t of tenantsToDelete) {
+        await deleteTenantFromDb(t.id);
+        const memIdx = tenants.findIndex((mt) => mt.id === t.id);
+        if (memIdx !== -1) tenants.splice(memIdx, 1);
+      }
+
+      // 3. Delete all units associated with this building
+      for (const u of propUnits) {
+        await deleteUnitFromDb(u.id);
+        const memUIdx = units.findIndex((mu) => mu.id === u.id);
+        if (memUIdx !== -1) units.splice(memUIdx, 1);
+      }
+
+      // 4. Delete the property itself
       await deletePropertyFromDb(id);
-      res.json({ message: 'Property removed successfully', id });
+      const memPropIdx = properties.findIndex((p) => p.id === id);
+      if (memPropIdx !== -1) properties.splice(memPropIdx, 1);
+
+      res.json({
+        message: 'Property, units, and all associated tenant accounts removed successfully',
+        id,
+        deletedUnitsCount: propUnits.length,
+        deletedTenantsCount: tenantsToDelete.length,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -3183,25 +3461,60 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/tenants/:id', (req, res) => {
-    const { id } = req.params;
-    const index = tenants.findIndex((t) => t.id === id);
-    if (index === -1) {
-      return res.status(404).json({ error: 'Tenant account not found' });
-    }
-    const deletedTenant = tenants.splice(index, 1)[0];
+  app.delete('/api/tenants/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const allTenants = await getTenantsFromDb();
+      const deletedTenant = allTenants.find((t) => t.id === id) || tenants.find((t) => t.id === id);
 
-    // Reset associated unit status to 'Available'
-    if (deletedTenant.unitId) {
-      const unit = units.find((u) => u.id === deletedTenant.unitId);
-      if (unit) {
-        unit.status = 'Available';
-        delete unit.currentTenantName;
-        delete unit.currentTenantEmail;
+      if (!deletedTenant) {
+        return res.status(404).json({ error: 'Tenant account not found' });
       }
-    }
 
-    res.json({ message: 'Tenant account deleted successfully', tenant: sanitizeUserForClient(deletedTenant) });
+      // Delete tenant record from Firestore & memory
+      await deleteTenantFromDb(id);
+      const memIdx = tenants.findIndex((t) => t.id === id);
+      if (memIdx !== -1) tenants.splice(memIdx, 1);
+
+      // Move condition of tenant's unit from Occupied to Vacant to allow for a new tenant
+      const allUnits = await getUnitsFromDb();
+      const matchingUnits = allUnits.filter(
+        (u) =>
+          (deletedTenant.unitId && u.id === deletedTenant.unitId) ||
+          (deletedTenant.unitNumber &&
+            u.unitNumber?.trim().toLowerCase() === deletedTenant.unitNumber?.trim().toLowerCase() &&
+            ((deletedTenant.propertyId && u.propertyId === deletedTenant.propertyId) ||
+              (deletedTenant.propertyName &&
+                u.propertyName?.trim().toLowerCase() === deletedTenant.propertyName?.trim().toLowerCase()))) ||
+          (deletedTenant.email && u.currentTenantEmail?.toLowerCase() === deletedTenant.email.toLowerCase())
+      );
+
+      for (const unit of matchingUnits) {
+        unit.status = 'Vacant';
+        unit.currentTenantName = '';
+        unit.currentTenantEmail = '';
+        await updateUnitInDb(unit.id, {
+          status: 'Vacant',
+          currentTenantName: '',
+          currentTenantEmail: '',
+        });
+
+        const memUnit = units.find((u) => u.id === unit.id);
+        if (memUnit) {
+          memUnit.status = 'Vacant';
+          delete memUnit.currentTenantName;
+          delete memUnit.currentTenantEmail;
+        }
+      }
+
+      res.json({
+        message: 'Tenant moved out and unit marked Vacant successfully',
+        tenant: sanitizeUserForClient(deletedTenant),
+        vacatedUnitsCount: matchingUnits.length,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // NEW TENANT SELF-REGISTRATION FOR AN APARTMENT
@@ -3780,26 +4093,175 @@ async function startServer() {
       `;
 
       if (targetTenantEmail) {
-        const receiptEmailResult = await dispatchSystemEmail({
-          recipientEmail: targetTenantEmail,
-          recipientName: targetTenantName,
-          subject: `✅ Payment Receipt #${pay.referenceCode} [${paymentReceiptSerial}] for Invoice #${invoiceNumLabel} (KSh ${payAmt.toLocaleString()})`,
-          bodyHtml: receiptEmailHtml,
-          emailType: 'Payment Receipt',
+        await dispatchPaymentReceiptAndStatementEmail({
+          payment: pay,
+          invoice: inv,
           serialNumber: paymentReceiptSerial,
-          prefix: 'RCT',
-          documentId: pay.id
         });
-
-        if (receiptEmailResult.externalDelivered) {
-          pay.externalDeliveryStatus = 'delivered';
-          await savePaymentToDb(pay);
-        }
       }
 
       res.status(201).json({ payment: pay, invoice: inv });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Downloadable PDF Statement of Account for a Tenant (All Payments Ever Since Move-In & Cumulative Total)
+  app.get('/api/tenants/:id/statement-pdf', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const paymentId = req.query.paymentId as string;
+      const serialQuery = req.query.serial as string;
+
+      const allTenants = await getTenantsFromDb();
+      const targetTenant = allTenants.find((t) => t.id === id) || tenants.find((t) => t.id === id);
+
+      const allPaymentsFromDb = await getPaymentsFromDb();
+      const combined = [...payments, ...allPaymentsFromDb];
+      const tenantPayments = combined.filter(
+        (p) =>
+          p.tenantId === id ||
+          (targetTenant?.email && p.tenantEmail?.toLowerCase() === targetTenant.email.toLowerCase())
+      );
+
+      // De-duplicate
+      const uniquePayments = Array.from(new Map(tenantPayments.map((p) => [p.id, p])).values());
+      uniquePayments.sort(
+        (a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime()
+      );
+
+      const currentPay: Payment =
+        (paymentId && uniquePayments.find((p) => p.id === paymentId)) ||
+        uniquePayments[uniquePayments.length - 1] || {
+          id: `pay-${Date.now()}`,
+          tenantId: id,
+          tenantName: targetTenant?.fullName || 'Tenant',
+          tenantEmail: targetTenant?.email || '',
+          unitNumber: targetTenant?.unitNumber || '',
+          propertyName: targetTenant?.propertyName || '',
+          serialNumber: serialQuery || generateUniqueSerialNumber('RCT'),
+          amount: 0,
+          paymentMethod: 'M-Pesa',
+          referenceCode: 'STATEMENT',
+          paymentDate: new Date().toISOString(),
+          periodMonth: 'Full Statement',
+          invoiceId: '',
+          status: 'Completed',
+        };
+
+      const cumulativeTotal = uniquePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+      const pdfBuffer = await generatePaymentReceiptAndStatementPdf({
+        tenantName: targetTenant?.fullName || currentPay.tenantName || 'Tenant',
+        tenantEmail: targetTenant?.email || currentPay.tenantEmail || '',
+        tenantPhone: targetTenant?.phone || '',
+        unitNumber: targetTenant?.unitNumber || currentPay.unitNumber || '',
+        propertyName: targetTenant?.propertyName || currentPay.propertyName || '',
+        moveInDate: targetTenant?.moveInDate || '',
+        currentPayment: {
+          serialNumber: currentPay.serialNumber || serialQuery || generateUniqueSerialNumber('RCT'),
+          amount: currentPay.amount,
+          paymentMethod: currentPay.paymentMethod,
+          referenceCode: currentPay.referenceCode,
+          paymentDate: currentPay.paymentDate,
+          periodMonth: currentPay.periodMonth,
+          invoiceNumber: currentPay.invoiceId,
+        },
+        paymentHistory: uniquePayments.map((p) => ({
+          paymentDate: p.paymentDate,
+          amount: p.amount,
+          paymentMethod: p.paymentMethod,
+          referenceCode: p.referenceCode,
+          periodMonth: p.periodMonth || p.notes,
+          notes: p.notes,
+        })),
+        cumulativeTotalPaid: cumulativeTotal,
+      });
+
+      const safeTenantName = (targetTenant?.fullName || 'Tenant').replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `EstateMaster_Payment_Statement_${safeTenantName}_${Date.now()}.pdf`;
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.send(pdfBuffer);
+    } catch (err: any) {
+      console.error('Error generating tenant statement PDF:', err);
+      res.status(500).json({ error: 'Failed to generate PDF statement: ' + err.message });
+    }
+  });
+
+  // Downloadable PDF Receipt for a Specific Payment
+  app.get('/api/payments/:id/receipt-pdf', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const allPaymentsFromDb = await getPaymentsFromDb();
+      const combined = [...payments, ...allPaymentsFromDb];
+      const currentPay = combined.find((p) => p.id === id || p.serialNumber === id);
+
+      if (!currentPay) {
+        return res.status(404).json({ error: 'Payment record not found' });
+      }
+
+      const allTenants = await getTenantsFromDb();
+      const targetTenant =
+        allTenants.find(
+          (t) =>
+            t.id === currentPay.tenantId ||
+            (currentPay.tenantEmail && t.email?.toLowerCase() === currentPay.tenantEmail.toLowerCase())
+        ) || tenants.find((t) => t.id === currentPay.tenantId);
+
+      const tenantPayments = combined.filter(
+        (p) =>
+          p.tenantId === currentPay.tenantId ||
+          (targetTenant?.id && p.tenantId === targetTenant.id) ||
+          (currentPay.tenantEmail && p.tenantEmail?.toLowerCase() === currentPay.tenantEmail.toLowerCase())
+      );
+
+      const uniquePayments = Array.from(new Map(tenantPayments.map((p) => [p.id, p])).values());
+      uniquePayments.sort(
+        (a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime()
+      );
+
+      const cumulativeTotal = uniquePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+      const pdfBuffer = await generatePaymentReceiptAndStatementPdf({
+        tenantName: currentPay.tenantName || targetTenant?.fullName || 'Tenant',
+        tenantEmail: currentPay.tenantEmail || targetTenant?.email || '',
+        tenantPhone: targetTenant?.phone || '',
+        unitNumber: currentPay.unitNumber || targetTenant?.unitNumber || '',
+        propertyName: currentPay.propertyName || targetTenant?.propertyName || '',
+        moveInDate: targetTenant?.moveInDate || '',
+        currentPayment: {
+          serialNumber: currentPay.serialNumber || generateUniqueSerialNumber('RCT'),
+          amount: currentPay.amount,
+          paymentMethod: currentPay.paymentMethod,
+          referenceCode: currentPay.referenceCode,
+          paymentDate: currentPay.paymentDate,
+          periodMonth: currentPay.periodMonth,
+          invoiceNumber: currentPay.invoiceId,
+        },
+        paymentHistory: uniquePayments.map((p) => ({
+          paymentDate: p.paymentDate,
+          amount: p.amount,
+          paymentMethod: p.paymentMethod,
+          referenceCode: p.referenceCode,
+          periodMonth: p.periodMonth || p.notes,
+          notes: p.notes,
+        })),
+        cumulativeTotalPaid: cumulativeTotal,
+      });
+
+      const serialLabel = currentPay.serialNumber || currentPay.referenceCode || id;
+      const filename = `EstateMaster_Receipt_${serialLabel}.pdf`;
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.send(pdfBuffer);
+    } catch (err: any) {
+      console.error('Error generating payment receipt PDF:', err);
+      res.status(500).json({ error: 'Failed to generate PDF receipt: ' + err.message });
     }
   });
 

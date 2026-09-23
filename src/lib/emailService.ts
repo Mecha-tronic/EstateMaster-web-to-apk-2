@@ -263,6 +263,13 @@ export async function sendPersonalizedEmail(options: {
   emailType: EmailLog['emailType'];
   serialNumber?: string;
   documentId?: string;
+  attachments?: Array<{
+    filename: string;
+    content?: any;
+    path?: string;
+    contentType?: string;
+    encoding?: string;
+  }>;
 }): Promise<{
   success: boolean;
   serialNumber: string;
@@ -303,6 +310,7 @@ export async function sendPersonalizedEmail(options: {
         to: `"${options.recipientName}" <${options.recipientEmail}>`,
         subject: `${options.subject} [${serialNumber}]`,
         html: completeHtml,
+        attachments: options.attachments,
         headers: {
           'X-EstateMaster-Serial-Number': serialNumber,
           'X-EstateMaster-Type': options.emailType,

@@ -40,7 +40,7 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
   onRegistrationComplete,
   onGoToPortal,
 }) => {
-  const availableUnits = units.filter((u) => u.status === 'Available');
+  const availableUnits = units.filter((u) => u.status === 'Available' || u.status === 'Vacant');
 
   const [step, setStep] = useState<number>(1);
   const [selectedUnitId, setSelectedUnitId] = useState<string>(initialSelectedUnitId || '');
@@ -49,7 +49,7 @@ export const TenantRegistrationView: React.FC<TenantRegistrationViewProps> = ({
     if (initialSelectedUnitId) {
       setSelectedUnitId(initialSelectedUnitId);
     } else if (!selectedUnitId && units.length > 0) {
-      const avail = units.find((u) => u.status === 'Available') || units[0];
+      const avail = units.find((u) => u.status === 'Available' || u.status === 'Vacant') || units[0];
       if (avail) setSelectedUnitId(avail.id);
     }
   }, [initialSelectedUnitId, units]);

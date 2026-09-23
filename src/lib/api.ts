@@ -30,6 +30,7 @@ import {
   getUnitsFromDb,
   saveUnitToDb,
   updateUnitInDb,
+  deleteUnitFromDb,
   getInvoicesFromDb,
   saveInvoiceToDb,
   updateInvoiceInDb,
@@ -1763,30 +1764,62 @@ export async function updatePropertyDetails(propertyId: string, data: Partial<Pr
 }
 
 export async function deleteProperty(propertyId: string): Promise<void> {
-  // Delete from Firestore directly
+  // 1. Identify building and associated units
+  const props = getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, []);
+  const targetProp = props.find((p) => p.id === propertyId);
+  const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
+  const propUnits = units.filter(
+    (u) => u.propertyId === propertyId || (targetProp && u.propertyName?.trim().toLowerCase() === targetProp.name?.trim().toLowerCase())
+  );
+  const propUnitIds = new Set(propUnits.map((u) => u.id));
+
+  // 2. Automatically delete all tenant accounts associated with this building
+  const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+  const tenantsToDelete = tenants.filter(
+    (t) =>
+      t.propertyId === propertyId ||
+      (t.unitId && propUnitIds.has(t.unitId)) ||
+      (targetProp && t.propertyName?.trim().toLowerCase() === targetProp.name?.trim().toLowerCase())
+  );
+
+  for (const t of tenantsToDelete) {
+    try {
+      await deleteTenantFromDb(t.id);
+    } catch (tErr) {
+      console.warn('Tenant delete from Firestore notice:', tErr);
+    }
+  }
+  const remainingTenants = tenants.filter((t) => !tenantsToDelete.some((del) => del.id === t.id));
+  setLocalData(STORAGE_KEYS.TENANTS, remainingTenants);
+
+  // 3. Delete all units belonging to this building
+  for (const u of propUnits) {
+    try {
+      await deleteUnitFromDb(u.id);
+    } catch (uErr) {
+      console.warn('Unit delete from Firestore notice:', uErr);
+    }
+  }
+  const filteredUnits = units.filter((u) => !propUnitIds.has(u.id));
+  setLocalData(STORAGE_KEYS.UNITS, filteredUnits);
+
+  // 4. Delete property from Firestore directly & local cache
   try {
     await deletePropertyFromDb(propertyId);
   } catch (fsErr) {
     console.warn('Direct Firestore property delete notice:', fsErr);
   }
+  const filteredProps = props.filter((p) => p.id !== propertyId);
+  setLocalData(STORAGE_KEYS.PROPERTIES, filteredProps);
 
-  // Delete from local cache
-  const props = getLocalData<Property[]>(STORAGE_KEYS.PROPERTIES, []);
-  const filtered = props.filter(p => p.id !== propertyId);
-  setLocalData(STORAGE_KEYS.PROPERTIES, filtered);
-
-  const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
-  const filteredUnits = units.filter(u => u.propertyId !== propertyId);
-  setLocalData(STORAGE_KEYS.UNITS, filteredUnits);
-
-  // Sync with backend if available
+  // 5. Sync with backend if available
   try {
     const res = await fetch(getApiUrl(`/api/properties/${propertyId}`), {
       method: 'DELETE',
     });
     await handleResponse(res, 'Failed to remove property');
   } catch (err) {
-    console.warn('Backend fetch failed, property deleted locally & in Firestore:', err);
+    console.warn('Backend fetch failed, property & tenants deleted locally & in Firestore:', err);
   }
 }
 
@@ -2135,48 +2168,59 @@ export async function updateTenantDetails(tenantId: string, data: Partial<Tenant
 }
 
 export async function deleteTenantAccount(tenantId: string): Promise<boolean> {
+  // Sync localStorage & Firestore immediately
+  const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
+  const deleted = tenants.find((t) => t.id === tenantId);
+  const updatedTenants = tenants.filter((t) => t.id !== tenantId);
+  setLocalData(STORAGE_KEYS.TENANTS, updatedTenants);
+
+  try {
+    await deleteTenantFromDb(tenantId);
+  } catch (fsErr) {
+    console.warn('Direct Firestore tenant delete notice:', fsErr);
+  }
+
+  // Move condition of associated house/unit from occupied to Vacant to allow for a new tenant
+  if (deleted) {
+    const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
+    const matchingUnits = units.filter(
+      (u) =>
+        (deleted.unitId && u.id === deleted.unitId) ||
+        (deleted.unitNumber &&
+          u.unitNumber?.trim().toLowerCase() === deleted.unitNumber?.trim().toLowerCase() &&
+          ((deleted.propertyId && u.propertyId === deleted.propertyId) ||
+            (deleted.propertyName && u.propertyName?.trim().toLowerCase() === deleted.propertyName?.trim().toLowerCase()))) ||
+        (deleted.email && u.currentTenantEmail?.toLowerCase() === deleted.email.toLowerCase())
+    );
+
+    for (const unit of matchingUnits) {
+      unit.status = 'Vacant';
+      delete unit.currentTenantName;
+      delete unit.currentTenantEmail;
+      try {
+        await updateUnitInDb(unit.id, {
+          status: 'Vacant',
+          currentTenantName: '',
+          currentTenantEmail: '',
+        });
+      } catch (uErr) {
+        console.warn('Unit status update to Vacant in Firestore notice:', uErr);
+      }
+    }
+    setLocalData(STORAGE_KEYS.UNITS, units);
+  }
+
+  // Sync with backend API
   try {
     const res = await fetch(getApiUrl(`/api/tenants/${tenantId}`), {
       method: 'DELETE',
     });
     await handleResponse(res, 'Failed to delete tenant account');
-
-    // Sync localStorage
-    const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
-    const deleted = tenants.find(t => t.id === tenantId);
-    const updatedTenants = tenants.filter(t => t.id !== tenantId);
-    setLocalData(STORAGE_KEYS.TENANTS, updatedTenants);
-
-    if (deleted && deleted.unitId) {
-      const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
-      const unit = units.find(u => u.id === deleted.unitId);
-      if (unit) {
-        unit.status = 'Available';
-        delete unit.currentTenantName;
-        delete unit.currentTenantEmail;
-        setLocalData(STORAGE_KEYS.UNITS, units);
-      }
-    }
-    return true;
   } catch (err) {
-    console.warn('Fallback deleting tenant account locally:', err);
-    const tenants = getLocalData<Tenant[]>(STORAGE_KEYS.TENANTS, []);
-    const deleted = tenants.find(t => t.id === tenantId);
-    const updatedTenants = tenants.filter(t => t.id !== tenantId);
-    setLocalData(STORAGE_KEYS.TENANTS, updatedTenants);
-
-    if (deleted && deleted.unitId) {
-      const units = getLocalData<Unit[]>(STORAGE_KEYS.UNITS, []);
-      const unit = units.find(u => u.id === deleted.unitId);
-      if (unit) {
-        unit.status = 'Available';
-        delete unit.currentTenantName;
-        delete unit.currentTenantEmail;
-        setLocalData(STORAGE_KEYS.UNITS, units);
-      }
-    }
-    return true;
+    console.warn('Backend tenant delete fallback handled locally & in Firestore:', err);
   }
+
+  return true;
 }
 
 export async function fetchInvoices(): Promise<Invoice[]> {
