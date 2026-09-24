@@ -876,6 +876,8 @@ async function startServer() {
 
       const invoiceNumLabel = inv ? inv.invoiceNumber : pay.invoiceId || 'Monthly Rent';
       const pdfFilename = `Receipt_Statement_${serialNumber}.pdf`;
+      const appBaseUrl = (process.env.APP_URL || 'https://ais-dev-ezkstodggizsdniqekt6v3-227270690811.europe-west1.run.app').replace(/\/$/, '');
+      const downloadPdfUrl = `${appBaseUrl}/api/tenants/${targetTenant?.id || pay.tenantId}/statement-pdf?paymentId=${pay.id}&serial=${serialNumber}`;
 
       const emailHtml = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0f172a;">
@@ -959,7 +961,7 @@ async function startServer() {
             <p style="margin: 0 0 16px 0; font-size: 12px; color: #64748b;">
               The official signed PDF document (<strong>${pdfFilename}</strong>) is attached to this email and ready to download.
             </p>
-            <a href="/api/tenants/${targetTenant?.id || pay.tenantId}/statement-pdf?paymentId=${pay.id}&serial=${serialNumber}" 
+            <a href="${downloadPdfUrl}" 
                style="display: inline-block; background-color: #0284c7; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 13px; padding: 12px 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2);">
               ⬇️ Download Official Statement & Receipt PDF
             </a>
@@ -2579,6 +2581,10 @@ async function startServer() {
     landlordId?: string;
     invoiceId?: string;
     tenantId?: string;
+    tenantName?: string;
+    tenantEmail?: string;
+    unitNumber?: string;
+    propertyName?: string;
     phone: string;
     amount: number;
     accountRef: string;
@@ -2587,6 +2593,7 @@ async function startServer() {
     resultDesc?: string;
     isLiveDaraja?: boolean;
     createdAt: string;
+    paymentRecorded?: boolean;
   }>();
 
   // Helper to normalize Kenyan phone numbers to 2547XXXXXXXX or 2541XXXXXXXX format
@@ -2603,11 +2610,22 @@ async function startServer() {
     return clean;
   };
 
-  // Helper to generate Daraja STK timestamp format YYYYMMDDHHmmss
+  // Helper to generate Daraja STK timestamp format YYYYMMDDHHmmss in East Africa Time (Africa/Nairobi, UTC+3)
   const getDarajaTimestamp = () => {
-    const now = new Date();
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Nairobi',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).formatToParts(new Date());
+
+    const map: Record<string, string> = {};
+    parts.forEach((p) => { map[p.type] = p.value; });
+    return `${map.year}${map.month}${map.day}${map.hour}${map.minute}${map.second}`;
   };
 
   // 0. Daraja API Configuration & Health Status Endpoint
@@ -2840,6 +2858,90 @@ async function startServer() {
     }
   });
 
+  // Helper to record and confirm completed rent payment in DB and send receipt email
+  const recordAndConfirmRentPayment = async (session: any, verifiedReceiptCode?: string) => {
+    if (session.paymentRecorded) {
+      return { pay: null, receiptCode: session.receiptCode, serialNumber: null };
+    }
+    session.paymentRecorded = true;
+    session.status = 'COMPLETED';
+
+    const receiptCode = verifiedReceiptCode || session.receiptCode || `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
+    session.receiptCode = receiptCode;
+
+    const allInvoices = await getInvoicesFromDb();
+    const allTenants = await getTenantsFromDb();
+    const allLandlords = await getLandlordsFromDb();
+    const allProps = await getPropertiesFromDb();
+
+    let inv = session.invoiceId ? allInvoices.find((i) => i.id === session.invoiceId || i.invoiceNumber === session.invoiceId) : undefined;
+    const tenant = (session.tenantId ? allTenants.find(t => t.id === session.tenantId) : undefined) || (inv ? allTenants.find(t => t.id === inv.tenantId) : undefined);
+
+    const matchedProp = tenant ? allProps.find(p => p.id === tenant.propertyId) : undefined;
+    const matchedLandlord = allLandlords.find(l => l.id === tenant?.landlordId || l.id === matchedProp?.landlordId) || allLandlords[0];
+
+    const receivingChannel = matchedLandlord?.mpesaTillNumber 
+      ? `Till Number: ${matchedLandlord.mpesaTillNumber}`
+      : matchedLandlord?.mpesaPaybill 
+      ? `Paybill: ${matchedLandlord.mpesaPaybill}`
+      : `Phone: ${matchedLandlord?.mpesaPhoneNumber || '+254 700 000 000'}`;
+
+    const rentReceiptSerial = generateUniqueSerialNumber('RCT');
+    const pay: Payment = {
+      id: `pay-${Date.now()}`,
+      serialNumber: rentReceiptSerial,
+      invoiceId: session.invoiceId || (inv ? inv.id : `RENT-${Date.now()}`),
+      tenantId: tenant?.id || inv?.tenantId || session.tenantId || 'tenant-1',
+      tenantName: inv ? inv.tenantName : (tenant ? tenant.fullName : (session.tenantName || 'Tenant Payment')),
+      tenantEmail: inv?.tenantEmail || tenant?.email || session.tenantEmail || '',
+      unitNumber: inv ? inv.unitNumber : (tenant ? tenant.unitNumber : (session.unitNumber || 'Unit')),
+      propertyName: inv ? inv.propertyName : (tenant ? tenant.propertyName : (session.propertyName || 'Property')),
+      amount: session.amount,
+      paymentMethod: 'M-Pesa',
+      referenceCode: receiptCode,
+      paymentDate: new Date().toISOString(),
+      status: 'Completed',
+      externalDeliveryStatus: 'simulated_fallback',
+      notes: `M-Pesa Express STK Push payment verified to Landlord (${matchedLandlord?.companyName || matchedLandlord?.name}) via ${receivingChannel}. Acc: ${session.accountRef || 'Rent'}. Serial: ${rentReceiptSerial}`
+    };
+
+    await savePaymentToDb(pay);
+
+    // If invoice exists, update amountPaid and status
+    if (inv) {
+      inv.amountPaid = (inv.amountPaid || 0) + session.amount;
+      if (inv.amountPaid >= inv.totalAmount) {
+        inv.status = 'Paid';
+      } else {
+        inv.status = 'Partial';
+      }
+      await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
+    } else if (session.invoiceId) {
+      await updateInvoiceInDb(session.invoiceId, {
+        amountPaid: session.amount,
+        status: 'Paid',
+        tenantId: pay.tenantId,
+        tenantName: pay.tenantName,
+        tenantEmail: pay.tenantEmail,
+        unitNumber: pay.unitNumber,
+        propertyName: pay.propertyName,
+        periodMonth: session.periodMonth || 'Monthly Rent',
+        totalAmount: session.amount
+      });
+    }
+
+    const invEmailTarget = inv?.tenantEmail || tenant?.email || session.tenantEmail;
+    if (invEmailTarget) {
+      await dispatchPaymentReceiptAndStatementEmail({
+        payment: pay,
+        invoice: inv,
+        serialNumber: rentReceiptSerial,
+      });
+    }
+
+    return { pay, receiptCode, serialNumber: rentReceiptSerial };
+  };
+
   // 2. Tenant Rent & Utility STK Push -> Routes to Landlord's Registered Accounts
   app.post(['/api/mpesa/stk-push', '/api/payments/stk-push'], async (req, res) => {
     try {
@@ -2849,14 +2951,23 @@ async function startServer() {
       }
 
       const payAmt = Number(amount);
+      if (isNaN(payAmt) || payAmt <= 0) {
+        return res.status(400).json({ error: 'Please enter a valid payment amount greater than zero.' });
+      }
+
       const formattedPhone = formatKenyanPhone(phone);
+      if (!formattedPhone || formattedPhone.length !== 12 || !formattedPhone.startsWith('254')) {
+        return res.status(400).json({ error: 'Invalid Kenyan phone number. Use format 07XXXXXXXX, 01XXXXXXXX, or 2547XXXXXXXX.' });
+      }
+
       const config = getDarajaConfig();
       const authData = await getDarajaAccessToken();
 
-      let checkoutRequestId = `ws_CO_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
-      let merchantRequestId = `MR_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
-      let receiptCode = `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
-      let isLive = false;
+      if (!authData?.token || !config.isConfigured) {
+        return res.status(502).json({
+          error: 'Safaricom Daraja M-Pesa gateway is not connected. Please verify API credentials or pay via manual M-Pesa Paybill.'
+        });
+      }
 
       const currentInvoices = await getInvoicesFromDb();
       const allTenants = await getTenantsFromDb();
@@ -2873,205 +2984,110 @@ async function startServer() {
       const matchedProp = tenant ? allProps.find(p => p.id === tenant.propertyId) : undefined;
       const matchedLandlord = allLandlords.find(l => l.id === tenant?.landlordId || l.id === matchedProp?.landlordId) || allLandlords[0];
 
-      const receivingChannel = matchedLandlord?.mpesaTillNumber 
-        ? `Till Number: ${matchedLandlord.mpesaTillNumber}`
-        : matchedLandlord?.mpesaPaybill 
-        ? `Paybill: ${matchedLandlord.mpesaPaybill}`
-        : `Phone: ${matchedLandlord?.mpesaPhoneNumber || '+254 700 000 000'}`;
-
       const targetAccountRef = accountRef || (inv ? `Unit ${inv.unitNumber}` : (tenant ? `Unit ${tenant.unitNumber}` : 'Rent Payment'));
-      let customerMsg = `Success! M-Pesa STK Prompt sent to ${formattedPhone} for KSh ${payAmt.toLocaleString()} (Paid to ${matchedLandlord?.companyName || matchedLandlord?.name}). Receipt: ${receiptCode}`;
 
-      // If Live Daraja API credentials are configured, execute live STK Push to Safaricom
-      if (authData?.token && config.isConfigured) {
-        try {
-          const timestamp = getDarajaTimestamp();
-          // In Safaricom Sandbox, all STK push tests MUST use the sandbox shortcode (174379).
-          // In Production, use landlord's registered shortcode or the configured system shortcode.
-          const isSandbox = !config.isProduction || config.shortcode === '174379';
-          let targetShortcode = isSandbox ? (config.shortcode || '174379') : (matchedLandlord?.mpesaPaybill || config.shortcode);
-          let password = Buffer.from(`${targetShortcode}${config.passkey}${timestamp}`).toString('base64');
-          const cbUrl = config.callbackUrl || `https://${req.headers.host}/api/mpesa/callback`;
+      const timestamp = getDarajaTimestamp();
+      const isSandbox = !config.isProduction || config.shortcode === '174379';
+      let targetShortcode = isSandbox ? (config.shortcode || '174379') : (matchedLandlord?.mpesaPaybill || config.shortcode || '174379');
+      const cbUrl = config.callbackUrl || `https://${req.headers.host}/api/mpesa/callback`;
 
-          let transactionType = 'CustomerPayBillOnline';
-          const isTillShortcode = Boolean(matchedLandlord?.mpesaTillNumber && !matchedLandlord?.mpesaPaybill && targetShortcode !== '174379');
-          if (isTillShortcode) {
-            transactionType = 'CustomerBuyGoodsOnline';
-          }
-
-          const makeStkRequest = async (sCode: string, tType: string) => {
-            const pwd = Buffer.from(`${sCode}${config.passkey}${timestamp}`).toString('base64');
-            const stkPayload = {
-              BusinessShortCode: sCode,
-              Password: pwd,
-              Timestamp: timestamp,
-              TransactionType: tType,
-              Amount: Math.max(1, Math.round(payAmt)),
-              PartyA: formattedPhone,
-              PartyB: sCode,
-              PhoneNumber: formattedPhone,
-              CallBackURL: cbUrl,
-              AccountReference: targetAccountRef.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'RentPayment',
-              TransactionDesc: `Rent Unit ${inv?.unitNumber || 'A1'}`.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 13)
-            };
-
-            const stkRes = await fetch(`${authData.baseUrl}/mpesa/stkpush/v1/processrequest`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${authData.token}`
-              },
-              body: JSON.stringify(stkPayload)
-            });
-            const data = await stkRes.json() as any;
-            return { ok: stkRes.ok, data };
-          };
-
-          let { ok, data: stkData } = await makeStkRequest(targetShortcode, transactionType);
-
-          // 1. If Safaricom rejected with 500.001.1001 (Merchant does not exist), retry with standard shortcode 174379
-          if (!ok && (stkData?.errorCode === '500.001.1001' || stkData?.errorMessage?.toLowerCase()?.includes('merchant does not exist'))) {
-            console.log(`Retrying Daraja STK Push with standard shortcode 174379 because ${targetShortcode} does not exist`);
-            targetShortcode = config.shortcode || '174379';
-            const retryRes = await makeStkRequest(targetShortcode, 'CustomerPayBillOnline');
-            ok = retryRes.ok;
-            stkData = retryRes.data;
-          }
-
-          // 2. If Safaricom rejected with 400.002.02 (Invalid TransactionType), retry with the alternative type
-          if (!ok && (stkData?.errorCode === '400.002.02' || stkData?.errorMessage?.includes('TransactionType'))) {
-            const alternateType = transactionType === 'CustomerPayBillOnline' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline';
-            console.log(`Retrying Daraja STK Push with alternate TransactionType: ${alternateType}`);
-            const retryRes = await makeStkRequest(targetShortcode, alternateType);
-            ok = retryRes.ok;
-            stkData = retryRes.data;
-          }
-
-          if (ok && stkData.ResponseCode === '0') {
-            checkoutRequestId = stkData.CheckoutRequestID || checkoutRequestId;
-            merchantRequestId = stkData.MerchantRequestID || merchantRequestId;
-            customerMsg = stkData.CustomerMessage || customerMsg;
-            isLive = true;
-          } else {
-            console.warn('Daraja STK push live call response:', stkData);
-          }
-        } catch (stkErr) {
-          console.warn('Live STK Push error, continuing with verified simulation record:', stkErr);
-        }
+      let transactionType = 'CustomerPayBillOnline';
+      const isTillShortcode = Boolean(matchedLandlord?.mpesaTillNumber && !matchedLandlord?.mpesaPaybill && targetShortcode !== '174379');
+      if (isTillShortcode) {
+        transactionType = 'CustomerBuyGoodsOnline';
       }
 
-      // Register checkout session
+      const makeStkRequest = async (sCode: string, tType: string) => {
+        const pwd = Buffer.from(`${sCode}${config.passkey}${timestamp}`).toString('base64');
+        const stkPayload = {
+          BusinessShortCode: sCode,
+          Password: pwd,
+          Timestamp: timestamp,
+          TransactionType: tType,
+          Amount: Math.max(1, Math.round(payAmt)),
+          PartyA: formattedPhone,
+          PartyB: sCode,
+          PhoneNumber: formattedPhone,
+          CallBackURL: cbUrl,
+          AccountReference: targetAccountRef.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'RentPayment',
+          TransactionDesc: `Rent Unit ${inv?.unitNumber || 'A1'}`.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 13)
+        };
+
+        const stkRes = await fetch(`${authData.baseUrl}/mpesa/stkpush/v1/processrequest`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authData.token}`
+          },
+          body: JSON.stringify(stkPayload)
+        });
+        const data = await stkRes.json() as any;
+        return { ok: stkRes.ok, data };
+      };
+
+      let { ok, data: stkData } = await makeStkRequest(targetShortcode, transactionType);
+
+      // 1. If Safaricom rejected with 500.001.1001 (Merchant does not exist), retry with standard shortcode 174379
+      if (!ok && (stkData?.errorCode === '500.001.1001' || stkData?.errorMessage?.toLowerCase()?.includes('merchant does not exist'))) {
+        console.log(`Retrying Daraja STK Push with standard shortcode 174379 because ${targetShortcode} does not exist`);
+        targetShortcode = config.shortcode || '174379';
+        const retryRes = await makeStkRequest(targetShortcode, 'CustomerPayBillOnline');
+        ok = retryRes.ok;
+        stkData = retryRes.data;
+      }
+
+      // 2. If Safaricom rejected with 400.002.02 (Invalid TransactionType), retry with the alternative type
+      if (!ok && (stkData?.errorCode === '400.002.02' || stkData?.errorMessage?.includes('TransactionType'))) {
+        const alternateType = transactionType === 'CustomerPayBillOnline' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline';
+        console.log(`Retrying Daraja STK Push with alternate TransactionType: ${alternateType}`);
+        const retryRes = await makeStkRequest(targetShortcode, alternateType);
+        ok = retryRes.ok;
+        stkData = retryRes.data;
+      }
+
+      if (!ok || stkData.ResponseCode !== '0') {
+        console.warn('Daraja STK push rejected by Safaricom:', stkData);
+        return res.status(400).json({
+          error: stkData?.errorMessage || stkData?.ResponseDescription || 'Safaricom M-Pesa rejected the STK Push prompt. Please verify your phone number and try again.'
+        });
+      }
+
+      const checkoutRequestId = stkData.CheckoutRequestID;
+      const merchantRequestId = stkData.MerchantRequestID;
+      const customerMsg = stkData.CustomerMessage || `M-Pesa PIN prompt sent to ${formattedPhone}. Please check your handset and enter your PIN.`;
+
+      // Register checkout session as PENDING - DO NOT create payment or mark invoice paid until user enters PIN!
       mpesaCheckouts.set(checkoutRequestId, {
         checkoutRequestId,
         merchantRequestId,
         type: 'rent',
         landlordId: matchedLandlord?.id,
-        invoiceId,
+        invoiceId: inv?.id || invoiceId,
         tenantId: tenant?.id || inv?.tenantId,
+        tenantName: inv?.tenantName || tenant?.fullName || req.body.tenantName,
+        tenantEmail: inv?.tenantEmail || tenant?.email || req.body.tenantEmail,
+        unitNumber: inv?.unitNumber || tenant?.unitNumber,
+        propertyName: inv?.propertyName || tenant?.propertyName,
         phone: formattedPhone,
         amount: payAmt,
         accountRef: targetAccountRef,
-        status: 'COMPLETED',
-        receiptCode,
-        isLiveDaraja: isLive,
-        resultDesc: 'The service request is processed successfully.',
-        createdAt: new Date().toISOString()
+        status: 'PENDING',
+        isLiveDaraja: true,
+        createdAt: new Date().toISOString(),
+        paymentRecorded: false
       });
 
-      // Create Payment entry in database with unique serial number
-      const rentReceiptSerial = generateUniqueSerialNumber('RCT');
-      const pay: Payment = {
-        id: `pay-${Date.now()}`,
-        serialNumber: rentReceiptSerial,
-        invoiceId: invoiceId || `RENT-${Date.now()}`,
-        tenantId: tenant?.id || inv?.tenantId || 'tenant-1',
-        tenantName: inv ? inv.tenantName : (tenant ? tenant.fullName : 'Tenant Payment'),
-        unitNumber: inv ? inv.unitNumber : (tenant ? tenant.unitNumber : 'Unit'),
-        propertyName: inv ? inv.propertyName : (tenant ? tenant.propertyName : 'Property'),
-        amount: payAmt,
-        paymentMethod: 'M-Pesa',
-        referenceCode: receiptCode,
-        paymentDate: new Date().toISOString(),
-        status: 'Completed',
-        externalDeliveryStatus: 'simulated_fallback',
-        notes: `Instant M-Pesa STK Push payment verified to Landlord (${matchedLandlord?.companyName || matchedLandlord?.name}) via ${receivingChannel}. Acc: ${targetAccountRef}. Serial: ${rentReceiptSerial}`
-      };
-      await savePaymentToDb(pay);
-
-      // If invoice exists, update its amountPaid and status; otherwise create/update referenced invoice
-      if (inv) {
-        inv.amountPaid = (inv.amountPaid || 0) + payAmt;
-        if (inv.amountPaid >= inv.totalAmount) {
-          inv.status = 'Paid';
-        } else {
-          inv.status = 'Partial';
-        }
-        await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
-      } else if (invoiceId) {
-        await updateInvoiceInDb(invoiceId, {
-          amountPaid: payAmt,
-          status: 'Paid',
-          tenantId: pay.tenantId,
-          tenantName: pay.tenantName,
-          tenantEmail: pay.tenantEmail,
-          unitNumber: pay.unitNumber,
-          propertyName: pay.propertyName,
-          periodMonth: req.body.periodMonth || 'Monthly Rent',
-          totalAmount: payAmt
-        });
-      }
-
-      const invEmailTarget = inv?.tenantEmail || tenant?.email || req.body.tenantEmail;
-      const invNameTarget = inv?.tenantName || tenant?.fullName || req.body.tenantName || 'Tenant';
-      const invNumLabel = inv?.invoiceNumber || invoiceId || 'Monthly Rent';
-
-      // Dispatch instant payment receipt to Tenant Email with serial number and real email delivery
-      if (invEmailTarget) {
-        const receiptEmailHtml = `
-          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 16px 0;">
-            <h3 style="color: #166534; margin: 0 0 10px 0; font-size: 16px;">📲 M-Pesa Rent Payment Confirmed</h3>
-            <p style="color: #15803d; font-size: 14px; margin: 0 0 12px 0;">
-              We have confirmed receipt of <strong>KSh ${payAmt.toLocaleString()}</strong> via M-Pesa Express STK Push for <strong>Invoice #${invNumLabel}</strong> (${pay.propertyName} - Unit ${pay.unitNumber}).
-            </p>
-            <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size: 13px; color: #166534; line-height: 1.8;">
-              <tr><td width="35%"><strong>Receipt Serial:</strong></td><td><code style="font-family: monospace; font-weight: bold; color: #0284c7;">${rentReceiptSerial}</code></td></tr>
-              <tr><td><strong>M-Pesa Receipt:</strong></td><td><span style="font-family: monospace; font-weight: bold;">${receiptCode}</span></td></tr>
-              <tr><td><strong>Recipient Landlord:</strong></td><td>${matchedLandlord?.companyName || matchedLandlord?.name} (${receivingChannel})</td></tr>
-              <tr><td><strong>Phone Paid From:</strong></td><td>${formattedPhone}</td></tr>
-              <tr><td><strong>Amount Received:</strong></td><td><strong>KSh ${payAmt.toLocaleString()}</strong></td></tr>
-              <tr><td><strong>Payment Date:</strong></td><td>${new Date().toLocaleString('en-KE')}</td></tr>
-              <tr><td><strong>Status:</strong></td><td><strong>PAID</strong></td></tr>
-            </table>
-          </div>
-          <p style="color: #64748b; font-size: 13px;">
-            Thank you for paying your rent on time! This statement has been automatically recorded in your Tenant Portal.
-          </p>
-        `;
-
-        await dispatchPaymentReceiptAndStatementEmail({
-          payment: pay,
-          invoice: inv,
-          serialNumber: rentReceiptSerial,
-        });
-      }
-
       res.status(200).json({
+        success: true,
+        pending: true,
         MerchantRequestID: merchantRequestId,
         CheckoutRequestID: checkoutRequestId,
         ResponseCode: '0',
         ResponseDescription: 'Success. Request accepted for processing',
         CustomerMessage: customerMsg,
-        receiptCode,
-        payment: pay,
-        invoice: inv,
-        isLiveDaraja: isLive,
-        landlordReceivingDetails: {
-          name: matchedLandlord?.name,
-          company: matchedLandlord?.companyName,
-          till: matchedLandlord?.mpesaTillNumber,
-          paybill: matchedLandlord?.mpesaPaybill,
-          phone: matchedLandlord?.mpesaPhoneNumber
-        }
+        amount: payAmt,
+        phone: formattedPhone,
+        accountRef: targetAccountRef
       });
     } catch (err: any) {
       console.error('Rent STK Push error:', err);
@@ -3089,40 +3105,21 @@ async function startServer() {
       }
 
       const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = callbackData;
+      const session = mpesaCheckouts.get(CheckoutRequestID);
 
       if (ResultCode === 0 && CallbackMetadata && CallbackMetadata.Item) {
         const items = CallbackMetadata.Item;
-        const amountItem = items.find((i: any) => i.Name === 'Amount');
         const receiptItem = items.find((i: any) => i.Name === 'MpesaReceiptNumber');
-        const phoneItem = items.find((i: any) => i.Name === 'PhoneNumber');
+        const receiptCode = receiptItem ? String(receiptItem.Value) : undefined;
 
-        const amount = amountItem ? Number(amountItem.Value) : 0;
-        const receiptCode = receiptItem ? String(receiptItem.Value) : `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
-        const phone = phoneItem ? String(phoneItem.Value) : '';
-
-        // Check if session exists in memory
-        const session = mpesaCheckouts.get(CheckoutRequestID);
         if (session) {
-          session.status = 'COMPLETED';
-          session.receiptCode = receiptCode;
           session.resultDesc = ResultDesc;
-        }
-
-        // If this corresponds to an invoice, update DB
-        if (session?.invoiceId) {
-          const allInvoices = await getInvoicesFromDb();
-          const inv = allInvoices.find(i => i.id === session.invoiceId);
-          if (inv) {
-            inv.amountPaid = (inv.amountPaid || 0) + amount;
-            inv.status = inv.amountPaid >= inv.totalAmount ? 'Paid' : 'Partial';
-            await updateInvoiceInDb(inv.id, { amountPaid: inv.amountPaid, status: inv.status });
-          }
+          await recordAndConfirmRentPayment(session, receiptCode);
         }
       } else {
-        const session = mpesaCheckouts.get(CheckoutRequestID);
         if (session) {
           session.status = 'FAILED';
-          session.resultDesc = ResultDesc;
+          session.resultDesc = ResultDesc || 'Payment failed or cancelled';
         }
       }
 
@@ -3184,14 +3181,39 @@ async function startServer() {
     const { checkoutRequestId } = req.params;
     const session = mpesaCheckouts.get(checkoutRequestId);
 
+    if (!session) {
+      return res.status(404).json({ error: 'Checkout request not found' });
+    }
+
+    if (session.status === 'COMPLETED') {
+      return res.json({
+        status: 'COMPLETED',
+        receiptCode: session.receiptCode,
+        resultDesc: session.resultDesc || 'Payment confirmed and verified by Safaricom M-Pesa.',
+        amount: session.amount,
+        phone: session.phone
+      });
+    }
+
+    if (session.status === 'FAILED') {
+      return res.json({
+        status: 'FAILED',
+        resultDesc: session.resultDesc || 'Payment was cancelled or failed. No funds were deducted.',
+        amount: session.amount,
+        phone: session.phone
+      });
+    }
+
     // If live Daraja configured and session is pending, attempt live status query
     const config = getDarajaConfig();
     const authData = await getDarajaAccessToken();
 
-    if (authData?.token && config.isConfigured && session && session.status === 'PENDING') {
+    if (authData?.token && config.isConfigured && session.status === 'PENDING') {
       try {
         const timestamp = getDarajaTimestamp();
-        const password = Buffer.from(`${config.shortcode}${config.passkey}${timestamp}`).toString('base64');
+        const isSandbox = !config.isProduction || config.shortcode === '174379';
+        const targetShortcode = isSandbox ? (config.shortcode || '174379') : (config.shortcode || '174379');
+        const password = Buffer.from(`${targetShortcode}${config.passkey}${timestamp}`).toString('base64');
 
         const queryRes = await fetch(`${authData.baseUrl}/mpesa/stkpushquery/v1/query`, {
           method: 'POST',
@@ -3200,7 +3222,7 @@ async function startServer() {
             Authorization: `Bearer ${authData.token}`
           },
           body: JSON.stringify({
-            BusinessShortCode: config.shortcode,
+            BusinessShortCode: targetShortcode,
             Password: password,
             Timestamp: timestamp,
             CheckoutRequestID: checkoutRequestId
@@ -3208,22 +3230,52 @@ async function startServer() {
         });
 
         const queryData = await queryRes.json() as any;
+        console.log('Daraja STK Query result:', queryData);
+
         if (queryData.ResultCode === 0 || queryData.ResultCode === '0') {
-          session.status = 'COMPLETED';
           session.resultDesc = queryData.ResultDesc || 'The service request is processed successfully.';
-        } else if (queryData.ResultCode) {
+          const confirmed = await recordAndConfirmRentPayment(session, queryData.MpesaReceiptNumber);
+          return res.json({
+            status: 'COMPLETED',
+            receiptCode: session.receiptCode,
+            resultDesc: session.resultDesc,
+            payment: confirmed?.pay
+          });
+        } else if (queryData.ResultCode === '1032') {
           session.status = 'FAILED';
-          session.resultDesc = queryData.ResultDesc || 'Payment failed or cancelled by user.';
+          session.resultDesc = 'Transaction cancelled on handset by user. No funds were deducted.';
+          return res.json({
+            status: 'FAILED',
+            resultDesc: session.resultDesc
+          });
+        } else if (queryData.ResultCode === '1037') {
+          session.status = 'FAILED';
+          session.resultDesc = 'M-Pesa STK Prompt timed out before PIN was entered. No funds were deducted.';
+          return res.json({
+            status: 'FAILED',
+            resultDesc: session.resultDesc
+          });
+        } else if (queryData.ResultCode === '1') {
+          session.status = 'FAILED';
+          session.resultDesc = 'Insufficient M-Pesa balance for this transaction.';
+          return res.json({
+            status: 'FAILED',
+            resultDesc: session.resultDesc
+          });
+        } else if (queryData.errorCode && queryData.errorCode !== '500.001.1001') {
+          console.warn('Daraja query non-pending error:', queryData);
         }
       } catch (qErr) {
         console.warn('Live STK query error:', qErr);
       }
     }
 
-    if (!session) {
-      return res.status(404).json({ error: 'Checkout request not found' });
-    }
-    res.json(session);
+    res.json({
+      status: session.status,
+      resultDesc: session.resultDesc || 'Waiting for M-Pesa PIN entry on your phone...',
+      amount: session.amount,
+      phone: session.phone
+    });
   });
 
   // 6. Manual M-Pesa Transaction Verification & Anti-Double-Entry Defense
@@ -3803,7 +3855,30 @@ async function startServer() {
 
       const previousArrears = manualArrears !== undefined ? Number(manualArrears) : calculatedArrears;
 
-      const total = Number(tenant.monthlyRent) + Number(waterFee) + Number(trashFee) + Number(maintenanceFee) + Number(previousArrears) - Number(discount);
+      // Look up any resolved, completed maintenance requests for this tenant that have not been billed yet
+      const allMaintenance = await getMaintenanceFromDb();
+      const unbilledCompletedMaint = allMaintenance.filter(m => 
+        (m.tenantId === tenant.id || 
+         (m.tenantEmail && tenant.email && m.tenantEmail.toLowerCase() === tenant.email.toLowerCase()) ||
+         (m.unitNumber && tenant.unitNumber && m.unitNumber === tenant.unitNumber)) &&
+        m.status === 'Completed' &&
+        !m.isBilled
+      );
+
+      let effectiveMaintenanceFee = Number(maintenanceFee || 0);
+      let maintNotesSummary = '';
+      if (unbilledCompletedMaint.length > 0) {
+        const autoMaintCost = unbilledCompletedMaint.reduce((acc, m) => {
+          const cost = m.cost || (m.aiEstimatedCost ? parseFloat(m.aiEstimatedCost.replace(/[^\d.]/g, '')) : 0) || 0;
+          return acc + cost;
+        }, 0);
+        if (effectiveMaintenanceFee === 0) {
+          effectiveMaintenanceFee = autoMaintCost;
+        }
+        maintNotesSummary = `Maintenance repair billing: ${unbilledCompletedMaint.map(m => `${m.title || m.category || 'Repair'} (KSh ${(m.cost || 0).toLocaleString()})`).join(', ')}.`;
+      }
+
+      const total = Number(tenant.monthlyRent) + Number(waterFee) + Number(trashFee) + Number(effectiveMaintenanceFee) + Number(previousArrears) - Number(discount);
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 5);
 
@@ -3833,7 +3908,7 @@ async function startServer() {
         rentAmount: tenant.monthlyRent,
         waterFee: Number(waterFee),
         trashFee: Number(trashFee),
-        maintenanceFee: Number(maintenanceFee),
+        maintenanceFee: Number(effectiveMaintenanceFee),
         taxAmount: 0,
         discount: Number(discount),
         previousArrears: Number(previousArrears),
@@ -3841,11 +3916,21 @@ async function startServer() {
         status: 'Unpaid',
         amountPaid: 0,
         externalDeliveryStatus: 'simulated_fallback',
-        notes: notes || `Monthly rent statement for ${periodMonth}. Serial: ${invoiceSerial}`,
+        notes: notes || (maintNotesSummary ? `${maintNotesSummary} Serial: ${invoiceSerial}` : `Monthly rent statement for ${periodMonth}. Serial: ${invoiceSerial}`),
         emailedToTenant: true,
         emailSentAt: new Date().toISOString()
       };
       await saveInvoiceToDb(inv);
+
+      // Mark resolved maintenance requests as billed to this invoice
+      for (const m of unbilledCompletedMaint) {
+        await updateMaintenanceInDb(m.id, {
+          isBilled: true,
+          billedToInvoiceId: inv.id,
+          billedAt: new Date().toISOString(),
+          billedAmount: m.cost || (m.aiEstimatedCost ? parseFloat(m.aiEstimatedCost.replace(/[^\d.]/g, '')) : 0) || 0
+        });
+      }
 
       const invoiceEmailHtml = `
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 16px 0;">
@@ -4451,7 +4536,15 @@ Provide a JSON object with:
       const updates: Partial<MaintenanceRequest> = {};
       if (req.body.status) updates.status = req.body.status;
       if (req.body.assignedTechnician) updates.assignedTechnician = req.body.assignedTechnician;
-      if (req.body.status === 'Completed') updates.resolvedAt = new Date().toISOString();
+      if (req.body.cost !== undefined) updates.cost = Number(req.body.cost);
+      if (req.body.isBilled !== undefined) updates.isBilled = Boolean(req.body.isBilled);
+      if (req.body.billedToInvoiceId) updates.billedToInvoiceId = req.body.billedToInvoiceId;
+      if (req.body.status === 'Completed') {
+        updates.resolvedAt = new Date().toISOString();
+        if (updates.isBilled === undefined && !req.body.isBilled) {
+          updates.isBilled = false;
+        }
+      }
 
       await updateMaintenanceInDb(id, updates);
       const allMaint = await getMaintenanceFromDb();

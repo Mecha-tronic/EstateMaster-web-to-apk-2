@@ -232,6 +232,11 @@ export interface MaintenanceRequest {
   aiTriageSummary?: string;
   aiSuggestedDiy?: string;
   aiEstimatedCost?: string;
+  cost?: number;
+  isBilled?: boolean;
+  billedToInvoiceId?: string;
+  billedAt?: string;
+  billedAmount?: number;
   photoUrl?: string;
   assignedTechnician?: string;
 }

@@ -1458,90 +1458,43 @@ export async function triggerMpesaStkPush(data: {
   const invoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
   const inv = data.invoiceId ? invoices.find(i => i.id === data.invoiceId || i.invoiceNumber === data.invoiceId) : undefined;
 
-  try {
-    const res = await fetch(getApiUrl('/api/mpesa/stk-push'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...data,
-        tenantName: data.tenantName || inv?.tenantName,
-        tenantEmail: data.tenantEmail || inv?.tenantEmail,
-        unitNumber: data.unitNumber || inv?.unitNumber,
-        propertyName: data.propertyName || inv?.propertyName,
-        propertyId: data.propertyId || inv?.propertyId,
-        landlordId: data.landlordId || inv?.landlordId,
-        periodMonth: data.periodMonth || inv?.periodMonth,
-      }),
-    });
-    const result = await handleResponse(res, 'M-Pesa STK Push failed');
-    if (result && result.payment) {
-      const currentPayments = getLocalData<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
+  const res = await fetch(getApiUrl('/api/mpesa/stk-push'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...data,
+      tenantName: data.tenantName || inv?.tenantName,
+      tenantEmail: data.tenantEmail || inv?.tenantEmail,
+      unitNumber: data.unitNumber || inv?.unitNumber,
+      propertyName: data.propertyName || inv?.propertyName,
+      propertyId: data.propertyId || inv?.propertyId,
+      landlordId: data.landlordId || inv?.landlordId,
+      periodMonth: data.periodMonth || inv?.periodMonth,
+    }),
+  });
+  return await handleResponse(res, 'M-Pesa STK Push request rejected by Safaricom');
+}
+
+export async function queryMpesaStkStatus(checkoutRequestId: string): Promise<{
+  status: 'PENDING' | 'COMPLETED' | 'FAILED';
+  resultDesc?: string;
+  receiptCode?: string;
+  payment?: Payment;
+  message?: string;
+  amount?: number;
+  phone?: string;
+}> {
+  const res = await fetch(getApiUrl(`/api/mpesa/query/${checkoutRequestId}`));
+  const result = await handleResponse(res, 'Failed to query M-Pesa transaction status');
+  if (result && result.status === 'COMPLETED' && result.payment) {
+    const currentPayments = getLocalData<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
+    const exists = currentPayments.some(p => p.id === result.payment.id || (result.receiptCode && p.referenceCode === result.receiptCode));
+    if (!exists) {
       currentPayments.unshift(result.payment);
       setLocalData(STORAGE_KEYS.PAYMENTS, currentPayments);
     }
-    if (inv && data.amount > 0) {
-      const newPaid = (inv.amountPaid || 0) + data.amount;
-      const newStatus = newPaid >= inv.totalAmount ? 'Paid' : (newPaid > 0 ? 'Partial' : inv.status);
-      const invIdx = invoices.findIndex(i => i.id === inv.id);
-      if (invIdx !== -1) {
-        invoices[invIdx] = { ...inv, amountPaid: newPaid, status: newStatus };
-        setLocalData(STORAGE_KEYS.INVOICES, invoices);
-      }
-      try {
-        await updateInvoiceInDb(inv.id, { amountPaid: newPaid, status: newStatus });
-      } catch (e) {}
-    }
-    return result;
-  } catch (err: any) {
-    console.warn('Backend fetch failed, executing local STK push fallback:', err);
-    const receiptCode = `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
-    const pay: Payment = {
-      id: `pay-${Date.now()}`,
-      invoiceId: data.invoiceId || (inv ? inv.id : `RENT-${Date.now()}`),
-      tenantId: data.tenantId || inv?.tenantId || 'tenant-1',
-      tenantName: data.tenantName || inv?.tenantName || data.accountRef || 'Tenant Rent Payment',
-      tenantEmail: data.tenantEmail || inv?.tenantEmail || '',
-      unitNumber: data.unitNumber || inv?.unitNumber || 'Apartment Unit',
-      propertyName: data.propertyName || inv?.propertyName || 'Property',
-      propertyId: data.propertyId || inv?.propertyId || '',
-      landlordId: data.landlordId || inv?.landlordId || '',
-      periodMonth: data.periodMonth || inv?.periodMonth || '',
-      amount: data.amount,
-      paymentMethod: 'M-Pesa',
-      referenceCode: receiptCode,
-      paymentDate: new Date().toISOString(),
-      status: 'Completed',
-      notes: `M-Pesa Express STK Push completed for phone ${data.phone}.`
-    };
-
-    try {
-      await savePaymentToDb(pay);
-    } catch (e) {}
-
-    const currentPayments = getLocalData<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
-    currentPayments.unshift(pay);
-    setLocalData(STORAGE_KEYS.PAYMENTS, currentPayments);
-
-    if (inv) {
-      const newPaid = (inv.amountPaid || 0) + data.amount;
-      const newStatus = newPaid >= inv.totalAmount ? 'Paid' : (newPaid > 0 ? 'Partial' : inv.status);
-      const invIdx = invoices.findIndex(i => i.id === inv.id);
-      if (invIdx !== -1) {
-        invoices[invIdx] = { ...inv, amountPaid: newPaid, status: newStatus };
-        setLocalData(STORAGE_KEYS.INVOICES, invoices);
-      }
-      try {
-        await updateInvoiceInDb(inv.id, { amountPaid: newPaid, status: newStatus });
-      } catch (e) {}
-    }
-
-    return {
-      success: true,
-      receiptCode,
-      message: `M-Pesa STK Push payment of KSh ${data.amount.toLocaleString()} successfully processed! Confirmation Code: ${receiptCode}`,
-      payment: pay
-    };
   }
+  return result;
 }
 
 export async function fetchMpesaConfigStatus(): Promise<{
@@ -2842,10 +2795,27 @@ export async function createMaintenance(data: any): Promise<MaintenanceRequest> 
   return req;
 }
 
-export async function updateMaintenanceStatus(id: string, status: string, assignedTechnician?: string) {
+export async function updateMaintenanceStatus(
+  id: string,
+  status: string,
+  assignedTechnician?: string,
+  extra?: { cost?: number; isBilled?: boolean; billedToInvoiceId?: string }
+) {
+  const updates: any = { status: status as any };
+  if (assignedTechnician) updates.assignedTechnician = assignedTechnician;
+  if (extra?.cost !== undefined) updates.cost = extra.cost;
+  if (extra?.isBilled !== undefined) updates.isBilled = extra.isBilled;
+  if (extra?.billedToInvoiceId) updates.billedToInvoiceId = extra.billedToInvoiceId;
+  if (status === 'Completed') {
+    updates.resolvedAt = new Date().toISOString();
+    if (updates.isBilled === undefined && extra?.isBilled === undefined) {
+      updates.isBilled = false;
+    }
+  }
+
   // 1. Direct Firestore update
   try {
-    await updateMaintenanceInDb(id, { status: status as any, assignedTechnician });
+    await updateMaintenanceInDb(id, updates);
   } catch (fsErr) {
     console.warn('Firestore maintenance update notice:', fsErr);
   }
@@ -2854,8 +2824,7 @@ export async function updateMaintenanceStatus(id: string, status: string, assign
   const maint = await fetchMaintenance();
   const idx = maint.findIndex(m => m.id === id);
   if (idx !== -1) {
-    maint[idx].status = status as any;
-    if (assignedTechnician) maint[idx].assignedTechnician = assignedTechnician;
+    maint[idx] = { ...maint[idx], ...updates };
     setLocalData(STORAGE_KEYS.MAINTENANCE, maint);
   }
 
@@ -2864,11 +2833,11 @@ export async function updateMaintenanceStatus(id: string, status: string, assign
     const res = await fetch(getApiUrl(`/api/maintenance/${id}`), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, assignedTechnician }),
+      body: JSON.stringify({ status, assignedTechnician, ...extra }),
     });
     return await handleResponse(res, 'Failed to update maintenance request');
   } catch (err) {
-    return { id, status, assignedTechnician };
+    return { id, status, assignedTechnician, ...extra };
   }
 }
 

@@ -507,9 +507,9 @@ export default function App() {
     }
   };
 
-  const handleUpdateMaintenance = async (id: string, status: string, tech?: string) => {
+  const handleUpdateMaintenance = async (id: string, status: string, tech?: string, extra?: { cost?: number; isBilled?: boolean; billedToInvoiceId?: string }) => {
     try {
-      await updateMaintenanceStatus(id, status, tech);
+      await updateMaintenanceStatus(id, status, tech, extra);
       await loadAllData();
     } catch (err) {
       console.error('Update maintenance error:', err);

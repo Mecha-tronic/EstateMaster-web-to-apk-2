@@ -12,6 +12,7 @@ function applyExcelStyles(
   ws: any,
   options: {
     titleRows?: number[];
+    subtitleRows?: number[];
     sectionRows?: number[];
     headerRows?: number[];
     totalRows?: number[];
@@ -21,44 +22,66 @@ function applyExcelStyles(
   const range = XLSX.utils.decode_range(ws['!ref']);
 
   const titleSet = new Set(options.titleRows || []);
+  const subtitleSet = new Set(options.subtitleRows || []);
   const sectionSet = new Set(options.sectionRows || []);
   const headerSet = new Set(options.headerRows || []);
   const totalSet = new Set(options.totalRows || []);
 
+  const rowHeights: { [key: number]: number } = {};
+
   for (let R = range.s.r; R <= range.e.r; ++R) {
+    if (titleSet.has(R)) {
+      rowHeights[R] = 30; // 30pt for prominent main title
+    } else if (sectionSet.has(R)) {
+      rowHeights[R] = 24; // 24pt for section banners
+    } else if (headerSet.has(R)) {
+      rowHeights[R] = 22; // 22pt for column headers
+    } else if (totalSet.has(R)) {
+      rowHeights[R] = 22; // 22pt for totals
+    } else if (subtitleSet.has(R)) {
+      rowHeights[R] = 20; // 20pt for subtitle / metadata
+    }
+
     for (let C = range.s.c; C <= range.e.c; ++C) {
       const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
       const cell = ws[cellAddress];
       if (!cell) continue;
 
       if (titleSet.has(R)) {
-        // Main Title Row: Bold, 14pt, Dark Navy Theme
+        // Main Title Row: Bold, 14pt, Dark Navy Theme with Crisp White Text
         cell.s = {
           font: { name: 'Arial', bold: true, sz: 14, color: { rgb: 'FFFFFF' } },
           fill: { fgColor: { rgb: '0F172A' } },
           alignment: { horizontal: 'left', vertical: 'center' }
         };
-      } else if (sectionSet.has(R)) {
-        // Section Subheader: Bold, 11pt, Sky Blue
+      } else if (subtitleSet.has(R)) {
+        // Subtitle / Company Metadata: Bold, 10pt
         cell.s = {
-          font: { name: 'Arial', bold: true, sz: 11, color: { rgb: '0369A1' } },
+          font: { name: 'Arial', bold: true, sz: 10, color: { rgb: '1E293B' } },
+          fill: { fgColor: { rgb: 'F1F5F9' } },
+          alignment: { horizontal: 'left', vertical: 'center' }
+        };
+      } else if (sectionSet.has(R)) {
+        // Section Subheader: Bold, 12pt, Sky Blue Banner
+        cell.s = {
+          font: { name: 'Arial', bold: true, sz: 12, color: { rgb: '0369A1' } },
           fill: { fgColor: { rgb: 'E0F2FE' } },
           alignment: { horizontal: 'left', vertical: 'center' },
           border: {
-            bottom: { style: 'thin', color: { rgb: 'BAE6FD' } }
+            bottom: { style: 'medium', color: { rgb: '0284C7' } }
           }
         };
       } else if (headerSet.has(R)) {
-        // Table Column Header: Bold, 10pt, Light Slate Gray
+        // Table Column Header: Bold, 11pt, Slate Gray Header
         cell.s = {
-          font: { name: 'Arial', bold: true, sz: 10, color: { rgb: '0F172A' } },
+          font: { name: 'Arial', bold: true, sz: 11, color: { rgb: '0F172A' } },
           fill: { fgColor: { rgb: 'E2E8F0' } },
           alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
           border: {
             top: { style: 'thin', color: { rgb: 'CBD5E1' } },
-            bottom: { style: 'medium', color: { rgb: '64748B' } },
-            left: { style: 'thin', color: { rgb: 'E2E8F0' } },
-            right: { style: 'thin', color: { rgb: 'E2E8F0' } }
+            bottom: { style: 'medium', color: { rgb: '475569' } },
+            left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+            right: { style: 'thin', color: { rgb: 'CBD5E1' } }
           }
         };
       } else if (totalSet.has(R)) {
@@ -84,6 +107,13 @@ function applyExcelStyles(
       }
     }
   }
+
+  // Set worksheet row heights
+  const rows = [];
+  for (let r = 0; r <= range.e.r; r++) {
+    rows.push({ hpt: rowHeights[r] || 18 });
+  }
+  ws['!rows'] = rows;
 }
 
 export interface ExportExcelOptions {
@@ -422,6 +452,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
   // Apply bold titles, subheaders, and totals formatting
   applyExcelStyles(summaryWs, {
     titleRows: [0],
+    subtitleRows: [1],
     sectionRows: [3, 11],
     headerRows: [4, 12],
     totalRows: [13 + activeSummaries.length],
@@ -538,6 +569,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
     // Apply bold titles, subheaders, and totals formatting
     applyExcelStyles(buildingWs, {
       titleRows: [0],
+      subtitleRows: [1, 2],
       sectionRows: [4, 12],
       headerRows: [13],
       totalRows: [14 + bs.tenantRecords.length],
@@ -616,6 +648,7 @@ export async function exportLandlordPaymentLedgerToExcel(options: ExportExcelOpt
   // Apply bold titles, headers, and totals formatting
   applyExcelStyles(paymentsWs, {
     titleRows: [0],
+    subtitleRows: [1],
     headerRows: [3],
     totalRows: [4 + sortedPayments.length],
   });

@@ -44,7 +44,7 @@ import {
   Landmark,
   ArrowLeft
 } from 'lucide-react';
-import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails, sendMaintenanceAiChat, triggerMpesaStkPush } from '../lib/api';
+import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails, sendMaintenanceAiChat, triggerMpesaStkPush, queryMpesaStkStatus } from '../lib/api';
 
 interface TenantPortalViewProps {
   tenants: Tenant[];
@@ -422,23 +422,64 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
         accountRef: `Unit ${currentTenant?.unitNumber || 'Apartment'}`
       });
 
-      if (res.receiptCode) {
-        setPayRef(res.receiptCode);
+      if (!res.success && res.status !== 'PENDING') {
+        throw new Error(res.message || res.customerMessage || 'Failed to dispatch M-Pesa STK push');
       }
+
+      const checkoutReqId = res.CheckoutRequestID;
       setStkFeedback({
         type: 'success',
-        message: `📲 M-Pesa STK Prompt sent to ${targetPhone} for KSh ${finalAmount.toLocaleString()}! Receipt: ${res.receiptCode || 'Confirmed'}. Statement updated.`
+        message: `📲 Safaricom PIN Prompt sent to ${targetPhone}! Please unlock your phone and enter your M-Pesa PIN for KSh ${finalAmount.toLocaleString()}. Waiting for your confirmation...`
       });
-      onRefreshData();
 
-      // Auto-close modal after confirmation
-      setTimeout(() => {
-        setPayingInvoice(null);
-        setPayAmountInput('');
-        setPayNotesInput('');
-        setStkFeedback(null);
-        onRefreshData();
-      }, 3500);
+      // Poll Daraja API for Safaricom PIN confirmation
+      let isVerified = false;
+      if (checkoutReqId) {
+        for (let i = 0; i < 18; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+          try {
+            const queryRes = await queryMpesaStkStatus(checkoutReqId);
+            if (queryRes.status === 'COMPLETED') {
+              isVerified = true;
+              const rcCode = queryRes.receiptCode || res.receiptCode || 'Confirmed';
+              setPayRef(rcCode);
+              setStkFeedback({
+                type: 'success',
+                message: `✅ M-Pesa payment received and confirmed by Safaricom! (Receipt #${rcCode}). Your invoice is marked as Paid and your statement updated.`
+              });
+              onRefreshData();
+              setTimeout(() => {
+                setPayingInvoice(null);
+                setPayAmountInput('');
+                setPayNotesInput('');
+                setStkFeedback(null);
+                onRefreshData();
+              }, 3500);
+              break;
+            } else if (queryRes.status === 'FAILED') {
+              setStkFeedback({
+                type: 'error',
+                message: `❌ Transaction was not completed (${queryRes.resultDesc || 'Cancelled by user or insufficient funds'}). No payment was deducted.`
+              });
+              return;
+            }
+          } catch {
+            // Polling attempt failed, continue waiting
+          }
+        }
+
+        if (!isVerified) {
+          setStkFeedback({
+            type: 'error',
+            message: '⏱️ Prompt verification timed out. If you entered your PIN, please paste the Safaricom confirmation code (e.g. QJK9483HD7) into the Manual Reference box below to confirm.'
+          });
+        }
+      } else {
+        setStkFeedback({
+          type: 'success',
+          message: `📲 Prompt dispatched to ${targetPhone}. Please enter your M-Pesa PIN.`
+        });
+      }
     } catch (err: any) {
       setStkFeedback({
         type: 'error',
