@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, doc, getDocFromServer, Firestore, setLogLevel } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 const defaultConfig = {
   projectId: "horizontal-disk-2ds98",
@@ -35,10 +36,40 @@ function getFirebaseConfig() {
 
 const firebaseConfig = getFirebaseConfig();
 
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-export const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+// Suppress internal gRPC stream noise while retaining critical errors
+try {
+  setLogLevel('error');
+} catch {}
+
+function initFirestoreInstance(): Firestore {
+  const databaseId = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+    ? firebaseConfig.firestoreDatabaseId
+    : undefined;
+
+  try {
+    return initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+      ignoreUndefinedProperties: true
+    }, databaseId);
+  } catch {
+    return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
+  }
+}
+
+export const db = initFirestoreInstance();
+export const auth = getAuth(app);
+
+// Test connection on startup per Firebase architecture standards
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    getDocFromServer(doc(db, 'test', 'connection')).catch((error) => {
+      if (error instanceof Error && error.message.includes('the client is offline')) {
+        console.warn("Please check your Firebase configuration or connection.");
+      }
+    });
+  }, 1000);
+}
 
 

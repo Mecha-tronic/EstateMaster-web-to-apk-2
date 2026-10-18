@@ -1534,10 +1534,25 @@ export async function queryMpesaStkPushStatus(checkoutRequestId: string): Promis
   } catch (err: any) {
     return {
       checkoutRequestId,
-      status: 'COMPLETED',
-      resultDesc: 'Transaction verified.'
+      status: 'FAILED',
+      resultDesc: 'Could not connect to Safaricom query service.'
     };
   }
+}
+
+export async function simulateMpesaApproval(checkoutRequestId: string, receiptCode?: string): Promise<{
+  success: boolean;
+  status: 'COMPLETED' | 'FAILED';
+  receiptCode: string;
+  resultDesc?: string;
+  payment?: Payment;
+}> {
+  const res = await fetch(getApiUrl('/api/mpesa/simulate-approval'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ checkoutRequestId, receiptCode })
+  });
+  return await handleResponse(res, 'Failed to simulate M-Pesa PIN approval');
 }
 
 export async function verifyMpesaReceiptCode(data: {
@@ -2224,6 +2239,36 @@ export async function fetchInvoices(): Promise<Invoice[]> {
 
 export async function createInvoice(data: any): Promise<Invoice> {
   const invoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
+
+  // 1. Try backend API first to generate official invoice, serial, PDF & email
+  try {
+    const res = await fetch(getApiUrl('/api/invoices/generate'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const created = await handleResponse(res, 'Failed to create invoice');
+    if (created && created.id) {
+      // Sync to Firestore & local storage
+      try {
+        await saveInvoiceToDb(created);
+      } catch (fsErr) {
+        console.warn('Firestore invoice save notice:', fsErr);
+      }
+      const existingIdx = invoices.findIndex(i => i.id === created.id || i.invoiceNumber === created.invoiceNumber);
+      if (existingIdx >= 0) {
+        invoices[existingIdx] = created;
+      } else {
+        invoices.unshift(created);
+      }
+      setLocalData(STORAGE_KEYS.INVOICES, invoices);
+      return created;
+    }
+  } catch (err) {
+    console.warn('Backend invoice generation offline/error, falling back to local creation:', err);
+  }
+
+  // Fallback offline creation
   const priorArrears = invoices
     .filter(i => (i.tenantId === data.tenantId || i.tenantName === data.tenantName) && i.status !== 'Paid')
     .reduce((sum, inv) => sum + Math.max(0, (inv.totalAmount || 0) - (inv.amountPaid || 0)), 0);
@@ -2236,8 +2281,10 @@ export async function createInvoice(data: any): Promise<Invoice> {
   const discount = Number(data.discount || 0);
   const total = rent + water + trash + maint + prevArrears - discount;
 
+  const invoiceSerial = `SN-INV-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
   const newInv: Invoice = {
     id: `inv-${Date.now()}`,
+    serialNumber: invoiceSerial,
     invoiceNumber: `INV-${Math.floor(10000 + Math.random() * 90000)}`,
     tenantId: data.tenantId || 'tenant-1',
     tenantName: data.tenantName || 'Tenant',
@@ -2259,14 +2306,12 @@ export async function createInvoice(data: any): Promise<Invoice> {
     notes: data.notes
   };
 
-  // 1. Direct Firestore save
   try {
     await saveInvoiceToDb(newInv);
   } catch (fsErr) {
     console.warn('Firestore invoice save notice:', fsErr);
   }
 
-  // 2. Queue Email in Firestore if tenant email exists (Delivered by server background worker)
   if (newInv.tenantEmail) {
     try {
       await queueEmailForDelivery({
@@ -2294,24 +2339,55 @@ export async function createInvoice(data: any): Promise<Invoice> {
     }
   }
 
-  // 3. Local storage update
   invoices.unshift(newInv);
   setLocalData(STORAGE_KEYS.INVOICES, invoices);
+  return newInv;
+}
 
-  // 4. Try backend API
-  try {
-    const res = await fetch(getApiUrl('/api/invoices/generate'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    const created = await handleResponse(res, 'Failed to create invoice');
-    if (created) return created;
-  } catch (err) {
-    console.warn('Backend fetch failed, invoice preserved in Firestore & local storage');
+export async function sendInvoiceEmail(invoiceId: string, recipientEmail?: string): Promise<{
+  success: boolean;
+  serialNumber: string;
+  recipientEmail: string;
+  externalDelivered: boolean;
+  invoice?: Invoice;
+  message?: string;
+}> {
+  const res = await fetch(getApiUrl(`/api/invoices/${encodeURIComponent(invoiceId)}/send-email`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipientEmail }),
+  });
+  const data = await handleResponse(res, 'Failed to dispatch invoice email');
+
+  if (data?.invoice) {
+    const currentInvoices = getLocalData<Invoice[]>(STORAGE_KEYS.INVOICES, []);
+    const idx = currentInvoices.findIndex(i => i.id === data.invoice.id || i.invoiceNumber === data.invoice.invoiceNumber);
+    if (idx >= 0) {
+      currentInvoices[idx] = { ...currentInvoices[idx], ...data.invoice };
+      setLocalData(STORAGE_KEYS.INVOICES, currentInvoices);
+    }
+    try {
+      await updateInvoiceInDb(data.invoice.id, {
+        emailedToTenant: true,
+        emailSentAt: data.invoice.emailSentAt,
+        tenantEmail: data.recipientEmail,
+        externalDeliveryStatus: data.externalDelivered ? 'delivered' : 'simulated_fallback'
+      });
+    } catch (fsErr) {
+      console.warn('Firestore invoice update notice:', fsErr);
+    }
   }
 
-  return newInv;
+  return data;
+}
+
+export async function simulateMpesaStkApproval(checkoutRequestId: string): Promise<any> {
+  const res = await fetch(getApiUrl('/api/mpesa/simulate-approval'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ checkoutRequestId }),
+  });
+  return await handleResponse(res, 'Failed to simulate M-Pesa approval');
 }
 
 export async function fetchQuotes(): Promise<Quote[]> {

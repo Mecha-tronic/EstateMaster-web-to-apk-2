@@ -49,6 +49,34 @@ const COLLECTIONS = {
   SECURITY_LOGS: 'security_logs'
 };
 
+// Automatic retry helper with exponential backoff for transient Firestore gRPC write stream resets (Code 13 / RST_STREAM)
+async function retryFirestoreWrite<T>(op: () => Promise<T>, maxRetries = 3, initialDelay = 250): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await op();
+    } catch (err: any) {
+      lastErr = err;
+      const isTransient =
+        err?.code === 13 ||
+        err?.code === 'internal' ||
+        err?.code === 'unavailable' ||
+        err?.message?.includes('RST_STREAM') ||
+        err?.message?.includes('INTERNAL') ||
+        err?.message?.includes('Write stream') ||
+        err?.message?.includes('network') ||
+        err?.message?.includes('Failed to get document') ||
+        err?.message?.includes('Failed to fetch');
+
+      if (!isTransient || attempt === maxRetries) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, initialDelay * Math.pow(2, attempt - 1)));
+    }
+  }
+  throw lastErr;
+}
+
 // --- LANDLORDS ---
 export async function getLandlordsFromDb(): Promise<Landlord[]> {
   try {
@@ -63,7 +91,7 @@ export async function getLandlordsFromDb(): Promise<Landlord[]> {
 export async function saveLandlordToDb(landlord: Landlord): Promise<void> {
   try {
     const cleanData = sanitize(landlord);
-    await setDoc(doc(db, COLLECTIONS.LANDLORDS, landlord.id), cleanData);
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.LANDLORDS, landlord.id), cleanData));
   } catch (err) {
     console.error('Error saving landlord to Firestore:', err);
   }
@@ -72,7 +100,7 @@ export async function saveLandlordToDb(landlord: Landlord): Promise<void> {
 export async function updateLandlordInDb(id: string, data: Partial<Landlord>): Promise<void> {
   try {
     const cleanData = sanitize(data);
-    await updateDoc(doc(db, COLLECTIONS.LANDLORDS, id), cleanData);
+    await retryFirestoreWrite(() => updateDoc(doc(db, COLLECTIONS.LANDLORDS, id), cleanData));
   } catch (err) {
     console.error('Error updating landlord in Firestore:', err);
   }
@@ -113,7 +141,7 @@ export async function saveTenantToDb(tenant: Tenant): Promise<void> {
       ...tenant,
       emailLower: tenant.email ? tenant.email.trim().toLowerCase() : ''
     });
-    await setDoc(doc(db, COLLECTIONS.TENANTS, tenant.id), cleanData);
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.TENANTS, tenant.id), cleanData));
   } catch (err) {
     console.error('Error saving tenant to Firestore:', err);
   }
@@ -125,7 +153,7 @@ export async function updateTenantInDb(id: string, data: Partial<Tenant>): Promi
     if (data.email) {
       (cleanData as any).emailLower = data.email.trim().toLowerCase();
     }
-    await setDoc(doc(db, COLLECTIONS.TENANTS, id), cleanData, { merge: true });
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.TENANTS, id), cleanData, { merge: true }));
   } catch (err) {
     console.error('Error updating tenant in Firestore:', err);
   }
@@ -133,7 +161,7 @@ export async function updateTenantInDb(id: string, data: Partial<Tenant>): Promi
 
 export async function deleteTenantFromDb(id: string): Promise<void> {
   try {
-    await deleteDoc(doc(db, COLLECTIONS.TENANTS, id));
+    await retryFirestoreWrite(() => deleteDoc(doc(db, COLLECTIONS.TENANTS, id)));
   } catch (err) {
     console.error('Error deleting tenant from Firestore:', err);
   }
@@ -152,7 +180,7 @@ export async function getPropertiesFromDb(): Promise<Property[]> {
 
 export async function savePropertyToDb(property: Property): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.PROPERTIES, property.id), sanitize(property));
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.PROPERTIES, property.id), sanitize(property)));
   } catch (err) {
     console.error('Error saving property to Firestore:', err);
   }
@@ -160,7 +188,7 @@ export async function savePropertyToDb(property: Property): Promise<void> {
 
 export async function updatePropertyInDb(id: string, data: Partial<Property>): Promise<void> {
   try {
-    await updateDoc(doc(db, COLLECTIONS.PROPERTIES, id), sanitize(data));
+    await retryFirestoreWrite(() => updateDoc(doc(db, COLLECTIONS.PROPERTIES, id), sanitize(data)));
   } catch (err) {
     console.error('Error updating property in Firestore:', err);
   }
@@ -168,7 +196,7 @@ export async function updatePropertyInDb(id: string, data: Partial<Property>): P
 
 export async function deletePropertyFromDb(id: string): Promise<void> {
   try {
-    await deleteDoc(doc(db, COLLECTIONS.PROPERTIES, id));
+    await retryFirestoreWrite(() => deleteDoc(doc(db, COLLECTIONS.PROPERTIES, id)));
   } catch (err) {
     console.error('Error deleting property from Firestore:', err);
   }
@@ -187,7 +215,7 @@ export async function getUnitsFromDb(): Promise<Unit[]> {
 
 export async function saveUnitToDb(unit: Unit): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.UNITS, unit.id), sanitize(unit));
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.UNITS, unit.id), sanitize(unit)));
   } catch (err) {
     console.error('Error saving unit to Firestore:', err);
   }
@@ -195,7 +223,7 @@ export async function saveUnitToDb(unit: Unit): Promise<void> {
 
 export async function updateUnitInDb(id: string, data: Partial<Unit>): Promise<void> {
   try {
-    await updateDoc(doc(db, COLLECTIONS.UNITS, id), sanitize(data));
+    await retryFirestoreWrite(() => updateDoc(doc(db, COLLECTIONS.UNITS, id), sanitize(data)));
   } catch (err) {
     console.error('Error updating unit in Firestore:', err);
   }
@@ -203,7 +231,7 @@ export async function updateUnitInDb(id: string, data: Partial<Unit>): Promise<v
 
 export async function deleteUnitFromDb(id: string): Promise<void> {
   try {
-    await deleteDoc(doc(db, COLLECTIONS.UNITS, id));
+    await retryFirestoreWrite(() => deleteDoc(doc(db, COLLECTIONS.UNITS, id)));
   } catch (err) {
     console.error('Error deleting unit from Firestore:', err);
   }
@@ -222,7 +250,7 @@ export async function getInvoicesFromDb(): Promise<Invoice[]> {
 
 export async function saveInvoiceToDb(invoice: Invoice): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.INVOICES, invoice.id), sanitize(invoice));
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.INVOICES, invoice.id), sanitize(invoice)));
   } catch (err) {
     console.error('Error saving invoice to Firestore:', err);
   }
@@ -230,7 +258,7 @@ export async function saveInvoiceToDb(invoice: Invoice): Promise<void> {
 
 export async function updateInvoiceInDb(id: string, data: Partial<Invoice>): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.INVOICES, id), sanitize(data), { merge: true });
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.INVOICES, id), sanitize(data), { merge: true }));
   } catch (err) {
     console.error('Error updating invoice in Firestore:', err);
   }
@@ -249,7 +277,7 @@ export async function getQuotesFromDb(): Promise<Quote[]> {
 
 export async function saveQuoteToDb(quote: Quote): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.QUOTES, quote.id), sanitize(quote));
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.QUOTES, quote.id), sanitize(quote)));
   } catch (err) {
     console.error('Error saving quote to Firestore:', err);
   }
@@ -268,7 +296,7 @@ export async function getPaymentsFromDb(): Promise<Payment[]> {
 
 export async function savePaymentToDb(payment: Payment): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.PAYMENTS, payment.id), sanitize(payment));
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.PAYMENTS, payment.id), sanitize(payment)));
   } catch (err) {
     console.error('Error saving payment to Firestore:', err);
   }
@@ -287,7 +315,7 @@ export async function getMaintenanceFromDb(): Promise<MaintenanceRequest[]> {
 
 export async function saveMaintenanceToDb(maint: MaintenanceRequest): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.MAINTENANCE, maint.id), sanitize(maint));
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.MAINTENANCE, maint.id), sanitize(maint)));
   } catch (err) {
     console.error('Error saving maintenance to Firestore:', err);
   }
@@ -295,7 +323,7 @@ export async function saveMaintenanceToDb(maint: MaintenanceRequest): Promise<vo
 
 export async function updateMaintenanceInDb(id: string, data: Partial<MaintenanceRequest>): Promise<void> {
   try {
-    await updateDoc(doc(db, COLLECTIONS.MAINTENANCE, id), sanitize(data));
+    await retryFirestoreWrite(() => updateDoc(doc(db, COLLECTIONS.MAINTENANCE, id), sanitize(data)));
   } catch (err) {
     console.error('Error updating maintenance in Firestore:', err);
   }
@@ -314,7 +342,7 @@ export async function getEmailsFromDb(): Promise<EmailLog[]> {
 
 export async function saveEmailToDb(email: EmailLog): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.EMAILS, email.id), sanitize(email));
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.EMAILS, email.id), sanitize(email)));
   } catch (err) {
     console.error('Error saving email to Firestore:', err);
   }
@@ -322,7 +350,7 @@ export async function saveEmailToDb(email: EmailLog): Promise<void> {
 
 export async function updateEmailInDb(id: string, data: Partial<EmailLog>): Promise<void> {
   try {
-    await updateDoc(doc(db, COLLECTIONS.EMAILS, id), sanitize(data));
+    await retryFirestoreWrite(() => updateDoc(doc(db, COLLECTIONS.EMAILS, id), sanitize(data)));
   } catch (err) {
     console.error('Error updating email in Firestore:', err);
   }
@@ -540,7 +568,7 @@ export async function getSecurityLogsFromDb(): Promise<SecurityLog[]> {
 export async function saveSecurityLogToDb(log: SecurityLog): Promise<void> {
   try {
     const cleanData = sanitize(log);
-    await setDoc(doc(db, COLLECTIONS.SECURITY_LOGS, log.id), cleanData);
+    await retryFirestoreWrite(() => setDoc(doc(db, COLLECTIONS.SECURITY_LOGS, log.id), cleanData));
   } catch (err) {
     console.error('Error saving security log to Firestore:', err);
   }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MaintenanceRequest, Tenant, Unit, Property } from '../types';
-import { Wrench, Sparkles, CheckCircle2, Clock, AlertOctagon, UserCheck, ShieldAlert, Check, DollarSign, Receipt, Filter } from 'lucide-react';
+import { Wrench, Sparkles, CheckCircle2, Clock, AlertOctagon, UserCheck, ShieldAlert, Check, DollarSign, Receipt, Filter, X, RotateCcw } from 'lucide-react';
 
 interface MaintenanceViewProps {
   maintenance: MaintenanceRequest[];
@@ -27,8 +27,38 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   const [completionTech, setCompletionTech] = useState<string>('');
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
-  const activeTickets = maintenance.filter((m) => m.status !== 'Completed');
-  const completedTickets = maintenance.filter((m) => m.status === 'Completed');
+  // Allow landlord to dismiss/remove resolved tickets from their active dashboard view
+  const [dismissedTicketIds, setDismissedTicketIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('dismissed_maintenance_ids') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const handleDismissTicket = (id: string) => {
+    setDismissedTicketIds((prev) => {
+      const updated = [...prev, id];
+      try {
+        localStorage.setItem('dismissed_maintenance_ids', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    setStatusNotice('Ticket removed from maintenance view. Its repair charge remains saved and will be billed on the tenant\'s month-end invoice.');
+    setTimeout(() => setStatusNotice(null), 4500);
+  };
+
+  const handleRestoreAllDismissed = () => {
+    setDismissedTicketIds([]);
+    try {
+      localStorage.removeItem('dismissed_maintenance_ids');
+    } catch {}
+    setStatusNotice('Restored all hidden tickets to view.');
+    setTimeout(() => setStatusNotice(null), 3000);
+  };
+
+  const activeTickets = maintenance.filter((m) => m.status !== 'Completed' && !dismissedTicketIds.includes(m.id));
+  const completedTickets = maintenance.filter((m) => m.status === 'Completed' && !dismissedTicketIds.includes(m.id));
 
   const parseAiCost = (aiCostStr?: string): number => {
     if (!aiCostStr) return 0;
@@ -108,6 +138,15 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
           >
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Resolved & Billing Queue ({completedTickets.length})
           </button>
+          {dismissedTicketIds.length > 0 && (
+            <button
+              onClick={handleRestoreAllDismissed}
+              className="px-2.5 py-1.5 rounded-lg text-slate-500 hover:text-slate-800 text-[11px] font-medium transition flex items-center gap-1 border-l border-slate-200 ml-1 cursor-pointer"
+              title="Show previously cleared resolved tickets"
+            >
+              <RotateCcw className="w-3 h-3 text-slate-400" /> Show {dismissedTicketIds.length} Cleared
+            </button>
+          )}
         </div>
       </div>
 
@@ -219,9 +258,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                       <option value="Completed">Status: Completed & Queue Bill</option>
                     </select>
 
-                    {/* Month-End Billing Badge for Completed Items */}
+                    {/* Month-End Billing Badge and Remove action for Completed Items */}
                     {isResolved && (
-                      <div className="flex items-center gap-1">
+                      <div className="flex flex-wrap items-center gap-1.5 justify-end">
                         {m.isBilled ? (
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1">
                             <Receipt className="w-3 h-3" /> Billed in Invoice {m.billedToInvoiceId ? `#${m.billedToInvoiceId}` : ''}
@@ -231,6 +270,14 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                             <Clock className="w-3 h-3" /> Scheduled for Month-End Invoice
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => handleDismissTicket(m.id)}
+                          className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-700 text-[10px] font-bold border border-slate-200 hover:border-rose-300 transition flex items-center gap-1 cursor-pointer"
+                          title="Remove resolved issue from maintenance dashboard (billing remains saved for monthly invoice)"
+                        >
+                          <X className="w-3 h-3" /> Remove from List
+                        </button>
                       </div>
                     )}
                   </div>

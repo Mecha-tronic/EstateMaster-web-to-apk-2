@@ -109,6 +109,7 @@ export default function App() {
 
   // Modal States
   const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
+  const [preselectedInvoiceTenantId, setPreselectedInvoiceTenantId] = useState<string | undefined>(undefined);
   const [showCreateQuoteModal, setShowCreateQuoteModal] = useState(false);
   const [showLandlordRegModal, setShowLandlordRegModal] = useState(false);
   const [showRenewSubscriptionModal, setShowRenewSubscriptionModal] = useState(false);
@@ -147,8 +148,14 @@ export default function App() {
   }, []);
 
   // Back Button-aware Modal Handlers (Phone back button dismisses modal without exiting)
-  const openInvoiceModal = () => setShowCreateInvoiceModal(true);
-  const closeInvoiceModal = () => setShowCreateInvoiceModal(false);
+  const openInvoiceModal = (targetTenantId?: string) => {
+    if (targetTenantId) setPreselectedInvoiceTenantId(targetTenantId);
+    setShowCreateInvoiceModal(true);
+  };
+  const closeInvoiceModal = () => {
+    setShowCreateInvoiceModal(false);
+    setPreselectedInvoiceTenantId(undefined);
+  };
 
   const openQuoteModal = () => setShowCreateQuoteModal(true);
   const closeQuoteModal = () => setShowCreateQuoteModal(false);
@@ -901,9 +908,9 @@ export default function App() {
                       tenants={scopedTenants}
                       units={scopedUnits}
                       onNavigateRegister={() => navigateRole('register')}
-                      onOpenInvoiceModal={() => {
+                      onOpenInvoiceModal={(targetTenantId?: string) => {
                         navigateTab('invoices');
-                        openInvoiceModal();
+                        openInvoiceModal(targetTenantId);
                       }}
                       onRefreshData={() => loadAllData()}
                     />
@@ -918,6 +925,9 @@ export default function App() {
                       properties={scopedProperties}
                       landlords={landlords}
                       signedInLandlord={currentLandlord}
+                      preselectedTenantId={preselectedInvoiceTenantId}
+                      maintenance={scopedMaintenance}
+                      onRefreshData={() => loadAllData()}
                       onCreateInvoice={handleCreateInvoice}
                       onCreateQuote={handleCreateQuote}
                       showCreateInvoiceModal={showCreateInvoiceModal}

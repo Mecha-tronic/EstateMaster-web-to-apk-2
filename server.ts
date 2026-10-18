@@ -69,7 +69,7 @@ import {
   generateUniqueSerialNumber,
   getEmailConfig
 } from './src/lib/emailService.js';
-import { generatePaymentReceiptAndStatementPdf } from './src/lib/pdfStatementGenerator.js';
+import { generatePaymentReceiptAndStatementPdf, generateInvoicePdf } from './src/lib/pdfStatementGenerator.js';
 
 dotenv.config();
 
@@ -2592,6 +2592,9 @@ async function startServer() {
     receiptCode?: string;
     resultDesc?: string;
     isLiveDaraja?: boolean;
+    shortcode?: string;
+    passkey?: string;
+    isSandbox?: boolean;
     createdAt: string;
     paymentRecorded?: boolean;
   }>();
@@ -2989,7 +2992,8 @@ async function startServer() {
       const timestamp = getDarajaTimestamp();
       const isSandbox = !config.isProduction || config.shortcode === '174379';
       let targetShortcode = isSandbox ? (config.shortcode || '174379') : (matchedLandlord?.mpesaPaybill || config.shortcode || '174379');
-      const cbUrl = config.callbackUrl || `https://${req.headers.host}/api/mpesa/callback`;
+      const publicBaseUrl = process.env.APP_URL || (req.headers.host && !req.headers.host.includes('localhost') ? `https://${req.headers.host}` : 'https://ais-dev-ezkstodggizsdniqekt6v3-227270690811.europe-west1.run.app');
+      const cbUrl = config.callbackUrl || `${publicBaseUrl}/api/mpesa/callback`;
 
       let transactionType = 'CustomerPayBillOnline';
       const isTillShortcode = Boolean(matchedLandlord?.mpesaTillNumber && !matchedLandlord?.mpesaPaybill && targetShortcode !== '174379');
@@ -3073,6 +3077,9 @@ async function startServer() {
         accountRef: targetAccountRef,
         status: 'PENDING',
         isLiveDaraja: true,
+        shortcode: targetShortcode,
+        passkey: config.passkey,
+        isSandbox,
         createdAt: new Date().toISOString(),
         paymentRecorded: false
       });
@@ -3083,11 +3090,12 @@ async function startServer() {
         MerchantRequestID: merchantRequestId,
         CheckoutRequestID: checkoutRequestId,
         ResponseCode: '0',
-        ResponseDescription: 'Success. Request accepted for processing',
+        ResponseDescription: stkData.ResponseDescription || 'Success. Request accepted for processing',
         CustomerMessage: customerMsg,
         amount: payAmt,
         phone: formattedPhone,
-        accountRef: targetAccountRef
+        accountRef: targetAccountRef,
+        isSandbox
       });
     } catch (err: any) {
       console.error('Rent STK Push error:', err);
@@ -3211,9 +3219,9 @@ async function startServer() {
     if (authData?.token && config.isConfigured && session.status === 'PENDING') {
       try {
         const timestamp = getDarajaTimestamp();
-        const isSandbox = !config.isProduction || config.shortcode === '174379';
-        const targetShortcode = isSandbox ? (config.shortcode || '174379') : (config.shortcode || '174379');
-        const password = Buffer.from(`${targetShortcode}${config.passkey}${timestamp}`).toString('base64');
+        const targetShortcode = session.shortcode || (config.isProduction ? config.shortcode : '174379') || '174379';
+        const targetPasskey = session.passkey || config.passkey;
+        const password = Buffer.from(`${targetShortcode}${targetPasskey}${timestamp}`).toString('base64');
 
         const queryRes = await fetch(`${authData.baseUrl}/mpesa/stkpushquery/v1/query`, {
           method: 'POST',
@@ -3241,26 +3249,24 @@ async function startServer() {
             resultDesc: session.resultDesc,
             payment: confirmed?.pay
           });
-        } else if (queryData.ResultCode === '1032') {
+        } else if (queryData.ResultCode !== undefined && queryData.ResultCode !== null) {
           session.status = 'FAILED';
-          session.resultDesc = 'Transaction cancelled on handset by user. No funds were deducted.';
+          let failureReason = queryData.ResultDesc || `Safaricom payment failed (ResultCode: ${queryData.ResultCode}).`;
+          if (String(queryData.ResultCode) === '1032') {
+            failureReason = 'Transaction cancelled on phone handset by user. No funds were deducted.';
+          } else if (String(queryData.ResultCode) === '1037') {
+            failureReason = 'M-Pesa STK Prompt timed out before PIN was entered. No funds were deducted.';
+          } else if (String(queryData.ResultCode) === '1') {
+            failureReason = 'Insufficient M-Pesa account balance for this transaction.';
+          } else if (String(queryData.ResultCode) === '11') {
+            failureReason = 'Safaricom Daraja: The DebitParty is in an invalid state. (In Safaricom Sandbox, non-testbed SIM numbers cannot receive live prompts. Use test simulation or manual M-Pesa reference).';
+          }
+          session.resultDesc = failureReason;
           return res.json({
             status: 'FAILED',
-            resultDesc: session.resultDesc
-          });
-        } else if (queryData.ResultCode === '1037') {
-          session.status = 'FAILED';
-          session.resultDesc = 'M-Pesa STK Prompt timed out before PIN was entered. No funds were deducted.';
-          return res.json({
-            status: 'FAILED',
-            resultDesc: session.resultDesc
-          });
-        } else if (queryData.ResultCode === '1') {
-          session.status = 'FAILED';
-          session.resultDesc = 'Insufficient M-Pesa balance for this transaction.';
-          return res.json({
-            status: 'FAILED',
-            resultDesc: session.resultDesc
+            resultDesc: failureReason,
+            resultCode: queryData.ResultCode,
+            isSandbox: session.isSandbox || config.shortcode === '174379'
           });
         } else if (queryData.errorCode && queryData.errorCode !== '500.001.1001') {
           console.warn('Daraja query non-pending error:', queryData);
@@ -3276,6 +3282,36 @@ async function startServer() {
       amount: session.amount,
       phone: session.phone
     });
+  });
+
+  // 6. Test Sandbox PIN Simulation Endpoint
+  app.post('/api/mpesa/simulate-approval', async (req, res) => {
+    try {
+      const { checkoutRequestId, receiptCode: customReceipt } = req.body;
+      if (!checkoutRequestId) {
+        return res.status(400).json({ error: 'checkoutRequestId is required' });
+      }
+
+      const session = mpesaCheckouts.get(checkoutRequestId);
+      if (!session) {
+        return res.status(404).json({ error: 'Checkout session not found or expired' });
+      }
+
+      const receiptCode = customReceipt || `SAB${Math.floor(10000000 + Math.random() * 90000000)}`;
+      session.resultDesc = 'Simulated sandbox M-Pesa PIN approval confirmed.';
+      const confirmed = await recordAndConfirmRentPayment(session, receiptCode);
+
+      res.status(200).json({
+        success: true,
+        status: 'COMPLETED',
+        receiptCode: session.receiptCode || receiptCode,
+        resultDesc: session.resultDesc,
+        payment: confirmed?.pay
+      });
+    } catch (err: any) {
+      console.error('Error simulating approval:', err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // 6. Manual M-Pesa Transaction Verification & Anti-Double-Entry Defense
@@ -3834,9 +3870,28 @@ async function startServer() {
     try {
       const { tenantId, periodMonth, waterFee = 25, trashFee = 15, maintenanceFee = 0, discount = 0, previousArrears: manualArrears, notes } = req.body;
       const allTenants = await getTenantsFromDb();
-      const tenant = allTenants.find(t => t.id === tenantId);
+      let tenant = allTenants.find(t => 
+        (tenantId && t.id === tenantId) ||
+        (req.body.tenantEmail && t.email && t.email.toLowerCase() === req.body.tenantEmail.toLowerCase()) ||
+        (req.body.tenantName && t.fullName && t.fullName.toLowerCase().trim() === req.body.tenantName.toLowerCase().trim())
+      );
       if (!tenant) {
-        return res.status(404).json({ error: 'Tenant not found' });
+        if (req.body.tenantName || req.body.tenantEmail) {
+          tenant = {
+            id: tenantId || `tenant-${Date.now()}`,
+            fullName: req.body.tenantName || 'Tenant',
+            email: req.body.tenantEmail || 'tenant@example.com',
+            phone: req.body.tenantPhone || '+254 700 000 000',
+            unitNumber: req.body.unitNumber || 'A1',
+            propertyName: req.body.propertyName || 'Property',
+            monthlyRent: Number(req.body.rentAmount || 50000),
+            unitId: req.body.unitId || '',
+            propertyId: req.body.propertyId || '',
+            landlordId: req.body.landlordId || ''
+          } as any;
+        } else {
+          return res.status(404).json({ error: 'Tenant not found' });
+        }
       }
 
       // Query historical invoices to compute outstanding unpaid arrears
@@ -3884,12 +3939,14 @@ async function startServer() {
 
       const allUnits = await getUnitsFromDb();
       const allProps = await getPropertiesFromDb();
+      const allLandlords = await getLandlordsFromDb();
 
       const matchedUnit = allUnits.find(u => u.id === tenant.unitId);
       const matchedProp = allProps.find(p => p.id === tenant.propertyId || p.id === matchedUnit?.propertyId);
+      const matchedLandlord = allLandlords.find(l => l.id === tenant?.landlordId || l.id === matchedProp?.landlordId) || allLandlords[0];
 
-      const unitNum = tenant.unitNumber || matchedUnit?.unitNumber || 'Unit';
-      const propName = tenant.propertyName || matchedUnit?.propertyName || matchedProp?.name || 'Property';
+      const unitNum = tenant.unitNumber || matchedUnit?.unitNumber || req.body.unitNumber || 'Unit';
+      const propName = tenant.propertyName || matchedUnit?.propertyName || matchedProp?.name || req.body.propertyName || 'Property';
 
       const invoiceSerial = generateUniqueSerialNumber('INV');
       const inv: Invoice = {
@@ -3932,11 +3989,35 @@ async function startServer() {
         });
       }
 
+      let pdfBuffer: Buffer | null = null;
+      try {
+        pdfBuffer = await generateInvoicePdf({
+          companyName: matchedLandlord?.companyName || matchedLandlord?.name,
+          landlordName: matchedLandlord?.name,
+          landlordPhone: matchedLandlord?.phone,
+          landlordEmail: matchedLandlord?.email,
+          landlordPaybill: matchedLandlord?.mpesaPaybill || '247247',
+          landlordTill: matchedLandlord?.mpesaTillNumber,
+          bankName: matchedLandlord?.bankName || 'Equity Bank Kenya',
+          accountName: matchedLandlord?.accountName || matchedLandlord?.name,
+          accountNumber: matchedLandlord?.accountNumber || '0110293847561',
+          invoice: inv,
+          tenantName: tenant.fullName,
+          tenantEmail: tenant.email,
+          tenantPhone: tenant.phone,
+          unitNumber: inv.unitNumber,
+          propertyName: inv.propertyName,
+          propertyAddress: matchedProp?.address || `${inv.propertyName}, Nairobi, Kenya`
+        });
+      } catch (pdfErr) {
+        console.warn('[InvoicePDF] Could not generate PDF attachment:', pdfErr);
+      }
+
       const invoiceEmailHtml = `
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 16px 0;">
           <h3 style="color: #1e293b; margin-top: 0; font-size: 16px;">Monthly Rent Invoice Dispatched</h3>
           <p style="color: #334155; font-size: 14px;">Dear <strong>${tenant.fullName}</strong>,</p>
-          <p style="color: #334155; font-size: 14px;">A new rental invoice for <strong>${inv.periodMonth}</strong> has been generated for your unit <strong>${inv.unitNumber}</strong> (${inv.propertyName}).</p>
+          <p style="color: #334155; font-size: 14px;">A new rental invoice for <strong>${inv.periodMonth}</strong> has been generated for your unit <strong>${inv.unitNumber}</strong> (${inv.propertyName}). An official PDF statement is attached to this email.</p>
           <div style="background-color: #ffffff; border: 1px solid #cbd5e1; padding: 16px; border-radius: 8px; margin: 16px 0;">
             <p style="margin: 4px 0; font-size: 13px;"><strong>Document Serial:</strong> <code style="font-family: monospace; font-weight: bold; color: #0284c7;">${invoiceSerial}</code></p>
             <p style="margin: 4px 0; font-size: 13px;"><strong>Invoice Number:</strong> ${inv.invoiceNumber}</p>
@@ -3948,6 +4029,12 @@ async function startServer() {
             ${inv.discount && inv.discount > 0 ? `<p style="margin: 4px 0; font-size: 13px; color: #15803d;"><strong>Special Discount:</strong> -KSh ${inv.discount.toLocaleString()}</p>` : ''}
             <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 10px 0;"/>
             <p style="margin: 4px 0; font-size: 16px; color: #1e293b; font-weight: bold;">Total Amount Due: KSh ${inv.totalAmount.toLocaleString()}</p>
+          </div>
+          <div style="background-color: #f0fdf4; border: 1px solid #86efac; padding: 12px; border-radius: 8px; margin: 16px 0; font-size: 12px; color: #166534;">
+            <p style="margin: 2px 0; font-weight: bold;">Official Payment Channels:</p>
+            <p style="margin: 2px 0;">M-Pesa Paybill: <strong>${matchedLandlord?.mpesaPaybill || '247247'}</strong> | Account: <strong>Unit ${inv.unitNumber}</strong></p>
+            ${matchedLandlord?.mpesaTillNumber ? `<p style="margin: 2px 0;">M-Pesa Buy Goods Till: <strong>${matchedLandlord.mpesaTillNumber}</strong></p>` : ''}
+            <p style="margin: 2px 0;">Bank: <strong>${matchedLandlord?.bankName || 'Equity Bank Kenya'}</strong> | A/C: <strong>${matchedLandlord?.accountNumber || '0110293847561'}</strong></p>
           </div>
           <p style="color: #475569; font-size: 13px;">
             Please log in to your EstateMaster Tenant Portal or pay directly via M-Pesa to your Landlord's registered Till / Paybill.
@@ -3963,7 +4050,12 @@ async function startServer() {
         emailType: 'Invoice',
         serialNumber: invoiceSerial,
         prefix: 'INV',
-        documentId: inv.id
+        documentId: inv.id,
+        attachments: pdfBuffer ? [{
+          filename: `Invoice_${inv.invoiceNumber}_${invoiceSerial}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        }] : undefined
       });
 
       if (invoiceEmailResult.externalDelivered) {
@@ -3974,6 +4066,133 @@ async function startServer() {
       res.status(201).json(inv);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Dedicated Route: Dispatch / Resend Invoice Email to Tenant with attached PDF statement
+  app.post('/api/invoices/:id/send-email', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { recipientEmail } = req.body || {};
+      const allInvoices = await getInvoicesFromDb();
+      const inv = allInvoices.find(i => i.id === id || i.invoiceNumber === id || i.serialNumber === id);
+      if (!inv) {
+        return res.status(404).json({ error: 'Invoice not found' });
+      }
+
+      const allTenants = await getTenantsFromDb();
+      const allUnits = await getUnitsFromDb();
+      const allProps = await getPropertiesFromDb();
+      const allLandlords = await getLandlordsFromDb();
+
+      const tenant = allTenants.find(t => t.id === inv.tenantId || (t.fullName && inv.tenantName && t.fullName.toLowerCase() === inv.tenantName.toLowerCase()));
+      const matchedUnit = allUnits.find(u => u.id === (inv.unitId || tenant?.unitId));
+      const matchedProp = allProps.find(p => p.id === (tenant?.propertyId || matchedUnit?.propertyId) || p.name === inv.propertyName);
+      const matchedLandlord = allLandlords.find(l => l.id === (matchedProp?.landlordId || tenant?.landlordId)) || allLandlords[0];
+
+      const targetEmail = recipientEmail || inv.tenantEmail || tenant?.email;
+      if (!targetEmail) {
+        return res.status(400).json({ error: 'Tenant has no registered email address. Please provide an email to send the invoice.' });
+      }
+
+      const targetName = inv.tenantName || tenant?.fullName || 'Valued Tenant';
+      const serial = inv.serialNumber || generateUniqueSerialNumber('INV');
+      if (!inv.serialNumber) inv.serialNumber = serial;
+
+      let pdfBuffer: Buffer | null = null;
+      try {
+        pdfBuffer = await generateInvoicePdf({
+          companyName: matchedLandlord?.companyName || matchedLandlord?.name,
+          landlordName: matchedLandlord?.name,
+          landlordPhone: matchedLandlord?.phone,
+          landlordEmail: matchedLandlord?.email,
+          landlordPaybill: matchedLandlord?.mpesaPaybill || '247247',
+          landlordTill: matchedLandlord?.mpesaTillNumber,
+          bankName: matchedLandlord?.bankName || 'Equity Bank Kenya',
+          accountName: matchedLandlord?.accountName || matchedLandlord?.name,
+          accountNumber: matchedLandlord?.accountNumber || '0110293847561',
+          invoice: inv,
+          tenantName: targetName,
+          tenantEmail: targetEmail,
+          tenantPhone: tenant?.phone,
+          unitNumber: inv.unitNumber || tenant?.unitNumber,
+          propertyName: inv.propertyName || matchedProp?.name,
+          propertyAddress: matchedProp?.address || `${inv.propertyName || 'Apartments'}, Nairobi, Kenya`
+        });
+      } catch (pdfErr) {
+        console.warn('[InvoiceEmail] Could not generate invoice PDF attachment:', pdfErr);
+      }
+
+      const invoiceEmailHtml = `
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 16px 0;">
+          <h3 style="color: #1e293b; margin-top: 0; font-size: 16px;">Monthly Rent Invoice Dispatched</h3>
+          <p style="color: #334155; font-size: 14px;">Dear <strong>${targetName}</strong>,</p>
+          <p style="color: #334155; font-size: 14px;">Your official rental invoice for <strong>${inv.periodMonth}</strong> for unit <strong>${inv.unitNumber}</strong> (${inv.propertyName}) is ready. Please find the official PDF statement attached to this email.</p>
+          <div style="background-color: #ffffff; border: 1px solid #cbd5e1; padding: 16px; border-radius: 8px; margin: 16px 0;">
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Document Serial:</strong> <code style="font-family: monospace; font-weight: bold; color: #0284c7;">${serial}</code></p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Invoice Number:</strong> ${inv.invoiceNumber}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Due Date:</strong> ${inv.dueDate}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Base Rent:</strong> KSh ${inv.rentAmount?.toLocaleString()}</p>
+            ${inv.previousArrears && inv.previousArrears > 0 ? `<p style="margin: 4px 0; font-size: 13px; color: #b45309; font-weight: bold;"><strong>Previous Months Arrears:</strong> KSh ${inv.previousArrears.toLocaleString()}</p>` : ''}
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Water & Trash Utilities:</strong> KSh ${( (inv.waterFee || 0) + (inv.trashFee || 0) ).toLocaleString()}</p>
+            ${inv.maintenanceFee && inv.maintenanceFee > 0 ? `<p style="margin: 4px 0; font-size: 13px;"><strong>Maintenance Fee:</strong> KSh ${inv.maintenanceFee.toLocaleString()}</p>` : ''}
+            ${inv.discount && inv.discount > 0 ? `<p style="margin: 4px 0; font-size: 13px; color: #15803d;"><strong>Special Discount:</strong> -KSh ${inv.discount.toLocaleString()}</p>` : ''}
+            <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 10px 0;"/>
+            <p style="margin: 4px 0; font-size: 16px; color: #1e293b; font-weight: bold;">Total Amount Due: KSh ${inv.totalAmount.toLocaleString()}</p>
+          </div>
+          <div style="background-color: #f0fdf4; border: 1px solid #86efac; padding: 12px; border-radius: 8px; margin: 16px 0; font-size: 12px; color: #166534;">
+            <p style="margin: 2px 0; font-weight: bold;">Official Payment Channels:</p>
+            <p style="margin: 2px 0;">M-Pesa Paybill: <strong>${matchedLandlord?.mpesaPaybill || '247247'}</strong> | Account: <strong>Unit ${inv.unitNumber}</strong></p>
+            ${matchedLandlord?.mpesaTillNumber ? `<p style="margin: 2px 0;">M-Pesa Buy Goods Till: <strong>${matchedLandlord.mpesaTillNumber}</strong></p>` : ''}
+            <p style="margin: 2px 0;">Bank: <strong>${matchedLandlord?.bankName || 'Equity Bank Kenya'}</strong> | A/C: <strong>${matchedLandlord?.accountNumber || '0110293847561'}</strong></p>
+          </div>
+          <p style="color: #475569; font-size: 13px;">
+            Please pay before the due date. You can also view this invoice and pay directly via M-Pesa STK Push in your Tenant Portal.
+          </p>
+        </div>
+      `;
+
+      const dispatchResult = await dispatchSystemEmail({
+        recipientEmail: targetEmail,
+        recipientName: targetName,
+        subject: `📄 Monthly Rent Invoice #${inv.invoiceNumber} [${serial}] (${inv.periodMonth}) - Total Due: KSh ${inv.totalAmount.toLocaleString()}`,
+        bodyHtml: invoiceEmailHtml,
+        emailType: 'Invoice',
+        serialNumber: serial,
+        prefix: 'INV',
+        documentId: inv.id,
+        attachments: pdfBuffer ? [{
+          filename: `Invoice_${inv.invoiceNumber}_${serial}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        }] : undefined
+      });
+
+      inv.emailedToTenant = true;
+      inv.emailSentAt = new Date().toISOString();
+      inv.tenantEmail = targetEmail;
+      if (dispatchResult.externalDelivered) {
+        inv.externalDeliveryStatus = 'delivered';
+      }
+      await updateInvoiceInDb(inv.id, {
+        emailedToTenant: true,
+        emailSentAt: inv.emailSentAt,
+        tenantEmail: targetEmail,
+        externalDeliveryStatus: inv.externalDeliveryStatus,
+        serialNumber: serial
+      });
+
+      res.status(200).json({
+        success: true,
+        serialNumber: serial,
+        recipientEmail: targetEmail,
+        externalDelivered: dispatchResult.externalDelivered,
+        invoice: inv,
+        message: `Official invoice #${inv.invoiceNumber} dispatched to ${targetEmail} (Serial: ${serial}) with PDF attachment.`
+      });
+    } catch (err: any) {
+      console.error('Send invoice email error:', err);
+      res.status(500).json({ error: err.message || 'Failed to dispatch invoice email' });
     }
   });
 
@@ -4103,6 +4322,28 @@ async function startServer() {
       }
 
       const payAmt = Number(amount) || (inv ? inv.totalAmount : 0);
+      if (isNaN(payAmt) || payAmt <= 0) {
+        return res.status(400).json({ error: 'Payment amount must be greater than zero.' });
+      }
+
+      const cleanRef = (referenceCode || '').trim().toUpperCase();
+      const allPayments = await getPaymentsFromDb();
+
+      // Guard: M-Pesa payments MUST have a real reference code and cannot use duplicate codes
+      if (paymentMethod === 'M-Pesa') {
+        if (!cleanRef || cleanRef.length < 6 || cleanRef.startsWith('REF-')) {
+          return res.status(400).json({
+            error: 'A valid Safaricom M-Pesa confirmation code (e.g. QJK9483HD7) is strictly required to record an M-Pesa payment.'
+          });
+        }
+        const duplicate = allPayments.find(p => p.referenceCode && p.referenceCode.trim().toUpperCase() === cleanRef);
+        if (duplicate) {
+          return res.status(400).json({
+            error: `This M-Pesa reference code (${cleanRef}) has already been recorded in the system. Duplicate payments are not permitted.`
+          });
+        }
+      }
+
       const paymentReceiptSerial = generateUniqueSerialNumber('RCT');
 
       const targetTenantId = inv?.tenantId || tenantId || (tenantEmail ? allTenants.find(t => t.email?.toLowerCase() === tenantEmail.toLowerCase())?.id : undefined) || 'tenant-1';
@@ -4126,7 +4367,7 @@ async function startServer() {
         periodMonth: inv?.periodMonth || periodMonth || '',
         amount: payAmt,
         paymentMethod: paymentMethod || 'M-Pesa',
-        referenceCode: referenceCode || `REF-${Math.floor(Math.random() * 899999 + 100000)}`,
+        referenceCode: cleanRef || `REF-${Date.now().toString().slice(-6)}`,
         paymentDate: new Date().toISOString(),
         status: 'Completed',
         externalDeliveryStatus: 'simulated_fallback',

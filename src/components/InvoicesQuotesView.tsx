@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Invoice, Quote, Tenant, Unit, Landlord, Property } from '../types';
+import { Invoice, Quote, Tenant, Unit, Landlord, Property, MaintenanceRequest } from '../types';
 import { formatKSH } from '../lib/formatters';
 import { registerBackHandler } from '../lib/backNavigation';
 import {
@@ -22,9 +22,10 @@ import {
   User,
   Building,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Wrench
 } from 'lucide-react';
-import { generateAiQuote } from '../lib/api';
+import { generateAiQuote, sendInvoiceEmail } from '../lib/api';
 
 interface InvoicesQuotesViewProps {
   invoices: Invoice[];
@@ -34,8 +35,11 @@ interface InvoicesQuotesViewProps {
   properties?: Property[];
   landlords?: Landlord[];
   signedInLandlord?: Landlord | null;
-  onCreateInvoice: (data: any) => void;
-  onCreateQuote: (data: any) => void;
+  preselectedTenantId?: string;
+  maintenance?: MaintenanceRequest[];
+  onRefreshData?: () => void;
+  onCreateInvoice: (data: any) => Promise<any> | void;
+  onCreateQuote: (data: any) => Promise<any> | void;
   showCreateInvoiceModal: boolean;
   setShowCreateInvoiceModal: (val: boolean) => void;
   showCreateQuoteModal: boolean;
@@ -50,6 +54,9 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
   properties = [],
   landlords = [],
   signedInLandlord,
+  preselectedTenantId,
+  maintenance = [],
+  onRefreshData,
   onCreateInvoice,
   onCreateQuote,
   showCreateInvoiceModal,
@@ -117,15 +124,35 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
     return t.name.toLowerCase().includes(q) || t.unitNumber.toLowerCase().includes(q) || t.email.toLowerCase().includes(q);
   });
 
+  // Compute current month name & year (e.g. October 2026)
+  const defaultCurrentPeriod = new Date().toLocaleDateString('en-KE', { month: 'long', year: 'numeric' });
+
   // New Invoice State
-  const [invTenantId, setInvTenantId] = useState(tenants[0]?.id || '');
-  const [invPeriod, setInvPeriod] = useState('August 2026');
+  const [invTenantId, setInvTenantId] = useState(preselectedTenantId || tenants[0]?.id || '');
+  const [invPeriod, setInvPeriod] = useState(defaultCurrentPeriod || 'Current Month');
   const [invWaterFee, setInvWaterFee] = useState('25');
   const [invTrashFee, setInvTrashFee] = useState('15');
   const [invMaintFee, setInvMaintFee] = useState('0');
   const [invDiscount, setInvDiscount] = useState('0');
   const [invPreviousArrears, setInvPreviousArrears] = useState('0');
   const [invNotes, setInvNotes] = useState('');
+
+  // Email dispatching & feedback states
+  const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
+  const [directSendToast, setDirectSendToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isSendingDocEmail, setIsSendingDocEmail] = useState(false);
+  const [docEmailFeedback, setDocEmailFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isIssuingInvoice, setIsIssuingInvoice] = useState(false);
+  const [invoiceModalFeedback, setInvoiceModalFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Sync preselectedTenantId when opened
+  useEffect(() => {
+    if (preselectedTenantId) {
+      setInvTenantId(preselectedTenantId);
+    } else if (!invTenantId && tenants.length > 0) {
+      setInvTenantId(tenants[0].id);
+    }
+  }, [preselectedTenantId, tenants, invTenantId]);
 
   // Auto-calculate arrears whenever the target tenant changes
   useEffect(() => {
@@ -144,6 +171,31 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
     setInvPreviousArrears(unpaidArrears.toString());
   }, [invTenantId, invoices, tenants, showCreateInvoiceModal]);
 
+  // Find completed, unbilled maintenance tickets for the selected tenant
+  const unbilledMaintForTenant = (maintenance || []).filter((m) => {
+    const targetTenant = tenants.find((t) => t.id === invTenantId) || tenants[0];
+    const isTenantMatch = 
+      (m.tenantId && m.tenantId === invTenantId) ||
+      (targetTenant?.email && m.tenantEmail && m.tenantEmail.toLowerCase() === targetTenant.email.toLowerCase()) ||
+      (targetTenant?.fullName && m.tenantName && m.tenantName.toLowerCase().trim() === targetTenant.fullName.toLowerCase().trim()) ||
+      (targetTenant?.unitNumber && m.unitNumber && m.unitNumber === targetTenant.unitNumber);
+    return m.status === 'Completed' && !m.isBilled && isTenantMatch;
+  });
+
+  const autoMaintCost = unbilledMaintForTenant.reduce((acc, m) => {
+    const cost = m.cost !== undefined ? m.cost : (m.aiEstimatedCost ? parseFloat(m.aiEstimatedCost.replace(/[^\d.]/g, '')) : 0) || 0;
+    return acc + cost;
+  }, 0);
+
+  // Auto-fill maintenance fee when tenant or modal changes if not manually overridden
+  useEffect(() => {
+    if (unbilledMaintForTenant.length > 0) {
+      setInvMaintFee(autoMaintCost.toString());
+    } else {
+      setInvMaintFee('0');
+    }
+  }, [invTenantId, maintenance, showCreateInvoiceModal, autoMaintCost]);
+
   // Live selected tenant object & rent
   const selectedInvTenant = tenants.find((t) => t.id === invTenantId) || tenants[0];
   const liveBaseRent = selectedInvTenant?.monthlyRent || 0;
@@ -154,6 +206,64 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
     (parseFloat(invMaintFee) || 0) + 
     (parseFloat(invPreviousArrears) || 0) - 
     (parseFloat(invDiscount) || 0);
+
+  // Handler: Send / Resend Invoice Email Directly from List
+  const handleSendInvoiceDirect = async (inv: Invoice) => {
+    setSendingInvoiceId(inv.id);
+    setDirectSendToast(null);
+    try {
+      const targetTenant = tenants.find(t => t.id === inv.tenantId || t.fullName?.toLowerCase() === inv.tenantName?.toLowerCase());
+      const recipient = inv.tenantEmail || targetTenant?.email;
+      const res = await sendInvoiceEmail(inv.id, recipient);
+      setDirectSendToast({
+        type: 'success',
+        message: `✅ Invoice #${inv.invoiceNumber} successfully dispatched to ${res.recipientEmail || recipient} with official PDF statement! (Serial: ${res.serialNumber})`
+      });
+      if (onRefreshData) onRefreshData();
+      setTimeout(() => setDirectSendToast(null), 5000);
+    } catch (err: any) {
+      setDirectSendToast({
+        type: 'error',
+        message: `❌ Failed to dispatch invoice email: ${err.message}`
+      });
+      setTimeout(() => setDirectSendToast(null), 5000);
+    } finally {
+      setSendingInvoiceId(null);
+    }
+  };
+
+  // Handler: Dispatch Email from Document Preview Modal
+  const handleSendSelectedDocEmail = async () => {
+    if (!selectedDocument || selectedDocument.type !== 'invoice') return;
+    setIsSendingDocEmail(true);
+    setDocEmailFeedback(null);
+    try {
+      const inv = selectedDocument.data;
+      const targetTenant = tenants.find(t => t.id === inv.tenantId || t.fullName?.toLowerCase() === inv.tenantName?.toLowerCase());
+      const recipient = inv.tenantEmail || targetTenant?.email;
+      const res = await sendInvoiceEmail(inv.id, recipient);
+      setDocEmailFeedback({
+        type: 'success',
+        message: `✅ Official invoice statement and PDF attachment dispatched to ${res.recipientEmail || recipient}! (Serial: ${res.serialNumber})`
+      });
+      setSelectedDocument({
+        ...selectedDocument,
+        data: {
+          ...selectedDocument.data,
+          emailedToTenant: true,
+          emailSentAt: new Date().toISOString()
+        }
+      });
+      if (onRefreshData) onRefreshData();
+    } catch (err: any) {
+      setDocEmailFeedback({
+        type: 'error',
+        message: `❌ Failed to dispatch invoice email: ${err.message}`
+      });
+    } finally {
+      setIsSendingDocEmail(false);
+    }
+  };
 
   // New Quote State
   const [qteTenantName, setQteTenantName] = useState('');
@@ -166,19 +276,53 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
   const [qteNotes, setQteNotes] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  const handleGenerateInvoiceSubmit = (e: React.FormEvent) => {
+  const handleGenerateInvoiceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onCreateInvoice({
-      tenantId: invTenantId,
-      periodMonth: invPeriod,
-      waterFee: parseFloat(invWaterFee) || 0,
-      trashFee: parseFloat(invTrashFee) || 0,
-      maintenanceFee: parseFloat(invMaintFee) || 0,
-      discount: parseFloat(invDiscount) || 0,
-      previousArrears: parseFloat(invPreviousArrears) || 0,
-      notes: invNotes
-    });
-    setShowCreateInvoiceModal(false);
+    const targetTenant = tenants.find((t) => t.id === invTenantId) || tenants[0];
+    if (!targetTenant) {
+      setInvoiceModalFeedback({ type: 'error', message: 'Please select a tenant before issuing invoice.' });
+      return;
+    }
+
+    setIsIssuingInvoice(true);
+    setInvoiceModalFeedback({ type: 'success', message: `Generating official invoice and delivering statement email to ${targetTenant.email}...` });
+
+    try {
+      await onCreateInvoice({
+        tenantId: invTenantId || targetTenant.id,
+        tenantName: targetTenant.fullName,
+        tenantEmail: targetTenant.email,
+        tenantPhone: targetTenant.phone,
+        unitNumber: targetTenant.unitNumber,
+        propertyName: targetTenant.propertyName,
+        unitId: targetTenant.unitId,
+        propertyId: targetTenant.propertyId,
+        rentAmount: targetTenant.monthlyRent || liveBaseRent,
+        periodMonth: invPeriod,
+        waterFee: parseFloat(invWaterFee) || 0,
+        trashFee: parseFloat(invTrashFee) || 0,
+        maintenanceFee: parseFloat(invMaintFee) || 0,
+        discount: parseFloat(invDiscount) || 0,
+        previousArrears: parseFloat(invPreviousArrears) || 0,
+        notes: invNotes
+      });
+      setInvoiceModalFeedback({
+        type: 'success',
+        message: `✅ Invoice successfully issued and dispatched to ${targetTenant.fullName} (${targetTenant.email})!`
+      });
+      setTimeout(() => {
+        setShowCreateInvoiceModal(false);
+        setInvoiceModalFeedback(null);
+        if (onRefreshData) onRefreshData();
+      }, 1500);
+    } catch (err: any) {
+      setInvoiceModalFeedback({
+        type: 'error',
+        message: err.message || 'Failed to issue monthly invoice. Please check tenant details and try again.'
+      });
+    } finally {
+      setIsIssuingInvoice(false);
+    }
   };
 
   const handleGenerateQuoteSubmit = (e: React.FormEvent) => {
@@ -306,6 +450,18 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
+      {/* Toast Alert for Direct Email Dispatch */}
+      {directSendToast && (
+        <div className={`p-3.5 rounded-xl border text-xs font-semibold flex items-center justify-between shadow-md transition-all ${
+          directSendToast.type === 'success' ? 'bg-emerald-50 text-emerald-950 border-emerald-300' : 'bg-rose-50 text-rose-950 border-rose-300'
+        }`}>
+          <span>{directSendToast.message}</span>
+          <button onClick={() => setDirectSendToast(null)} className="text-slate-500 hover:text-slate-800 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -556,12 +712,30 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                                       {formatKSH(inv.totalAmount)}
                                     </span>
                                   </div>
-                                  <button
-                                    onClick={() => setSelectedDocument({ type: 'invoice', data: inv })}
-                                    className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-semibold transition flex items-center gap-1 shadow-2xs"
-                                  >
-                                    <Eye className="w-3.5 h-3.5" /> View Statement
-                                  </button>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      onClick={() => setSelectedDocument({ type: 'invoice', data: inv })}
+                                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-semibold transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" /> View Statement
+                                    </button>
+                                    <button
+                                      onClick={() => handleSendInvoiceDirect(inv)}
+                                      disabled={sendingInvoiceId === inv.id}
+                                      className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-semibold transition flex items-center gap-1 shadow-2xs cursor-pointer disabled:opacity-50"
+                                      title={inv.emailedToTenant ? "Resend Official Invoice to Tenant's Email" : "Send Official Invoice to Tenant's Email"}
+                                    >
+                                      {sendingInvoiceId === inv.id ? (
+                                        <>
+                                          <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Sending...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Send className="w-3.5 h-3.5 text-blue-600" /> {inv.emailedToTenant ? 'Resend Email' : 'Send Email'}
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -734,12 +908,30 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                     <p className="text-lg font-extrabold text-slate-900">{formatKSH(inv.totalAmount)}</p>
                   </div>
 
-                  <button
-                    onClick={() => setSelectedDocument({ type: 'invoice', data: inv })}
-                    className="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition flex items-center gap-1.5"
-                  >
-                    <Eye className="w-3.5 h-3.5" /> View Statement
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSelectedDocument({ type: 'invoice', data: inv })}
+                      className="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> View Statement
+                    </button>
+                    <button
+                      onClick={() => handleSendInvoiceDirect(inv)}
+                      disabled={sendingInvoiceId === inv.id}
+                      className="px-3.5 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title={inv.emailedToTenant ? "Resend Official Invoice to Tenant's Email" : "Send Official Invoice to Tenant's Email"}
+                    >
+                      {sendingInvoiceId === inv.id ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5 text-blue-600" /> {inv.emailedToTenant ? 'Resend Email' : 'Send Email'}
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -839,6 +1031,31 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                     <strong className="font-bold block text-amber-950">Outstanding Arrears Detected:</strong>
                     <span>This tenant has <strong className="font-mono text-amber-900">{formatKSH(parseFloat(invPreviousArrears))}</strong> in unpaid balances from prior invoices. It has been automatically added to this new invoice bill.</span>
                   </div>
+                </div>
+              )}
+
+              {unbilledMaintForTenant.length > 0 && (
+                <div className="bg-emerald-50 border border-emerald-300 p-3 rounded-xl space-y-2 text-emerald-950 text-xs">
+                  <div className="flex items-center justify-between font-bold">
+                    <span className="flex items-center gap-1.5 text-emerald-900">
+                      <Wrench className="w-4 h-4 text-emerald-600" />
+                      {unbilledMaintForTenant.length} Resolved Maintenance Issue{unbilledMaintForTenant.length > 1 ? 's' : ''} to be Billed
+                    </span>
+                    <span className="font-mono text-sm font-extrabold text-emerald-800">
+                      KSh {autoMaintCost.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-emerald-900 space-y-1 pt-1 border-t border-emerald-200/80">
+                    {unbilledMaintForTenant.map((m, idx) => (
+                      <div key={m.id || idx} className="flex justify-between items-center">
+                        <span className="font-medium">• {m.title || `${m.category} repair`}</span>
+                        <strong className="font-mono font-bold">KSh {(m.cost || 0).toLocaleString()}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-emerald-700 italic">
+                    ✅ Automatically included under Maintenance Fee and will be marked as billed upon issuing this invoice.
+                  </p>
                 </div>
               )}
 
@@ -943,23 +1160,43 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs flex items-center justify-between text-slate-700">
                 <span>Auto-Dispatch:</span>
                 <span className="text-emerald-700 font-bold flex items-center gap-1">
-                  <Send className="w-3.5 h-3.5 text-emerald-600" /> Dispatches Statement to Tenant's Email
+                  <Send className="w-3.5 h-3.5 text-emerald-600" /> Dispatches Official PDF Statement to Tenant's Email
                 </span>
               </div>
+
+              {invoiceModalFeedback && (
+                <div className={`p-3 rounded-xl text-xs font-semibold ${
+                  invoiceModalFeedback.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
+                    : 'bg-rose-50 text-rose-900 border border-rose-300'
+                }`}>
+                  {invoiceModalFeedback.message}
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowCreateInvoiceModal(false)}
-                  className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition"
+                  disabled={isIssuingInvoice}
+                  className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition shadow-sm"
+                  disabled={isIssuingInvoice}
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >
-                  Issue & Dispatch Invoice
+                  {isIssuingInvoice ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Issuing & Dispatching...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" /> Issue & Dispatch Invoice
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -1127,6 +1364,25 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                {selectedDocument.type === 'invoice' && (
+                  <button
+                    onClick={handleSendSelectedDocEmail}
+                    disabled={isSendingDocEmail}
+                    className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-extrabold flex items-center gap-1.5 text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
+                    title="Send or resend this official invoice statement and PDF attachment to the tenant's email"
+                  >
+                    {isSendingDocEmail ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Dispatching...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" /> Dispatch to Tenant Email
+                      </>
+                    )}
+                  </button>
+                )}
+
                 <button
                   onClick={handleDownloadPdf}
                   disabled={isDownloadingPdf}
@@ -1161,6 +1417,20 @@ export const InvoicesQuotesView: React.FC<InvoicesQuotesViewProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* In-Modal Feedback Alert */}
+            {docEmailFeedback && (
+              <div className={`p-3 mx-4 sm:mx-6 mt-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 shadow-xs shrink-0 ${
+                docEmailFeedback.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
+                  : 'bg-rose-50 text-rose-900 border border-rose-300'
+              }`}>
+                <span>{docEmailFeedback.message}</span>
+                <button onClick={() => setDocEmailFeedback(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
             {/* Scrollable Document Container */}
             <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-50/50">
