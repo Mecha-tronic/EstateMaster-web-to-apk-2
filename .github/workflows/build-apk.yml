@@ -40,6 +40,27 @@ jobs:
       - name: Set up Gradle (cache)
         uses: gradle/actions/setup-gradle@v3
 
+      # The wrapper jar is a binary and is easily damaged by upload tools. A corrupt jar makes every wrapper run fail
+      # with "Could not find or load main class org.gradle.wrapper.GradleWrapperMain", which no retry can fix.
+      # Check it, and rebuild it with the Gradle that ships on the runner if it is unusable.
+      - name: Verify Gradle wrapper jar
+        run: |
+          JAR="$GITHUB_WORKSPACE/android/gradle/wrapper/gradle-wrapper.jar"
+          if unzip -tq "$JAR" >/dev/null 2>&1 && unzip -l "$JAR" | grep -q 'org/gradle/wrapper/GradleWrapperMain.class'; then
+            echo "Gradle wrapper jar is valid."
+            exit 0
+          fi
+          echo "::warning::android/gradle/wrapper/gradle-wrapper.jar is missing or corrupt. Regenerating it for this run; commit a good copy to fix it permanently."
+          if ! command -v gradle >/dev/null 2>&1; then
+            echo "::error::The wrapper jar is unusable and no gradle command is available to rebuild it."
+            exit 1
+          fi
+          TMP="$(mktemp -d)"
+          (cd "$TMP" && touch settings.gradle && gradle wrapper --gradle-version 8.2.1 --no-validate-url --no-daemon)
+          cp "$TMP/gradle/wrapper/gradle-wrapper.jar" "$JAR"
+          unzip -l "$JAR" | grep -q 'org/gradle/wrapper/GradleWrapperMain.class'
+          echo "Wrapper jar regenerated."
+
       # services.gradle.org occasionally answers 5xx (e.g. 504). Fetch the distribution up front, retrying, so a
       # brief outage no longer fails the whole run.
       - name: Download Gradle distribution (with retries)
