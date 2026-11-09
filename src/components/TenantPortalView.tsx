@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Tenant, Invoice, Payment, Quote, MaintenanceRequest, EmailLog, Landlord, Unit, Property } from '../types';
 import { formatKSH } from '../lib/formatters';
@@ -44,7 +44,13 @@ import {
   Landmark,
   ArrowLeft
 } from 'lucide-react';
-import { createMaintenance, recordPayment, fetchEmails, updateTenantDetails, sendMaintenanceAiChat, triggerMpesaStkPush, queryMpesaStkStatus, simulateMpesaStkApproval } from '../lib/api';
+import { createMaintenance, fetchEmails, updateTenantDetails, sendMaintenanceAiChat, triggerMpesaStkPush, queryMpesaStkStatus } from '../lib/api';
+import { BankVerificationPanel } from './BankVerificationPanel';
+import { PaymentReceiptAuditCard } from './PaymentReceiptAuditCard';
+
+/** What is still collectable on an invoice. Invoices rolled into a later invoice owe nothing (the later one carries the balance). */
+const dueOf = (inv: Pick<Invoice, 'totalAmount' | 'amountPaid' | 'carriedForwardToInvoiceId'>): number =>
+  inv.carriedForwardToInvoiceId ? 0 : Math.max(0, (Number(inv.totalAmount) || 0) - (Number(inv.amountPaid) || 0));
 
 interface TenantPortalViewProps {
   tenants: Tenant[];
@@ -105,20 +111,20 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   const [tenantEmails, setTenantEmails] = useState<EmailLog[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<EmailLog | null>(null);
 
-  // Payment state
+  // Payment state. The browser never records a payment: M-Pesa is confirmed by Safaricom (via the server) and bank
+  // deposits are confirmed by the bank (BankVerificationPanel). Nothing here can mark an invoice as paid.
   const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
   const [payAmountInput, setPayAmountInput] = useState<string>('');
-  const [payNotesInput, setPayNotesInput] = useState<string>('');
-  const [paymentMethod, setPaymentMethod] = useState<'M-Pesa' | 'Bank Transfer' | 'Credit Card'>('M-Pesa');
-  const [activeMpesaTab, setActiveMpesaTab] = useState<'stk' | 'manual'>('stk');
-  const [payRef, setPayRef] = useState('');
-  const [isProcessingPay, setIsProcessingPay] = useState(false);
-  const [stkPhone, setStkPhone] = useState('0746549710');
+  const [payTab, setPayTab] = useState<'stk' | 'bank'>('stk');
+  const [stkPhone, setStkPhone] = useState('');
   const [isTriggeringStk, setIsTriggeringStk] = useState(false);
-  const [stkFeedback, setStkFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [stkFeedback, setStkFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [lastCheckoutRequestId, setLastCheckoutRequestId] = useState<string | null>(null);
-  const [isSimulatingSandbox, setIsSimulatingSandbox] = useState(false);
-  const [payError, setPayError] = useState<string | null>(null);
+  const stkRun = useRef({ cancelled: false });
+  useEffect(() => {
+    stkRun.current.cancelled = false;
+    return () => { stkRun.current.cancelled = true; };
+  }, []);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const handleCopy = (text: string, label: string) => {
@@ -148,6 +154,11 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   };
 
   const openPayingInvoice = (inv: Invoice) => {
+    setPayAmountInput('');
+    setPayTab('stk');
+    setStkFeedback(null);
+    setLastCheckoutRequestId(null);
+    setStkPhone(currentTenant?.phone || '');
     setPayingInvoice(inv);
     window.history.pushState(
       { ...window.history.state, portalModal: 'pay-invoice', payInvoiceId: inv.id },
@@ -309,19 +320,12 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
   const landlordBranchName = activeLandlord?.branchName || 'Kilimani Branch';
   const landlordSwiftCode = activeLandlord?.swiftCode || 'EQBLKENX';
 
-  const tenantInvoices = invoices.filter(
-    (i) =>
-      i.tenantId === currentTenant?.id ||
-      (currentTenant?.email && i.tenantEmail?.toLowerCase() === currentTenant.email.toLowerCase()) ||
-      (currentTenant?.fullName && i.tenantName && i.tenantName.toLowerCase().trim() === currentTenant.fullName.toLowerCase().trim())
-  );
+  // The server only sends this tenant's own records; matching is by id (never by name or e-mail).
+  const tenantInvoices = invoices.filter((i) => i.tenantId === currentTenant?.id);
   const tenantQuotes = quotes.filter((q) => q.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
   const tenantMaintenance = maintenance.filter((m) => m.tenantId === currentTenant?.id || m.tenantEmail?.toLowerCase() === currentTenant?.email?.toLowerCase());
   const tenantPayments = payments.filter(
-    (p) =>
-      p.tenantId === currentTenant?.id ||
-      (currentTenant?.fullName && p.tenantName && p.tenantName.toLowerCase().trim() === currentTenant.fullName.toLowerCase().trim()) ||
-      (p.invoiceId && tenantInvoices.some((inv) => inv.id === p.invoiceId || inv.invoiceNumber === p.invoiceId))
+    (p) => p.tenantId === currentTenant?.id || (p.invoiceId && tenantInvoices.some((inv) => inv.id === p.invoiceId))
   );
   const tenantArrears = calculateTenantArrears(currentTenant, invoices, payments);
 
@@ -389,200 +393,94 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
     }
   };
 
+  /** Polls the server until Safaricom has confirmed (or rejected) the prompt. */
+  const pollStk = async (checkoutId: string, maxTries = 40): Promise<'done' | 'failed' | 'waiting'> => {
+    for (let i = 0; i < maxTries; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      if (stkRun.current.cancelled) return 'waiting';
+      try {
+        const q = await queryMpesaStkStatus(checkoutId);
+        if (q.status === 'COMPLETED') {
+          const code = q.receiptCode ? ` (receipt ${q.receiptCode})` : '';
+          setStkFeedback({
+            type: 'success',
+            message: q.payment
+              ? `Payment confirmed by Safaricom${code}. Your invoice has been updated and your receipt is in the Payments tab.`
+              : `Payment received${code}. ${q.resultDesc || 'Your landlord will apply it to your invoice shortly.'}`
+          });
+          onRefreshData();
+          setTimeout(() => {
+            if (stkRun.current.cancelled) return;
+            setPayingInvoice(null);
+            setPayAmountInput('');
+            setStkFeedback(null);
+            setLastCheckoutRequestId(null);
+            onRefreshData();
+          }, 3500);
+          return 'done';
+        }
+        if (q.status === 'FAILED') {
+          setStkFeedback({ type: 'error', message: q.resultDesc || 'The payment was not completed. You have not been charged.' });
+          return 'failed';
+        }
+      } catch {
+        // transient network error: keep waiting
+      }
+    }
+    return 'waiting';
+  };
+
   const handleTriggerStkPush = async () => {
     if (!payingInvoice) return;
-    const dueRemaining = payingInvoice.totalAmount - (payingInvoice.amountPaid || 0);
-    const parsedAmount = parseFloat(payAmountInput);
-    const finalAmount = !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : dueRemaining;
-    const targetPhone = (stkPhone || currentTenant?.phone || '0746549710').trim();
+    const due = dueOf(payingInvoice);
+    const parsed = parseFloat(payAmountInput);
+    const finalAmount = !isNaN(parsed) && parsed > 0 ? parsed : due;
+    const targetPhone = (stkPhone || currentTenant?.phone || '').trim();
 
     if (!targetPhone) {
-      setStkFeedback({
-        type: 'error',
-        message: 'Please enter a valid Safaricom phone number (e.g. 0746 549 710 or 254746549710).'
-      });
+      setStkFeedback({ type: 'error', message: 'Enter the Safaricom number that should receive the M-Pesa prompt (e.g. 0712 345 678).' });
+      return;
+    }
+    if (finalAmount < 1 || finalAmount > due) {
+      setStkFeedback({ type: 'error', message: `Enter an amount between KSh 1 and ${formatKSH(due)}.` });
       return;
     }
 
     setIsTriggeringStk(true);
-    setStkFeedback({
-      type: 'success',
-      message: 'Connecting to Safaricom Daraja API...'
-    });
+    setStkFeedback({ type: 'info', message: 'Contacting Safaricom...' });
 
     try {
-      const res = await triggerMpesaStkPush({
-        phone: targetPhone,
-        amount: finalAmount,
-        invoiceId: payingInvoice.id,
-        tenantId: currentTenant?.id,
-        tenantName: currentTenant?.fullName,
-        tenantEmail: currentTenant?.email,
-        unitNumber: payingInvoice.unitNumber || currentTenant?.unitNumber,
-        propertyName: payingInvoice.propertyName || currentTenant?.propertyName,
-        propertyId: payingInvoice.propertyId || currentTenant?.propertyId,
-        landlordId: payingInvoice.landlordId || currentTenant?.landlordId || activeLandlord?.id,
-        periodMonth: payingInvoice.periodMonth,
-        accountRef: `Unit ${currentTenant?.unitNumber || 'Apartment'}`
-      });
-
-      if (!res.success && res.status !== 'PENDING') {
-        throw new Error(res.message || res.customerMessage || 'Failed to dispatch M-Pesa STK push');
-      }
-
-      const checkoutReqId = res.CheckoutRequestID;
-      setLastCheckoutRequestId(checkoutReqId || null);
-      setStkFeedback({
-        type: 'success',
-        message: `📲 Safaricom PIN Prompt dispatched to ${targetPhone}! Please unlock your phone and enter your M-Pesa PIN for KSh ${finalAmount.toLocaleString()}. Waiting for Safaricom confirmation...`
-      });
-
-      // Poll Daraja API for Safaricom PIN confirmation
-      let isVerified = false;
-      if (checkoutReqId) {
-        for (let i = 0; i < 20; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 2500));
-          try {
-            const queryRes = await queryMpesaStkStatus(checkoutReqId);
-            if (queryRes.status === 'COMPLETED') {
-              isVerified = true;
-              const rcCode = queryRes.receiptCode || res.receiptCode || 'Confirmed';
-              setPayRef(rcCode);
-              setStkFeedback({
-                type: 'success',
-                message: `✅ M-Pesa payment received and confirmed by Safaricom! (Receipt #${rcCode}). Your invoice is marked as Paid and your statement updated.`
-              });
-              onRefreshData();
-              setTimeout(() => {
-                setPayingInvoice(null);
-                setPayAmountInput('');
-                setPayNotesInput('');
-                setStkFeedback(null);
-                setLastCheckoutRequestId(null);
-                onRefreshData();
-              }, 3000);
-              break;
-            } else if (queryRes.status === 'FAILED') {
-              setStkFeedback({
-                type: 'error',
-                message: `❌ ${queryRes.resultDesc || 'Transaction was not completed. No payment was deducted.'}`
-              });
-              return;
-            }
-          } catch {
-            // Polling attempt in progress, continue waiting
-          }
-        }
-
-        if (!isVerified) {
-          setStkFeedback({
-            type: 'error',
-            message: '⏱️ M-Pesa PIN prompt timed out without confirmation from Safaricom. If you entered your PIN, please copy the Safaricom confirmation code (e.g. QJK9483HD7) and paste it into the Manual Entry tab to verify.'
-          });
-        }
-      } else {
+      // Only the invoice, amount and phone are sent. The server derives tenant, landlord and account reference itself.
+      const res = await triggerMpesaStkPush({ phone: targetPhone, amount: finalAmount, invoiceId: payingInvoice.id });
+      const checkoutId: string | undefined = res?.CheckoutRequestID;
+      if (!checkoutId) throw new Error(res?.error || res?.message || 'M-Pesa could not start this payment.');
+      setLastCheckoutRequestId(checkoutId);
+      setStkFeedback({ type: 'info', message: `A prompt for ${formatKSH(finalAmount)} was sent to ${targetPhone}. Unlock your phone and enter your M-Pesa PIN. Waiting for Safaricom's confirmation...` });
+      const outcome = await pollStk(checkoutId);
+      if (outcome === 'waiting' && !stkRun.current.cancelled) {
         setStkFeedback({
-          type: 'success',
-          message: `📲 Prompt dispatched to ${targetPhone}. Please enter your M-Pesa PIN.`
+          type: 'info',
+          message: 'Still waiting for Safaricom. If you entered your PIN, the payment will be applied automatically within a few minutes. You can also press "Check again", or pay by bank and verify the reference.'
         });
       }
     } catch (err: any) {
-      setStkFeedback({
-        type: 'error',
-        message: err.message || 'Failed to dispatch M-Pesa STK push. Please verify your phone number and try again.'
-      });
+      setStkFeedback({ type: 'error', message: err?.message || 'Could not start the M-Pesa payment. Check the phone number and try again.' });
     } finally {
       setIsTriggeringStk(false);
     }
   };
 
-  const handleSimulateSandboxPin = async () => {
+  const handleCheckStkAgain = async () => {
     if (!lastCheckoutRequestId) return;
-    setIsSimulatingSandbox(true);
-    setPayError(null);
+    setIsTriggeringStk(true);
+    setStkFeedback({ type: 'info', message: 'Checking with Safaricom...' });
     try {
-      const simRes = await simulateMpesaStkApproval(lastCheckoutRequestId);
-      if (simRes.status === 'COMPLETED' || simRes.success) {
-        const rcCode = simRes.receiptCode || 'SAB-TEST';
-        setPayRef(rcCode);
-        setStkFeedback({
-          type: 'success',
-          message: `✅ Sandbox M-Pesa PIN approval confirmed by Safaricom! (Receipt #${rcCode}). Your invoice is marked as Paid.`
-        });
-        onRefreshData();
-        setTimeout(() => {
-          setPayingInvoice(null);
-          setPayAmountInput('');
-          setPayNotesInput('');
-          setStkFeedback(null);
-          setLastCheckoutRequestId(null);
-          onRefreshData();
-        }, 2500);
-      } else {
-        setStkFeedback({
-          type: 'error',
-          message: simRes.message || 'Sandbox PIN simulation was not accepted.'
-        });
+      const outcome = await pollStk(lastCheckoutRequestId, 3);
+      if (outcome === 'waiting' && !stkRun.current.cancelled) {
+        setStkFeedback({ type: 'info', message: 'Safaricom has not confirmed yet. Please check again in a minute.' });
       }
-    } catch (err: any) {
-      setStkFeedback({
-        type: 'error',
-        message: err.message || 'Failed to simulate M-Pesa PIN entry.'
-      });
     } finally {
-      setIsSimulatingSandbox(false);
-    }
-  };
-
-  const handlePayInvoice = async () => {
-    if (!payingInvoice || !currentTenant) return;
-    setPayError(null);
-
-    const cleanRef = payRef.trim().toUpperCase();
-    if (paymentMethod === 'M-Pesa') {
-      if (!cleanRef || cleanRef.length < 6 || cleanRef.startsWith('REF-')) {
-        setPayError('Please enter a valid Safaricom M-Pesa confirmation code (e.g. QJK9483HD7) before confirming payment.');
-        return;
-      }
-    } else {
-      if (!cleanRef || cleanRef.length < 4) {
-        setPayError('Please enter a valid bank transaction reference code before confirming.');
-        return;
-      }
-    }
-
-    setIsProcessingPay(true);
-    const dueRemaining = Math.max(0, payingInvoice.totalAmount - (payingInvoice.amountPaid || 0));
-    const parsedAmount = parseFloat(payAmountInput);
-    const finalAmount = !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : dueRemaining;
-
-    try {
-      await recordPayment({
-        invoiceId: payingInvoice.id,
-        amount: finalAmount,
-        paymentMethod,
-        referenceCode: cleanRef,
-        notes: payNotesInput || `Tenant portal payment via ${paymentMethod} for period ${payingInvoice.periodMonth || 'bill'} (Amount: KSh ${finalAmount.toLocaleString()})`,
-        tenantId: currentTenant.id,
-        tenantName: currentTenant.fullName,
-        tenantEmail: currentTenant.email,
-        unitNumber: payingInvoice.unitNumber || currentTenant.unitNumber,
-        propertyName: payingInvoice.propertyName || currentTenant.propertyName,
-        propertyId: payingInvoice.propertyId || currentTenant.propertyId,
-        landlordId: payingInvoice.landlordId || currentTenant.landlordId || activeLandlord?.id,
-        periodMonth: payingInvoice.periodMonth,
-      });
-
-      setPayingInvoice(null);
-      setPayAmountInput('');
-      setPayNotesInput('');
-      setPayRef('');
-      setPayError(null);
-      onRefreshData();
-    } catch (err: any) {
-      setPayError(err.message || 'Payment recording failed. Please check transaction code and try again.');
-    } finally {
-      setIsProcessingPay(false);
+      setIsTriggeringStk(false);
     }
   };
 
@@ -1141,7 +1039,8 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
               const invTotal = Number(inv.totalAmount) || 0;
               const invPaid = Number(inv.amountPaid) || 0;
               const isPaid = inv.status === 'Paid' || (invPaid >= invTotal && invTotal > 0);
-              const dueRem = Math.max(0, invTotal - invPaid);
+              const isCarried = Boolean(inv.carriedForwardToInvoiceId);
+              const dueRem = isCarried ? 0 : Math.max(0, invTotal - invPaid);
               const isOverpaid = invPaid > invTotal && invTotal > 0;
               const invOverpaidAmount = Math.max(0, invPaid - invTotal);
               const prop = properties.find((p) => p.id === inv.propertyId || p.name === inv.propertyName);
@@ -1197,7 +1096,11 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                         <p className="text-lg font-extrabold text-slate-900">{formatKSH(inv.totalAmount)}</p>
                       </div>
 
-                      {!isPaid ? (
+                      {isCarried ? (
+                        <span className="px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-300 text-slate-700 text-xs font-bold flex items-center gap-1">
+                          <ChevronRight className="w-4 h-4" /> Balance carried to a later invoice
+                        </span>
+                      ) : !isPaid ? (
                         <button
                           onClick={() => openPayingInvoice(inv)}
                           className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
@@ -1222,7 +1125,9 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                       <p className="font-bold text-slate-900 flex items-center gap-1.5">
                         💳 Direct Payment Options for Invoice {inv.invoiceNumber}:
                       </p>
-                      {!isPaid ? (
+                      {isCarried ? (
+                        <span className="text-[11px] font-bold text-slate-500">Rolled into a later invoice</span>
+                      ) : !isPaid ? (
                         <button
                           type="button"
                           onClick={() => openPayingInvoice(inv)}
@@ -1329,6 +1234,9 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                             {pay.notes}
                           </p>
                         )}
+                        <div className="pt-2">
+                          <PaymentReceiptAuditCard payment={pay} compact />
+                        </div>
                       </div>
 
                       <div className="text-left sm:text-right flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-0 border-slate-100 pt-2 sm:pt-0">
@@ -1691,351 +1599,134 @@ export const TenantPortalView: React.FC<TenantPortalViewProps> = ({
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 block uppercase font-bold">Current Remaining Due:</span>
-                  <span className="text-amber-700">{formatKSH(Math.max(0, payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)))}</span>
+                  <span className="text-amber-700">{formatKSH(dueOf(payingInvoice))}</span>
                 </div>
               </div>
             </div>
 
             <div className="space-y-3">
-              <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-2">
-                <label className="block text-slate-800 font-extrabold text-xs">
-                  Amount to Pay Now (KSh)
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={payAmountInput !== '' ? payAmountInput : (payingInvoice.totalAmount - (payingInvoice.amountPaid || 0))}
-                    onChange={(e) => setPayAmountInput(e.target.value)}
-                    placeholder={(payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)).toString()}
-                    className="w-full bg-white border border-blue-300 rounded-lg p-2.5 text-slate-900 font-extrabold text-sm shadow-xs focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-600 font-medium">
-                  <button
-                    type="button"
-                    onClick={() => setPayAmountInput((payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)).toString())}
-                    className="text-blue-700 hover:underline font-bold"
-                  >
-                    Pay Full Due ({formatKSH(Math.max(0, payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)))})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPayAmountInput((Math.round((payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)) / 2)).toString())}
-                    className="text-slate-600 hover:underline"
-                  >
-                    Pay 50% Fraction
-                  </button>
-                </div>
-
-                {(() => {
-                  const enteredAmount = parseFloat(payAmountInput) || (payingInvoice.totalAmount - (payingInvoice.amountPaid || 0));
-                  const currentRemainingDue = Math.max(0, payingInvoice.totalAmount - (payingInvoice.amountPaid || 0));
-                  const isOverpaying = enteredAmount > currentRemainingDue && currentRemainingDue >= 0;
-                  const surplusOverpayment = enteredAmount - currentRemainingDue;
-
-                  if (!isOverpaying || surplusOverpayment <= 0) return null;
-
-                  return (
-                    <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs space-y-1 mt-2">
-                      <div className="flex items-center gap-1.5 font-extrabold text-emerald-900">
-                        <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>Overpayment Detected: +{formatKSH(surplusOverpayment)}</span>
-                      </div>
-                      <p className="text-[11px] text-emerald-800 leading-snug">
-                        You are paying <strong className="font-bold">{formatKSH(enteredAmount)}</strong> which exceeds the balance due of <strong className="font-bold">{formatKSH(currentRemainingDue)}</strong>.
-                        An overpayment surplus of <strong className="font-black text-emerald-950">+{formatKSH(surplusOverpayment)}</strong> will be credited directly to your tenant account to discount your next month&apos;s invoice.
-                      </p>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Select Payment Method</label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as any)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm font-semibold"
+              <div className="flex bg-slate-100 p-1 rounded-xl gap-1 text-xs font-bold border border-slate-200" role="tablist" aria-label="Payment method">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={payTab === 'stk'}
+                  onClick={() => setPayTab('stk')}
+                  className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${payTab === 'stk' ? 'bg-emerald-600 text-white shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900'}`}
                 >
-                  <option value="M-Pesa">M-Pesa Mobile Money</option>
-                  <option value="Bank Transfer">Bank Transfer / EFT</option>
-                  <option value="Credit Card">Credit / Debit Card</option>
-                </select>
+                  <Smartphone className="w-3.5 h-3.5" /> M-Pesa prompt
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={payTab === 'bank'}
+                  onClick={() => setPayTab('bank')}
+                  className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${payTab === 'bank' ? 'bg-blue-600 text-white shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  <Landmark className="w-3.5 h-3.5" /> Bank / direct settlement
+                </button>
               </div>
 
-              {/* Dynamic Landlord Account Information Box for Selected Method */}
-              {paymentMethod === 'M-Pesa' && (
-                <div className="space-y-3">
-                  {/* Sub-mode selector for M-Pesa */}
-                  <div className="flex bg-slate-100 p-1 rounded-xl gap-1 text-xs font-bold border border-slate-200">
+              {payTab === 'stk' && (() => {
+                const due = dueOf(payingInvoice);
+                const entered = parseFloat(payAmountInput);
+                const amount = !isNaN(entered) && entered > 0 ? entered : due;
+                const tooMuch = amount > due;
+                return (
+                  <div className="bg-emerald-50/90 border border-emerald-300 rounded-xl p-3.5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <strong className="text-emerald-950 font-bold text-xs flex items-center gap-1.5">
+                        <Smartphone className="w-4 h-4 text-emerald-600" /> Safaricom M-Pesa prompt
+                      </strong>
+                      <span className="text-[10px] bg-emerald-200 text-emerald-900 font-extrabold px-2 py-0.5 rounded-full border border-emerald-300">Confirmed by Safaricom</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-800 font-extrabold text-xs mb-1" htmlFor="stk-amount">Amount to pay now (KSh)</label>
+                      <input
+                        id="stk-amount"
+                        type="number"
+                        inputMode="decimal"
+                        min={1}
+                        max={due}
+                        value={payAmountInput !== '' ? payAmountInput : due}
+                        onChange={(e) => setPayAmountInput(e.target.value)}
+                        disabled={isTriggeringStk}
+                        className="w-full bg-white border border-emerald-300 rounded-lg p-2.5 text-slate-900 font-extrabold text-sm shadow-xs focus:ring-2 focus:ring-emerald-500"
+                      />
+                      <div className="flex items-center justify-between text-[11px] text-slate-600 font-medium mt-1">
+                        <button type="button" onClick={() => setPayAmountInput(String(due))} className="text-emerald-700 hover:underline font-bold cursor-pointer">Pay full balance ({formatKSH(due)})</button>
+                        <button type="button" onClick={() => setPayAmountInput(String(Math.max(1, Math.round(due / 2))))} className="text-slate-600 hover:underline cursor-pointer">Pay half</button>
+                      </div>
+                      {tooMuch && (
+                        <p className="text-[11px] text-rose-700 font-semibold mt-1">The amount cannot be more than the balance of {formatKSH(due)}. To pay in advance, ask your landlord or pay by bank.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1" htmlFor="stk-phone">Safaricom number to receive the prompt</label>
+                      <input
+                        id="stk-phone"
+                        type="tel"
+                        value={stkPhone}
+                        onChange={(e) => setStkPhone(e.target.value)}
+                        disabled={isTriggeringStk}
+                        placeholder="e.g. 0712 345 678"
+                        autoComplete="tel"
+                        className="w-full bg-white border border-emerald-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-mono font-bold shadow-xs focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => { setActiveMpesaTab('stk'); setPayError(null); }}
-                      className={`flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                        activeMpesaTab === 'stk'
-                          ? 'bg-emerald-600 text-white shadow-xs font-extrabold'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
+                      disabled={isTriggeringStk || tooMuch || due <= 0}
+                      onClick={handleTriggerStkPush}
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl transition shadow-xs flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      ⚡ Instant STK Push Prompt
+                      {isTriggeringStk ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                          Waiting for your PIN...
+                        </>
+                      ) : (
+                        <>Send M-Pesa prompt for {formatKSH(amount)}</>
+                      )}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => { setActiveMpesaTab('manual'); setPayError(null); }}
-                      className={`flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                        activeMpesaTab === 'manual'
-                          ? 'bg-emerald-600 text-white shadow-xs font-extrabold'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      📝 Manual Paybill / Till
-                    </button>
-                  </div>
 
-                  {activeMpesaTab === 'stk' && (
-                    <div className="bg-emerald-50/90 border border-emerald-300 rounded-xl p-3.5 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <strong className="text-emerald-950 font-bold text-xs flex items-center gap-1.5">
-                          <Smartphone className="w-4 h-4 text-emerald-600" /> Automated Safaricom STK Push
-                        </strong>
-                        <span className="text-[10px] bg-emerald-200 text-emerald-900 font-extrabold px-2 py-0.5 rounded-full border border-emerald-300">
-                          Verified Payment
-                        </span>
-                      </div>
-
-                      <p className="text-[11px] text-emerald-900 leading-relaxed">
-                        Enter your Safaricom phone number below. Safaricom will send an instant M-Pesa PIN prompt directly to your phone handset for <strong>{formatKSH(parseFloat(payAmountInput) || (payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)))}</strong>.
-                      </p>
-
-                      <div className="space-y-2">
-                        <label className="block text-[11px] font-bold text-slate-700">
-                          Safaricom Phone Number for PIN Prompt
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={stkPhone}
-                            onChange={(e) => setStkPhone(e.target.value)}
-                            placeholder="e.g. 0746549710 or 254746549710"
-                            className="flex-1 bg-white border border-emerald-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-mono font-bold shadow-xs focus:outline-none focus:border-emerald-500"
-                          />
-                          <button
-                            type="button"
-                            disabled={isTriggeringStk || isSimulatingSandbox}
-                            onClick={handleTriggerStkPush}
-                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition shadow-xs flex items-center gap-1.5 shrink-0 cursor-pointer"
-                          >
-                            {isTriggeringStk ? (
-                              <>
-                                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                                Waiting for PIN...
-                              </>
-                            ) : (
-                              '📱 Send PIN Prompt'
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      {stkFeedback && (
-                        <div
-                          className={`p-3 rounded-xl text-xs font-medium space-y-2 ${
-                            stkFeedback.type === 'success'
-                              ? 'bg-emerald-100 text-emerald-950 border border-emerald-300'
-                              : 'bg-rose-50 text-rose-900 border border-rose-200'
-                          }`}
-                        >
-                          <div className="flex items-start gap-2">
-                            {stkFeedback.type === 'success' ? (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                            ) : (
-                              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                            )}
-                            <div className="text-[11px] leading-relaxed">{stkFeedback.message}</div>
-                          </div>
-
-                          {/* Sandbox simulation helper if prompted in test mode or invalid debit party */}
-                          {stkFeedback.type === 'error' && lastCheckoutRequestId && (
-                            <div className="pt-2 border-t border-rose-200/80 mt-2 space-y-1.5">
-                              <p className="text-[10px] text-slate-600">
-                                <strong>Testing in Safaricom Sandbox?</strong> Non-testbed SIM numbers cannot receive live prompts in Safaricom Sandbox. You can simulate PIN approval below:
-                              </p>
-                              <button
-                                type="button"
-                                disabled={isSimulatingSandbox}
-                                onClick={handleSimulateSandboxPin}
-                                className="w-full py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold rounded-lg text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                              >
-                                {isSimulatingSandbox ? (
-                                  <>
-                                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                                    Simulating Sandbox PIN Approval...
-                                  </>
-                                ) : (
-                                  '🧪 Simulate Safaricom PIN Approval (Sandbox Mode)'
-                                )}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {activeMpesaTab === 'manual' && (
-                    <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 space-y-2 text-slate-800 text-[11px]">
-                      <p className="font-bold text-emerald-900 flex items-center gap-1.5 text-xs">
-                        <Smartphone className="w-4 h-4 text-emerald-600" /> Landlord M-Pesa Receiving Channels:
-                      </p>
-                      
-                      {landlordMpesaTill && (
-                        <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200">
-                          <div>
-                            <span className="text-slate-500 block text-[10px]">Buy Goods Till No:</span>
-                            <strong className="text-slate-900 font-mono text-xs">{landlordMpesaTill}</strong>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(landlordMpesaTill, 'Till Number')}
-                            className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
-                          >
-                            <Copy className="w-3 h-3" /> Copy Till
-                          </button>
-                        </div>
-                      )}
-
-                      {landlordMpesaPaybill && (
-                        <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200">
-                          <div>
-                            <span className="text-slate-500 block text-[10px] font-semibold">M-Pesa Paybill Business No:</span>
-                            <strong className="text-slate-900 font-mono text-xs">{landlordMpesaPaybill}</strong>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(landlordMpesaPaybill, 'Paybill Business No')}
-                            className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
-                          >
-                            <Copy className="w-3 h-3" /> Copy Paybill
-                          </button>
-                        </div>
-                      )}
-
-                      <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200">
-                        <div>
-                          <span className="text-slate-500 block text-[10px] font-semibold">M-Pesa Account No (Unit Number):</span>
-                          <strong className="text-emerald-700 font-mono text-xs">Unit {currentTenant.unitNumber}</strong>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(`Unit ${currentTenant.unitNumber}`, 'Account Number')}
-                          className="px-2 py-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold text-[10px] flex items-center gap-1 cursor-pointer border border-emerald-300"
-                        >
-                          <Copy className="w-3 h-3" /> Copy Account No
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {paymentMethod === 'Bank Transfer' && (
-                <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 space-y-2 text-slate-800 text-[11px]">
-                  <p className="font-bold text-blue-900 flex items-center gap-1.5 text-xs">
-                    <Building2 className="w-4 h-4 text-blue-600" /> Landlord Bank Receiving Details:
-                  </p>
-                  
-                  <div className="bg-white p-2 rounded-lg border border-blue-200 space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500 text-[10px]">Bank:</span>
-                      <strong className="text-slate-900">{landlordBankName}</strong>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500 text-[10px]">A/C Name:</span>
-                      <strong className="text-slate-900">{landlordAccountName}</strong>
-                    </div>
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-                      <div>
-                        <span className="text-slate-500 block text-[10px]">Account Number:</span>
-                        <strong className="text-blue-700 font-mono text-xs">{landlordAccountNumber}</strong>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(landlordAccountNumber, 'Account Number')}
-                        className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                    {stkFeedback && (
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        className={`p-3 rounded-xl text-xs font-medium space-y-2 ${
+                          stkFeedback.type === 'success' ? 'bg-emerald-100 text-emerald-950 border border-emerald-300'
+                          : stkFeedback.type === 'error' ? 'bg-rose-50 text-rose-900 border border-rose-200'
+                          : 'bg-blue-50 text-blue-950 border border-blue-200'
+                        }`}
                       >
-                        <Copy className="w-3 h-3" /> Copy A/C
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Show Manual Reference Inputs only for Manual M-Pesa or Bank Transfer */}
-              {(paymentMethod !== 'M-Pesa' || activeMpesaTab === 'manual') && (
-                <div className="space-y-3 pt-1">
-                  <div>
-                    <label className="block text-slate-700 font-bold mb-1">
-                      {paymentMethod === 'M-Pesa' ? 'Safaricom M-Pesa Transaction Code *' : 'Bank Transaction Reference / Slip ID *'}
-                    </label>
-                    <input
-                      type="text"
-                      value={payRef}
-                      onChange={(e) => { setPayRef(e.target.value); setPayError(null); }}
-                      placeholder={paymentMethod === 'M-Pesa' ? 'e.g. QJK9483HD7 (10 characters)' : 'e.g. EFT-892019'}
-                      className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm font-mono uppercase font-bold text-sm focus:outline-none focus:border-blue-500"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      {paymentMethod === 'M-Pesa' 
-                        ? 'Found in the official Safaricom SMS (e.g., "Confirmed. Ksh... sent to... on ...")'
-                        : 'Found on your bank receipt or mobile banking confirmation screen.'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-700 font-bold mb-1">
-                      Payment Notes (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={payNotesInput}
-                      onChange={(e) => setPayNotesInput(e.target.value)}
-                      placeholder="e.g. Rent payment for October 2026"
-                      className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm text-xs"
-                    />
-                  </div>
-
-                  {payError && (
-                    <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-900 rounded-lg text-xs font-semibold flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                      <span>{payError}</span>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handlePayInvoice}
-                    disabled={isProcessingPay || payRef.trim().length < 4}
-                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 font-bold text-white shadow-sm transition flex items-center justify-center gap-2 text-sm cursor-pointer"
-                  >
-                    {isProcessingPay ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                        Verifying & Recording Payment...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-4 h-4" /> Confirm & Record Payment of {formatKSH(parseFloat(payAmountInput) || (payingInvoice.totalAmount - (payingInvoice.amountPaid || 0)))}
-                      </>
+                        <div className="flex items-start gap-2">
+                          {stkFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                            : stkFeedback.type === 'error' ? <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                            : <Clock className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />}
+                          <div className="text-[11px] leading-relaxed">{stkFeedback.message}</div>
+                        </div>
+                        {lastCheckoutRequestId && stkFeedback.type === 'info' && !isTriggeringStk && (
+                          <button type="button" onClick={handleCheckStkAgain} className="text-[11px] font-bold text-blue-700 underline cursor-pointer">Check again</button>
+                        )}
+                      </div>
                     )}
-                  </button>
 
-                  <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-[10px] text-slate-500 flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>
-                      All manual payment references are audited by the landlord against real Safaricom / bank statements.
-                    </span>
+                    <div className="bg-white/70 border border-emerald-200 p-2 rounded-lg text-[10px] text-slate-600 flex items-start gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Your invoice is only marked paid after Safaricom confirms the money. Nothing is recorded from this screen.</span>
+                    </div>
                   </div>
-                </div>
+                );
+              })()}
+
+              {payTab === 'bank' && (
+                <BankVerificationPanel
+                  invoice={payingInvoice}
+                  onVerified={() => { onRefreshData(); }}
+                />
               )}
             </div>
           </div>

@@ -1,21 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Payment, Invoice, Tenant, Property, Landlord, UnaccountedPayment, BankStatementRecord } from '../types';
+
+/** What can still be collected on an invoice (an invoice rolled into a later one owes nothing itself). */
+const invoiceDue = (inv: Pick<Invoice, 'totalAmount' | 'amountPaid' | 'carriedForwardToInvoiceId'>): number =>
+  inv.carriedForwardToInvoiceId ? 0 : Math.max(0, (Number(inv.totalAmount) || 0) - (Number(inv.amountPaid) || 0));
 import { formatKSH } from '../lib/formatters';
 import { calculateTenantArrears } from '../lib/arrears';
 import { exportLandlordPaymentLedgerToExcel, calculateBuildingLedgers } from '../lib/excelExport';
 import { registerBackHandler } from '../lib/backNavigation';
 import {
   triggerMpesaStkPush,
-  verifyMpesaReceiptCode,
+  queryMpesaStkStatus,
   fetchMpesaConfigStatus,
   fetchUnaccountedPayments,
-  saveUnaccountedPayment,
   assignUnaccountedPayment,
-  batchReconcileBankRecords
+  ignoreUnaccountedPayment,
+  batchReconcileBankRecords,
+  reversePayment,
+  getApiBaseUrl
 } from '../lib/api';
 import { UnaccountedPaymentsQueue } from './UnaccountedPaymentsQueue';
 import { BankStatementReconciler } from './BankStatementReconciler';
+import { BankVerificationPanel } from './BankVerificationPanel';
+import { BankConnectionsStatus } from './BankConnectionsStatus';
+import { PaymentReceiptAuditCard } from './PaymentReceiptAuditCard';
 import { KENYA_BANKS } from '../lib/kenyaBanks';
 import {
   DollarSign,
@@ -65,7 +74,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   onRecordPayment,
   onPaymentProcessed
 }) => {
-  const [activeTab, setActiveTab] = useState<'grouped' | 'all' | 'unaccounted' | 'bank_reconcile'>('grouped');
+  const [activeTab, setActiveTab] = useState<'grouped' | 'all' | 'unaccounted' | 'bank_reconcile' | 'bank_status'>('grouped');
   const [searchQuery, setSearchQuery] = useState('');
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [payInvoiceId, setPayInvoiceId] = useState(invoices[0]?.id || '');
@@ -78,17 +87,22 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
   const [unaccountedPayments, setUnaccountedPayments] = useState<UnaccountedPayment[]>([]);
 
   // M-Pesa Express STK Push State
-  const [mpesaPhone, setMpesaPhone] = useState('+254 712 345 678');
+  const [mpesaPhone, setMpesaPhone] = useState('');
   const [isStkPushing, setIsStkPushing] = useState(false);
   const [stkMessage, setStkMessage] = useState<string | null>(null);
 
-  // M-Pesa Direct Code Verification Modal State
+  // Bank / M-Pesa live verification (same server engine the tenant uses)
   const [showVerifyModal, setShowVerifyModal] = useState(false);
-  const [verifyCode, setVerifyCode] = useState('');
-  const [verifyInvoiceId, setVerifyInvoiceId] = useState(invoices[0]?.id || '');
-  const [verifyAmount, setVerifyAmount] = useState('');
-  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
-  const [verifyFeedback, setVerifyFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [verifyInvoiceId, setVerifyInvoiceId] = useState('');
+
+  // Proof-of-payment rows and payment reversal
+  const [expandedReceipts, setExpandedReceipts] = useState<Record<string, boolean>>({});
+  const [reversing, setReversing] = useState<Payment | null>(null);
+  const [reverseReason, setReverseReason] = useState('');
+  const [reversePassword, setReversePassword] = useState('');
+  const [reverseBusy, setReverseBusy] = useState(false);
+  const [reverseError, setReverseError] = useState<string | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
 
   // Daraja Gateway Connection Info
   const [darajaStatus, setDarajaStatus] = useState<any>(null);
@@ -139,15 +153,16 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
     loadUnaccounted();
   }, []);
 
-  const unpaidInvoices = invoices.filter((i) => i.status !== 'Paid');
+  const unpaidInvoices = invoices.filter((i) => invoiceDue(i) > 0);
 
   // Collect unique registered tenants for single tenant ledgers
   const tenantMap = new Map<string, { id: string; name: string; unitNumber: string; propertyName: string }>();
 
   if (tenants && tenants.length > 0) {
     // Strictly list ONLY registered tenants
+    // Keyed by tenant id: two tenants who share a name must never share a ledger.
     tenants.forEach((t) => {
-      const key = t.fullName.toLowerCase().trim();
+      const key = t.id;
       if (!tenantMap.has(key)) {
         tenantMap.set(key, {
           id: t.id,
@@ -189,82 +204,56 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
     return t.name.toLowerCase().includes(q) || t.unitNumber.toLowerCase().includes(q);
   });
 
+  /** Landlord-entered payment (cash, cheque, or a deposit you have seen on your own statement). Not bank-verified. */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setRecordError(null);
+    const amount = parseFloat(payAmount);
+    const inv = invoices.find((i) => i.id === payInvoiceId);
+    if (!inv) { setRecordError('Choose an invoice.'); return; }
+    if (!(amount > 0)) { setRecordError('Enter the amount received.'); return; }
+    if (amount > invoiceDue(inv)) { setRecordError(`The amount cannot be more than the balance of ${formatKSH(invoiceDue(inv))}.`); return; }
+    if (payMethod !== 'Cash' && payRef.trim().length < 4) { setRecordError('Enter the transaction reference exactly as it appears on the statement or SMS.'); return; }
     onRecordPayment({
       invoiceId: payInvoiceId,
-      amount: parseFloat(payAmount),
+      amount,
       paymentMethod: payMethod,
-      referenceCode: payRef,
+      referenceCode: payRef.trim(),
       notes: payNotes,
     });
     setShowRecordModal(false);
     setPayAmount('');
     setPayRef('');
+    setPayNotes('');
   };
 
+  /** Asks Safaricom to prompt the tenant, then waits for the server to confirm (the browser never posts the payment). */
   const handleTriggerStkPush = async () => {
     if (!payInvoiceId || !payAmount) return;
     setIsStkPushing(true);
     setStkMessage(null);
-
     try {
-      const selectedInv = invoices.find((i) => i.id === payInvoiceId);
-      const res = await triggerMpesaStkPush({
-        phone: mpesaPhone,
-        amount: parseFloat(payAmount),
-        invoiceId: payInvoiceId,
-        accountRef: selectedInv?.unitNumber || 'RENT'
-      });
-
-      setStkMessage(`✅ ${res.message || res.CustomerMessage || 'STK Push Dispatched'}`);
+      const res = await triggerMpesaStkPush({ phone: mpesaPhone, amount: parseFloat(payAmount), invoiceId: payInvoiceId });
+      const id: string | undefined = res?.CheckoutRequestID;
+      if (!id) throw new Error(res?.error || res?.message || 'M-Pesa could not start this request.');
+      setStkMessage('Prompt sent. Waiting for the tenant to enter their M-Pesa PIN...');
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const q = await queryMpesaStkStatus(id);
+        if (q.status === 'COMPLETED') {
+          setStkMessage(`Confirmed by Safaricom${q.receiptCode ? ` (receipt ${q.receiptCode})` : ''}. The invoice has been updated.`);
+          if (onPaymentProcessed) onPaymentProcessed();
+          setTimeout(() => { setShowRecordModal(false); setStkMessage(null); }, 2500);
+          return;
+        }
+        if (q.status === 'FAILED') { setStkMessage(`Not completed: ${q.resultDesc || 'the tenant cancelled or the request failed.'}`); return; }
+      }
+      setStkMessage('Still waiting. If the tenant has paid, it will appear automatically once Safaricom confirms.');
       if (onPaymentProcessed) onPaymentProcessed();
-      setTimeout(() => {
-        setShowRecordModal(false);
-        setStkMessage(null);
-      }, 2500);
     } catch (err: any) {
-      setStkMessage(`❌ Error triggering M-Pesa STK Push: ${err.message}`);
+      setStkMessage(`Could not send the M-Pesa prompt: ${err.message}`);
     } finally {
       setIsStkPushing(false);
-    }
-  };
-
-  const handleVerifyReceiptCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verifyCode.trim()) return;
-
-    setIsVerifyingCode(true);
-    setVerifyFeedback(null);
-
-    try {
-      const selectedInv = invoices.find((i) => i.id === verifyInvoiceId);
-      const res = await verifyMpesaReceiptCode({
-        receiptCode: verifyCode.trim().toUpperCase(),
-        amount: verifyAmount ? parseFloat(verifyAmount) : undefined,
-        invoiceId: verifyInvoiceId || undefined,
-        tenantId: selectedInv?.tenantId,
-      });
-
-      setVerifyFeedback({
-        type: 'success',
-        message: res.message || `Code ${verifyCode.toUpperCase()} verified successfully!`
-      });
-
-      if (onPaymentProcessed) onPaymentProcessed();
-      setTimeout(() => {
-        setShowVerifyModal(false);
-        setVerifyCode('');
-        setVerifyAmount('');
-        setVerifyFeedback(null);
-      }, 2000);
-    } catch (err: any) {
-      setVerifyFeedback({
-        type: 'error',
-        message: err.message || 'M-Pesa confirmation code verification failed'
-      });
-    } finally {
-      setIsVerifyingCode(false);
     }
   };
 
@@ -279,8 +268,8 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
     if (onPaymentProcessed) onPaymentProcessed();
   };
 
-  const handleAddUnaccountedPayment = async (data: Partial<UnaccountedPayment>) => {
-    await saveUnaccountedPayment(data);
+  const handleIgnoreUnaccountedPayment = async (unaccountedId: string, reason: string) => {
+    await ignoreUnaccountedPayment(unaccountedId, reason);
     await loadUnaccounted();
   };
 
@@ -291,26 +280,72 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
     return res;
   };
 
-  const handleRouteRecordToUnaccounted = async (record: BankStatementRecord) => {
-    await saveUnaccountedPayment({
-      source: record.bankName.toLowerCase().includes('mpesa') ? 'M-Pesa Till' : 'Bank Transfer',
-      referenceCode: record.referenceCode,
-      amount: record.amount,
-      receivedDate: new Date(record.date).toISOString(),
-      rawNarration: record.description,
-      bankName: record.bankName,
-      status: 'Pending Assignment',
-      notes: `Routed from Bank Statement Auto-Reconciler (${record.bankName})`
-    });
-    await loadUnaccounted();
-    alert(`Transaction ${record.referenceCode} added to Unaccounted Queue for manual review.`);
+  const toggleReceipt = (id: string) => setExpandedReceipts((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const openReverse = (p: Payment) => {
+    setReversing(p);
+    setReverseReason('');
+    setReversePassword('');
+    setReverseError(null);
   };
+
+  const confirmReverse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reversing) return;
+    setReverseBusy(true);
+    setReverseError(null);
+    try {
+      await reversePayment(reversing.id, reverseReason.trim(), reversePassword);
+      setReversing(null);
+      setReversePassword('');
+      if (onPaymentProcessed) onPaymentProcessed();
+    } catch (err: any) {
+      setReverseError(err?.message || 'The payment could not be reversed.');
+    } finally {
+      setReverseBusy(false);
+    }
+  };
+
+  const statusPill = (p: Payment) =>
+    p.status === 'Completed' ? (
+      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1">
+        <CheckCircle2 className="w-3 h-3" /> {p.status}
+      </span>
+    ) : p.status === 'Failed' ? (
+      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-100 text-rose-800 border border-rose-200 inline-flex items-center gap-1">
+        <AlertTriangle className="w-3 h-3" /> Reversed
+      </span>
+    ) : (
+      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-100 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
+        <Clock className="w-3 h-3" /> {p.status}
+      </span>
+    );
+
+  const proofCell = (p: Payment, pad: string) => (
+    <td className={`${pad} text-center whitespace-nowrap`}>
+      <button type="button" onClick={() => toggleReceipt(p.id)} className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer" aria-expanded={!!expandedReceipts[p.id]}>
+        {expandedReceipts[p.id] ? 'Hide proof' : 'Proof'}
+      </button>
+      {p.status === 'Completed' && (
+        <button type="button" onClick={() => openReverse(p)} className="ml-3 text-[11px] font-bold text-rose-700 hover:underline cursor-pointer">Reverse</button>
+      )}
+    </td>
+  );
+
+  const proofRow = (p: Payment, cols: number) =>
+    expandedReceipts[p.id] ? (
+      <tr>
+        <td colSpan={cols} className="p-3 bg-slate-50 border-t border-slate-100">
+          <PaymentReceiptAuditCard payment={p} />
+        </td>
+      </tr>
+    ) : null;
 
   const unaccountedPendingCount = unaccountedPayments.filter((p) => p.status === 'Pending Assignment').length;
 
   const portfolioArrearsList = tenantGroups.map((g) => {
-    const matchedTenant = tenants.find((t) => t.id === g.id || t.fullName.toLowerCase() === g.name.toLowerCase());
-    const tenantObj = matchedTenant || { id: g.id, fullName: g.name, email: '' };
+    const matchedTenant = tenants.find((t) => t.id === g.id);
+    const tenantObj = (matchedTenant || { id: g.id, fullName: g.name, email: '' }) as Tenant;
     return {
       group: g,
       arrears: calculateTenantArrears(tenantObj, invoices, payments)
@@ -374,7 +409,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
             )}
           </div>
           <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Real-time tracking of rent collection, partial payments, tenant arrears balances, and M-Pesa STK pushes.
+            Live rent collection from bank and M-Pesa notifications, tenant arrears balances, and receipts with a verified audit trail.
           </p>
         </div>
 
@@ -392,7 +427,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
             onClick={() => setShowVerifyModal(true)}
             className="px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs sm:text-sm font-bold border border-blue-200 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
-            <ShieldCheck className="w-4 h-4 text-blue-600" /> Verify M-Pesa Code
+            <ShieldCheck className="w-4 h-4 text-blue-600" /> Verify Bank / M-Pesa Payment
           </button>
           <button
             onClick={() => setShowRecordModal(true)}
@@ -531,8 +566,20 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
           <FileSpreadsheet className="w-4 h-4 text-blue-600" />
           <span>Bank Statement Auto-Reconcile</span>
           <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200 uppercase">
-            Smart CSV
+            CSV
           </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('bank_status')}
+          className={`pb-3 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            activeTab === 'bank_status'
+              ? 'border-indigo-600 text-indigo-800 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Landmark className="w-4 h-4 text-indigo-600" />
+          <span>Bank Connections</span>
         </button>
       </div>
 
@@ -558,15 +605,11 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
             </div>
           ) : (
             tenantGroups.map((group, gIdx) => {
-              const matchedTenant = tenants.find((t) => t.id === group.id || t.fullName.toLowerCase() === group.name.toLowerCase());
-              const tenantObj = matchedTenant || { id: group.id, fullName: group.name, email: '' };
+              const matchedTenant = tenants.find((t) => t.id === group.id);
+              const tenantObj = (matchedTenant || { id: group.id, fullName: group.name, email: '' }) as Tenant;
               const arrearsData = calculateTenantArrears(tenantObj, invoices, payments);
 
-              const groupPayments = payments.filter(
-                (p) =>
-                  p.tenantName.toLowerCase() === group.name.toLowerCase() ||
-                  (p.tenantId && p.tenantId === group.id)
-              );
+              const groupPayments = payments.filter((p) => (p.tenantId ? p.tenantId === group.id : tenants.length === 0 && p.tenantName.toLowerCase() === group.name.toLowerCase()));
 
               return (
                 <div
@@ -679,11 +722,13 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                             <th className="p-3">Date Paid</th>
                             <th className="p-3 text-right">Amount (KSh)</th>
                             <th className="p-3 text-center">Status</th>
+                            <th className="p-3 text-center">Proof</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
                           {groupPayments.map((p, pIdx) => (
-                            <tr key={`gpay-${p.id || p.referenceCode}-${pIdx}`} className="hover:bg-slate-50/70 transition">
+                            <React.Fragment key={`gpay-${p.id || p.referenceCode}-${pIdx}`}>
+                            <tr className={`hover:bg-slate-50/70 transition ${p.status === 'Failed' ? 'opacity-60' : ''}`}>
                               <td className="p-3 font-bold text-emerald-700 flex items-center gap-1.5">
                                 <Receipt className="w-3.5 h-3.5 text-emerald-600" /> {p.paymentMethod}
                               </td>
@@ -694,12 +739,11 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                               <td className="p-3 text-right font-extrabold text-emerald-600 text-sm">
                                 {formatKSH(p.amount)}
                               </td>
-                              <td className="p-3 text-center">
-                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1">
-                                  <CheckCircle2 className="w-3 h-3" /> {p.status}
-                                </span>
-                              </td>
+                              <td className="p-3 text-center">{statusPill(p)}</td>
+                              {proofCell(p, 'p-3')}
                             </tr>
+                            {proofRow(p, 6)}
+                            </React.Fragment>
                           ))}
                         </tbody>
                       </table>
@@ -767,6 +811,10 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
                                         PAID
                                       </span>
+                                    ) : m.status === 'Carried Forward' ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700" title="This invoice's unpaid balance was added to a later invoice, so it is collected only once.">
+                                        CARRIED FORWARD
+                                      </span>
                                     ) : (
                                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
                                         {m.status.toUpperCase()}
@@ -807,11 +855,13 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                 <th className="p-3.5">Date Paid</th>
                 <th className="p-3.5 text-right">Amount (KSh)</th>
                 <th className="p-3.5 text-center">Status</th>
+                <th className="p-3.5 text-center">Proof</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-slate-800 font-medium">
               {payments.map((p, pIdx) => (
-                <tr key={`allpay-${p.id || p.referenceCode}-${pIdx}`} className="hover:bg-slate-50 transition">
+                <React.Fragment key={`allpay-${p.id || p.referenceCode}-${pIdx}`}>
+                <tr className={`hover:bg-slate-50 transition ${p.status === 'Failed' ? 'opacity-60' : ''}`}>
                   <td className="p-3.5">
                     <p className="font-bold text-slate-900">{p.tenantName}</p>
                     <p className="text-[10px] text-slate-500 font-medium">Unit {p.unitNumber}</p>
@@ -824,12 +874,11 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                   <td className="p-3.5 text-right font-extrabold text-emerald-600 text-sm">
                     {formatKSH(p.amount)}
                   </td>
-                  <td className="p-3.5 text-center">
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" /> {p.status}
-                    </span>
-                  </td>
+                  <td className="p-3.5 text-center">{statusPill(p)}</td>
+                  {proofCell(p, 'p-3.5')}
                 </tr>
+                {proofRow(p, 7)}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
@@ -844,7 +893,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
           tenants={tenants}
           invoices={invoices}
           onAssignPayment={handleAssignUnaccountedPayment}
-          onAddUnaccountedPayment={handleAddUnaccountedPayment}
+          onIgnorePayment={handleIgnoreUnaccountedPayment}
         />
       )}
 
@@ -854,8 +903,24 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
           tenants={tenants}
           invoices={invoices}
           onBatchReconcile={handleBatchReconcileRecords}
-          onRouteToUnaccountedQueue={handleRouteRecordToUnaccounted}
         />
+      )}
+
+      {/* LIVE BANK CONNECTIONS */}
+      {activeTab === 'bank_status' && (
+        <div className="space-y-4">
+          <BankConnectionsStatus />
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 text-xs space-y-2" data-testid="webhook-urls">
+            <h4 className="font-extrabold text-slate-900 text-sm">Notification (webhook) addresses to register with each bank</h4>
+            <p className="text-slate-600">Give these HTTPS addresses to your bank relationship manager or enter them in the bank&apos;s developer portal. Each bank signs its notifications; unsigned or tampered calls are rejected and logged.</p>
+            {(['equity', 'kcb', 'coop', 'pesalink'] as const).map((b) => (
+              <div key={b} className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                <span className="font-bold uppercase text-[10px] text-slate-500 w-16">{b}</span>
+                <code className="font-mono text-[11px] text-slate-800 break-all flex-1">{`${getApiBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '')}/api/banks/${b}/callback`}</code>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Record / STK Push Payment Modal */}
@@ -867,10 +932,18 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
             </h3>
 
             {stkMessage && (
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-medium text-xs">
+              <div role="status" aria-live="polite" className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-medium text-xs">
                 {stkMessage}
               </div>
             )}
+            {recordError && (
+              <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-medium text-xs">
+                {recordError}
+              </div>
+            )}
+            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+              Entries made here are marked <strong>recorded by landlord</strong> (not bank-verified). For a bank deposit, use <strong>Verify Bank / M-Pesa Payment</strong> instead so the bank confirms it.
+            </p>
 
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
@@ -880,14 +953,14 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                   onChange={(e) => {
                     setPayInvoiceId(e.target.value);
                     const inv = invoices.find((i) => i.id === e.target.value);
-                    if (inv) setPayAmount((inv.totalAmount - (inv.amountPaid || 0)).toString());
+                    if (inv) setPayAmount(invoiceDue(inv).toString());
                   }}
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
                 >
                   {unpaidInvoices.length > 0 ? (
                     unpaidInvoices.map((inv, invIdx) => (
                       <option key={`unpaid-${inv.id}-${invIdx}`} value={inv.id}>
-                        {inv.invoiceNumber} - {inv.tenantName} ({formatKSH(inv.totalAmount - (inv.amountPaid || 0))} due)
+                        {inv.invoiceNumber} - {inv.tenantName} ({formatKSH(invoiceDue(inv))} due)
                       </option>
                     ))
                   ) : (
@@ -923,24 +996,14 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                 </div>
               </div>
 
-              {/* Live Overpayment Detection in Record Modal */}
               {(() => {
                 const targetInv = invoices.find((i) => i.id === payInvoiceId);
                 if (!targetInv) return null;
-                const remDue = Math.max(0, targetInv.totalAmount - (targetInv.amountPaid || 0));
-                const entered = parseFloat(payAmount) || 0;
-                if (entered <= remDue) return null;
-                const overpaySurplus = entered - remDue;
-
+                const remDue = invoiceDue(targetInv);
+                if ((parseFloat(payAmount) || 0) <= remDue) return null;
                 return (
-                  <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl space-y-1 text-slate-800">
-                    <div className="flex items-center gap-1.5 font-bold text-emerald-900">
-                      <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Overpayment Detected: +{formatKSH(overpaySurplus)}</span>
-                    </div>
-                    <p className="text-[11px] text-emerald-800 leading-snug">
-                      Recording <strong>{formatKSH(entered)}</strong> against an invoice due balance of <strong>{formatKSH(remDue)}</strong> creates a credit surplus of <strong className="font-extrabold text-emerald-950">+{formatKSH(overpaySurplus)}</strong>. This will be credited to {targetInv.tenantName}&apos;s account ledger.
-                    </p>
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-800" role="alert">
+                    The amount is more than the balance of <strong>{formatKSH(remDue)}</strong> on this invoice. Record the balance here; anything extra should be recorded against the next invoice.
                   </div>
                 );
               })()}
@@ -952,11 +1015,12 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                     type="text"
                     value={mpesaPhone}
                     onChange={(e) => setMpesaPhone(e.target.value)}
+                    placeholder="0712 345 678"
                     className="w-full bg-white border border-emerald-300 rounded-lg p-2 text-slate-900 font-mono shadow-xs"
                   />
                   <button
                     type="button"
-                    disabled={isStkPushing || !payAmount}
+                    disabled={isStkPushing || !payAmount || mpesaPhone.trim().length < 9}
                     onClick={handleTriggerStkPush}
                     className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition shadow-xs flex items-center justify-center gap-1.5"
                   >
@@ -997,15 +1061,15 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                 </div>
               )}
 
-              {payMethod !== 'M-Pesa' && (
+              {payMethod !== 'Cash' && (
                 <div>
-                  <label className="block text-slate-700 font-medium mb-1">Transaction Ref / Receipt Code</label>
+                  <label className="block text-slate-700 font-medium mb-1">{payMethod === 'M-Pesa' ? 'M-Pesa confirmation code (if already paid)' : 'Transaction ref / receipt code'}</label>
                   <input
                     type="text"
                     required
                     value={payRef}
                     onChange={(e) => setPayRef(e.target.value)}
-                    placeholder="e.g. EFT-92810283 or PesaLink Ref"
+                    placeholder={payMethod === 'M-Pesa' ? 'e.g. QJK9483HD7' : 'e.g. EQ98102910 or PesaLink ref'}
                     className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-sm"
                   />
                 </div>
@@ -1025,7 +1089,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowRecordModal(false)}
+                  onClick={() => { setShowRecordModal(false); setRecordError(null); }}
                   className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition"
                 >
                   Cancel
@@ -1034,7 +1098,7 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
                   type="submit"
                   className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition shadow-sm"
                 >
-                  Record Manual Payment
+                  Record Payment (landlord entry)
                 </button>
               </div>
             </form>
@@ -1042,112 +1106,79 @@ export const PaymentTrackerView: React.FC<PaymentTrackerViewProps> = ({
         </div>
       )}
 
-      {/* VERIFY M-PESA CONFIRMATION CODE MODAL */}
+      {/* VERIFY BANK / M-PESA PAYMENT (live, server-confirmed) */}
       {showVerifyModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-100">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-start sm:items-center justify-center p-3 z-50 overflow-y-auto animate-fadeIn" role="dialog" aria-modal="true" aria-label="Verify a bank or M-Pesa payment">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4 border border-slate-100 my-auto max-h-[94vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
-                  <ShieldCheck className="w-5 h-5 text-blue-700" />
-                </div>
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center"><ShieldCheck className="w-5 h-5 text-blue-700" /></div>
                 <div>
-                  <h3 className="font-extrabold text-slate-900 text-base">Verify M-Pesa Transaction Code</h3>
-                  <p className="text-[11px] text-slate-500">Auto-reconciles invoice and generates proof of payment</p>
+                  <h3 className="font-extrabold text-slate-900 text-base">Verify a bank / M-Pesa payment</h3>
+                  <p className="text-[11px] text-slate-500">Checks the bank&apos;s own record and posts the payment once, with an audit trail</p>
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  setShowVerifyModal(false);
-                  setVerifyFeedback(null);
-                }}
-                className="text-slate-400 hover:text-slate-700 text-sm font-bold p-1 rounded-md"
-              >
-                ✕
-              </button>
+              <button onClick={() => setShowVerifyModal(false)} className="text-slate-400 hover:text-slate-700 text-sm font-bold p-1 rounded-md cursor-pointer" aria-label="Close">✕</button>
             </div>
 
-            <form onSubmit={handleVerifyReceiptCode} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  M-Pesa Confirmation Code <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={verifyCode}
-                  onChange={(e) => setVerifyCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. SAB9812471 or QHX892JK12"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-900 font-mono font-bold text-sm tracking-wider uppercase focus:bg-white focus:ring-2 focus:ring-blue-500"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">10-character code received by tenant from MPESA SMS</p>
-              </div>
+            <div className="text-xs">
+              <label className="block text-slate-700 font-bold mb-1" htmlFor="verify-invoice">Invoice the payment is for</label>
+              <select
+                id="verify-invoice"
+                value={verifyInvoiceId}
+                onChange={(e) => setVerifyInvoiceId(e.target.value)}
+                className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-xs"
+              >
+                <option value="">Choose an invoice...</option>
+                {unpaidInvoices.map((inv, invIdx) => (
+                  <option key={`inv-opt-${inv.id}-${invIdx}`} value={inv.id}>
+                    #{inv.invoiceNumber} - {inv.tenantName} ({inv.unitNumber}) - due {formatKSH(invoiceDue(inv))}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Select Associated Invoice</label>
-                <select
-                  value={verifyInvoiceId}
-                  onChange={(e) => setVerifyInvoiceId(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-xs"
-                >
-                  <option value="">-- No specific invoice (General credit) --</option>
-                  {invoices.map((inv, invIdx) => (
-                    <option key={`inv-opt-${inv.id}-${invIdx}`} value={inv.id}>
-                      #{inv.invoiceNumber} - {inv.tenantName} ({inv.unitNumber}) - Due: {formatKSH(inv.totalAmount - (inv.amountPaid || 0))}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {(() => {
+              const inv = unpaidInvoices.find((i) => i.id === verifyInvoiceId);
+              return inv ? (
+                <BankVerificationPanel key={inv.id} invoice={inv} onVerified={() => { if (onPaymentProcessed) onPaymentProcessed(); }} />
+              ) : (
+                <p className="text-[11px] text-slate-500">Choose an invoice to start. Deposits that arrive through a connected bank are posted automatically and do not need this step.</p>
+              );
+            })()}
 
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Amount Paid (KSh)</label>
-                <input
-                  type="number"
-                  value={verifyAmount}
-                  onChange={(e) => setVerifyAmount(e.target.value)}
-                  placeholder="e.g. 25000 (Defaults to remaining due if left blank)"
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 shadow-xs"
-                />
-              </div>
-
-              {verifyFeedback && (
-                <div
-                  className={`p-3 rounded-xl text-xs font-semibold ${
-                    verifyFeedback.type === 'success'
-                      ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
-                      : 'bg-rose-50 text-rose-900 border border-rose-300'
-                  }`}
-                >
-                  {verifyFeedback.message}
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowVerifyModal(false)}
-                  className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition cursor-pointer"
-                >
-                  Close
-                </button>
-                <button
-                  type="submit"
-                  disabled={isVerifyingCode || !verifyCode.trim()}
-                  className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
-                >
-                  {isVerifyingCode ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Verifying Code...
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-4 h-4" /> Verify & Reconcile Payment
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
+            <div className="flex justify-end pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => setShowVerifyModal(false)} className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition text-xs cursor-pointer">Close</button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* REVERSE A PAYMENT */}
+      {reversing && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50" role="dialog" aria-modal="true" aria-label="Reverse payment">
+          <form onSubmit={confirmReverse} className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-3 border border-rose-100 text-xs">
+            <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-rose-600" /> Reverse payment</h3>
+            <p className="text-slate-600">
+              This removes <strong>{formatKSH(reversing.amount)}</strong> ({reversing.referenceCode}) from {reversing.tenantName}&apos;s account and restores the invoice balance.
+              The reference stays used, so the same transaction can never be recorded again. The reversal is written to the audit log.
+            </p>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1" htmlFor="rev-reason">Reason (at least 5 characters)</label>
+              <input id="rev-reason" required minLength={5} maxLength={200} value={reverseReason} onChange={(e) => setReverseReason(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2.5" placeholder="e.g. Cheque bounced / recorded against wrong tenant" />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1" htmlFor="rev-pass">Your password</label>
+              <input id="rev-pass" required type="password" autoComplete="current-password" value={reversePassword} onChange={(e) => setReversePassword(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2.5" />
+            </div>
+            {reverseError && <p role="alert" className="text-rose-700 font-semibold">{reverseError}</p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setReversing(null)} className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 cursor-pointer">Cancel</button>
+              <button type="submit" disabled={reverseBusy || reverseReason.trim().length < 5 || !reversePassword} className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold disabled:opacity-50 cursor-pointer">
+                {reverseBusy ? 'Reversing...' : 'Reverse payment'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

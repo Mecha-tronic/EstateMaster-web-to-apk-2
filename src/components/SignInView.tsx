@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Tenant, Landlord, Unit, Property } from '../types';
-import { loginUser, registerTenant, registerLandlordAccount, LoginResponse } from '../lib/api';
+import { loginUser, registerTenant, registerLandlordAccount, LoginResponse, setSessionToken } from '../lib/api';
 import { TwoFactorModal } from './TwoFactorModal';
+import { ForgotPasswordPanel } from './ForgotPasswordPanel';
+import { ForcedPasswordChange } from './ForcedPasswordChange';
 import { formatKSH } from '../lib/formatters';
 import { KENYA_BANKS } from '../lib/kenyaBanks';
 import {
@@ -32,8 +34,10 @@ import {
 
 interface SignInViewProps {
   initialRole?: 'tenant' | 'landlord';
-  tenants: Tenant[];
-  landlords: Landlord[];
+  /** @deprecated accounts are verified by the server only; kept optional so older callers still compile. */
+  tenants?: Tenant[];
+  /** @deprecated see tenants. */
+  landlords?: Landlord[];
   units?: Unit[];
   properties?: Property[];
   onTenantSuccess: (tenant: Tenant) => void;
@@ -46,8 +50,6 @@ interface SignInViewProps {
 
 export const SignInView: React.FC<SignInViewProps> = ({
   initialRole = 'tenant',
-  tenants,
-  landlords,
   units = [],
   properties = [],
   onTenantSuccess,
@@ -58,7 +60,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
   inactivityNotice,
 }) => {
   const [activeTab, setActiveTab] = useState<'tenant' | 'landlord'>(initialRole);
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
 
   // Common Auth state
   const [email, setEmail] = useState('');
@@ -95,9 +97,10 @@ export const SignInView: React.FC<SignInViewProps> = ({
     tempToken: string;
     emailMasked?: string;
     phoneMasked?: string;
-    otpSimulation?: string;
     userEmail?: string;
   } | null>(null);
+  // Account the server flagged "must change password" (finish login only after it is changed)
+  const [forcedChange, setForcedChange] = useState<{ role: 'landlord' | 'tenant'; user: Tenant | Landlord } | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState<number | null>(null);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
 
@@ -135,41 +138,42 @@ export const SignInView: React.FC<SignInViewProps> = ({
     try {
       const res: LoginResponse = await loginUser(cleanEmail, cleanPassword, activeTab);
 
+      // Wrong credentials / locked: the server sends structured fields (never parse text).
+      if (res.success === false || (!res.requires2FA && !res.role)) {
+        setErrorMessage(res.error || res.message || 'Sign-in failed. Check your email and password.');
+        if (res.isLocked && res.remainingSeconds) setLockoutSeconds(res.remainingSeconds);
+        if (typeof res.remainingAttempts === 'number') setRemainingAttempts(res.remainingAttempts);
+        return;
+      }
+
       // Check if Two-Factor Authentication is triggered
       if (res.requires2FA && res.tempToken) {
         setPending2Fa({
           tempToken: res.tempToken,
           emailMasked: res.emailMasked,
           phoneMasked: res.phoneMasked,
-          otpSimulation: res.otpSimulation,
           userEmail: cleanEmail
         });
         return;
       }
 
-      if (res.role === 'tenant' && res.user) {
-        onTenantSuccess(res.user as Tenant);
-      } else if (res.role === 'landlord' && res.user) {
-        onLandlordSuccess(res.user as Landlord);
-      }
+      completeLogin(res.role, res.user, res.mustChangePassword);
     } catch (err: any) {
-      const errMsg = err.message || 'Authentication failed. Please check your credentials.';
-      setErrorMessage(errMsg);
-
-      // Check for lockout seconds in error message
-      const match = errMsg.match(/(\d+)\s*seconds/i);
-      if (match && match[1]) {
-        setLockoutSeconds(parseInt(match[1], 10));
-      }
-
-      // Check for remaining attempts in error message
-      const attemptMatch = errMsg.match(/(\d+)\s*attempt/i);
-      if (attemptMatch && attemptMatch[1]) {
-        setRemainingAttempts(parseInt(attemptMatch[1], 10));
-      }
+      setErrorMessage(err.message || 'Authentication failed. Please try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  /** Finishes a successful login (after 2FA / forced password change where required). */
+  const completeLogin = (role: 'tenant' | 'landlord' | undefined, user: Tenant | Landlord | undefined, mustChangePassword?: boolean) => {
+    if (!role || !user) return;
+    if (mustChangePassword) {
+      setForcedChange({ role, user });
+      return;
+    }
+    if (role === 'tenant') onTenantSuccess(user as Tenant);
+    else onLandlordSuccess(user as Landlord);
   };
 
   // Handle Tenant Account Creation
@@ -207,8 +211,9 @@ export const SignInView: React.FC<SignInViewProps> = ({
       };
 
       const result = await registerTenant(payload);
-      setSuccessMessage(`Account created successfully! Welcome ${result.tenant.fullName}. Dispatched quotes & invoices to ${result.tenant.email}`);
-      if (onRefreshData) await onRefreshData();
+      // The server signs the applicant in so they can see their invoice and pay straight away.
+      if (result.sessionToken) setSessionToken(result.sessionToken);
+      setSuccessMessage(`Account created successfully! Welcome ${result.tenant.fullName}. Your quote & invoice were emailed to ${result.tenant.email}.`);
 
       setTimeout(() => {
         onTenantSuccess(result.tenant);
@@ -264,8 +269,9 @@ export const SignInView: React.FC<SignInViewProps> = ({
         paymentPhone
       });
 
-      setSuccessMessage(`✅ KSH 20,000 Subscription Payment Received! Ref: ${res.receiptCode}. Welcome to EstateMaster.`);
-      if (onRefreshData) await onRefreshData();
+      // The account is created but NOT active: the licence is activated only when the payment is confirmed
+      // (M-Pesa callback or bank notification). The next screen lets the landlord pay.
+      setSuccessMessage(`Account created. Next: pay the KSH ${(res.subscription?.amount ?? 20000).toLocaleString()} annual licence by M-Pesa or bank transfer to activate it.`);
 
       setTimeout(() => {
         onLandlordSuccess(res.landlord);
@@ -453,8 +459,31 @@ export const SignInView: React.FC<SignInViewProps> = ({
           </div>
         )}
 
+        {/* --- FORCED PASSWORD CHANGE --- */}
+        {forcedChange && (
+          <ForcedPasswordChange
+            role={forcedChange.role}
+            userId={forcedChange.user.id}
+            onChanged={() => {
+              const f = forcedChange;
+              setForcedChange(null);
+              completeLogin(f.role, { ...f.user, mustChangePassword: false } as any, false);
+            }}
+            onCancel={() => { setForcedChange(null); setPassword(''); }}
+          />
+        )}
+
+        {/* --- FORGOT PASSWORD MODE --- */}
+        {mode === 'forgot' && !forcedChange && (
+          <ForgotPasswordPanel
+            initialEmail={email}
+            onCancel={() => setMode('signin')}
+            onDone={(msg) => { setMode('signin'); setPassword(''); setSuccessMessage(msg); }}
+          />
+        )}
+
         {/* --- SIGN IN FORM MODE --- */}
-        {mode === 'signin' && (
+        {mode === 'signin' && !forcedChange && (
           <form onSubmit={handleSignInSubmit} className="space-y-4 text-xs font-medium">
             <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 text-blue-900 flex items-center gap-2.5">
               <Smartphone className="w-5 h-5 text-blue-600 shrink-0" />
@@ -487,7 +516,14 @@ export const SignInView: React.FC<SignInViewProps> = ({
 
             <div>
               <div className="flex justify-between items-center mb-1.5">
-                <label className="block text-slate-700 font-bold">Password / PIN</label>
+                <label className="block text-slate-700 font-bold">Password</label>
+                <button
+                  type="button"
+                  onClick={() => { setMode('forgot'); setErrorMessage(null); setSuccessMessage(null); }}
+                  className="text-[11px] font-bold text-blue-700 hover:underline"
+                >
+                  Forgot password?
+                </button>
               </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -879,7 +915,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
                         className="w-full bg-white border border-emerald-300 rounded-lg p-2.5 text-slate-900 font-mono font-bold shadow-xs"
                       />
                       <p className="text-[10px] text-emerald-800 mt-1">
-                        An STK Push notification for <strong>KSH 20,000</strong> will be sent to this phone.
+                        You will pay the <strong>KSH 20,000</strong> licence on the next screen (M-Pesa prompt or bank transfer). Your account activates once the payment is confirmed.
                       </p>
                     </div>
                   )}
@@ -901,11 +937,11 @@ export const SignInView: React.FC<SignInViewProps> = ({
                   >
                     {loading ? (
                       <>
-                        <RefreshCw className="w-4 h-4 animate-spin" /> Processing KSH 20,000 Payment...
+                        <RefreshCw className="w-4 h-4 animate-spin" /> Creating your account...
                       </>
                     ) : (
                       <>
-                        <Lock className="w-4 h-4" /> Pay KSH 20,000 & Activate Landlord Account
+                        <Lock className="w-4 h-4" /> Create Account & Continue to Payment
                       </>
                     )}
                   </button>
@@ -979,13 +1015,9 @@ export const SignInView: React.FC<SignInViewProps> = ({
             emailMasked={pending2Fa.emailMasked}
             phoneMasked={pending2Fa.phoneMasked}
             userEmail={pending2Fa.userEmail}
-            onSuccess={(role, user) => {
+            onSuccess={(role, user, mustChangePassword) => {
               setPending2Fa(null);
-              if (role === 'tenant') {
-                onTenantSuccess(user as Tenant);
-              } else if (role === 'landlord') {
-                onLandlordSuccess(user as Landlord);
-              }
+              completeLogin(role, user as Tenant | Landlord, mustChangePassword);
             }}
             onCancel={() => setPending2Fa(null)}
           />

@@ -227,22 +227,23 @@ export function calculateBuildingLedgers(
     const buildingInvoices = invoices.filter((inv) => {
       if (inv.propertyName && inv.propertyName.trim().toLowerCase() === propNameNorm) return true;
       // or match via tenant
-      return buildingTenants.some((bt) => bt.id === inv.tenantId || (inv.tenantName && inv.tenantName.toLowerCase().trim() === bt.fullName.toLowerCase().trim()));
+      return buildingTenants.some((bt) => bt.id === inv.tenantId || (!inv.tenantId && inv.tenantName && inv.tenantName.toLowerCase().trim() === bt.fullName.toLowerCase().trim()));
     });
 
     // Match payments
     const buildingPayments = payments.filter((p) => {
       if (p.propertyName && p.propertyName.trim().toLowerCase() === propNameNorm) return true;
-      return buildingTenants.some((bt) => bt.id === p.tenantId || (p.tenantName && p.tenantName.toLowerCase().trim() === bt.fullName.toLowerCase().trim()));
+      return buildingTenants.some((bt) => bt.id === p.tenantId || (!p.tenantId && p.tenantName && p.tenantName.toLowerCase().trim() === bt.fullName.toLowerCase().trim()));
     });
 
     // Build tenant records
     // Create unique list of tenants in this building (from explicit tenants + invoice tenants)
     const buildingTenantMap = new Map<string, Tenant>();
-    buildingTenants.forEach((t) => buildingTenantMap.set(t.fullName.toLowerCase().trim(), t));
+    // Keyed by tenant id so two tenants who share a name keep separate ledgers.
+    buildingTenants.forEach((t) => buildingTenantMap.set(t.id, t));
 
     buildingInvoices.forEach((inv) => {
-      const key = inv.tenantName.toLowerCase().trim();
+      const key = inv.tenantId || `name:${inv.tenantName.toLowerCase().trim()}`;
       if (!buildingTenantMap.has(key)) {
         buildingTenantMap.set(key, {
           id: inv.tenantId || `tenant-${key}`,
@@ -266,7 +267,7 @@ export function calculateBuildingLedgers(
 
       // Filter payments for this tenant to get last payment details
       const tenantPayments = buildingPayments
-        .filter((p) => p.tenantId === t.id || (p.tenantName && p.tenantName.toLowerCase().trim() === t.fullName.toLowerCase().trim()))
+        .filter((p) => p.tenantId === t.id || (!p.tenantId && p.tenantName && p.tenantName.toLowerCase().trim() === t.fullName.toLowerCase().trim()))
         .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
 
       const lastP = tenantPayments[0];

@@ -24,7 +24,13 @@ export interface TenantArrearsSummary {
     amountPaid: number;
     arrearsRemaining: number;
     overpaidAmount: number;
-    status: 'Paid' | 'Partial' | 'Unpaid' | 'Overdue' | 'Overpaid';
+    status: 'Paid' | 'Partial' | 'Unpaid' | 'Overdue' | 'Overpaid' | 'Carried Forward';
+    /** Arrears from older invoices that this invoice already includes in its total. */
+    previousArrears: number;
+    /** Set on an OLDER invoice whose unpaid balance was rolled into a newer one (never collected twice). */
+    carriedForwardToInvoiceId?: string;
+    /** This invoice's own period charges (total minus the arrears it carries). */
+    ownCharges: number;
   }[];
 }
 
@@ -33,61 +39,51 @@ export function calculateTenantArrears(
   invoices: Invoice[],
   payments: Payment[]
 ): TenantArrearsSummary {
-  // Filter invoices for tenant
-  const tenantInvoices = invoices.filter(
-    (inv) =>
-      inv.tenantId === tenant.id ||
-      (tenant.email && inv.tenantEmail && inv.tenantEmail.toLowerCase() === tenant.email.toLowerCase()) ||
-      (tenant.fullName && inv.tenantName && inv.tenantName.toLowerCase().trim() === tenant.fullName.toLowerCase().trim())
-  );
-
-  // Filter payments for tenant
+  // Records belong to a tenant by id only (names and e-mails are not unique and must never merge two tenants' ledgers).
+  const tenantInvoices = invoices.filter((inv) => inv.tenantId === tenant.id);
   const tenantPayments = payments.filter(
-    (p) =>
-      p.tenantId === tenant.id ||
-      (tenant.fullName && p.tenantName && p.tenantName.toLowerCase().trim() === tenant.fullName.toLowerCase().trim()) ||
-      (p.invoiceId && tenantInvoices.some((inv) => inv.id === p.invoiceId || inv.invoiceNumber === p.invoiceId))
+    (p) => p.tenantId === tenant.id || Boolean(p.invoiceId && tenantInvoices.some((inv) => inv.id === p.invoiceId))
   );
 
-  let totalInvoiced = 0;
+  let totalInvoiced = 0; // each period's OWN charges (carried arrears are not charged twice)
   let totalPaid = 0;
+  let totalArrears = 0;
+  let totalOverpaid = 0;
   let skippedMonthsCount = 0;
   let partialMonthsCount = 0;
   let overpaidInvoicesCount = 0;
 
   const monthlyBreakdown = tenantInvoices.map((inv) => {
     const invTotal = Number(inv.totalAmount) || 0;
-    // Check payments matching this specific invoice
+    const previousArrears = Math.min(Math.max(0, Number(inv.previousArrears) || 0), invTotal);
+    // A newer invoice's total already contains the arrears it collects, so they must not be counted again.
+    const ownCharges = invTotal - previousArrears;
+    const rolledForward = Boolean(inv.carriedForwardToInvoiceId);
+
     const invPayments = tenantPayments
       .filter((p) => (p.invoiceId === inv.id || p.invoiceId === inv.invoiceNumber) && (p.status === 'Completed' || !p.status))
       .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const invPaid = Math.max(Number(inv.amountPaid) || 0, invPayments);
-    const remaining = Math.max(0, invTotal - invPaid);
-    const overpaidAmount = Math.max(0, invPaid - invTotal);
 
-    totalInvoiced += invTotal;
+    // A rolled-forward invoice is collected through the newer invoice only: it owes nothing itself.
+    const remaining = rolledForward ? 0 : Math.max(0, invTotal - invPaid);
+    const overpaidAmount = Math.max(0, invPaid - (rolledForward ? ownCharges : invTotal));
+
+    totalInvoiced += ownCharges;
     totalPaid += invPaid;
-
-    if (overpaidAmount > 0) {
-      overpaidInvoicesCount++;
+    totalArrears += remaining;
+    totalOverpaid += overpaidAmount;
+    if (overpaidAmount > 0) overpaidInvoicesCount++;
+    if (!rolledForward) {
+      if (invPaid === 0 && invTotal > 0) skippedMonthsCount++;
+      else if (invPaid > 0 && invPaid < invTotal) partialMonthsCount++;
     }
 
-    if (invPaid === 0 && invTotal > 0) {
-      skippedMonthsCount++;
-    } else if (invPaid > 0 && invPaid < invTotal) {
-      partialMonthsCount++;
-    }
-
-    let status: 'Paid' | 'Partial' | 'Unpaid' | 'Overdue' | 'Overpaid' = inv.status as any;
-    if (overpaidAmount > 0) {
-      status = 'Overpaid';
-    } else if (invPaid >= invTotal && invTotal > 0) {
-      status = 'Paid';
-    } else if (invPaid > 0 && invPaid < invTotal) {
-      status = 'Partial';
-    } else if (!status) {
-      status = 'Unpaid';
-    }
+    let status: 'Paid' | 'Partial' | 'Unpaid' | 'Overdue' | 'Overpaid' | 'Carried Forward' = (inv.status as any) || 'Unpaid';
+    if (rolledForward) status = 'Carried Forward';
+    else if (overpaidAmount > 0) status = 'Overpaid';
+    else if (invPaid >= invTotal && invTotal > 0) status = 'Paid';
+    else if (invPaid > 0 && invPaid < invTotal) status = 'Partial';
 
     return {
       invoiceId: inv.id,
@@ -99,20 +95,14 @@ export function calculateTenantArrears(
       arrearsRemaining: remaining,
       overpaidAmount,
       status,
+      previousArrears,
+      carriedForwardToInvoiceId: inv.carriedForwardToInvoiceId,
+      ownCharges
     };
   });
 
-  const sumAllPayments = tenantPayments
-    .filter((p) => p.status === 'Completed' || !p.status)
-    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
-  const effectiveTotalPaid = Math.max(totalPaid, sumAllPayments);
-
-  // Calculate total arrears (totalInvoiced - effectiveTotalPaid)
-  const totalArrears = Math.max(0, totalInvoiced - effectiveTotalPaid);
-  // Calculate total overpayment credit (effectiveTotalPaid - totalInvoiced)
-  const totalOverpaid = Math.max(0, effectiveTotalPaid - totalInvoiced);
-  // Net balance: positive means arrears owed, negative means overpaid/account credit
-  const netBalance = totalInvoiced - effectiveTotalPaid;
+  // Net balance: positive = arrears owed, negative = account credit / overpayment.
+  const netBalance = totalArrears - totalOverpaid;
 
   let status: 'Up-To-Date' | 'Partial Arrears' | 'Heavy Arrears' | 'Overpaid / In Credit' = 'Up-To-Date';
   if (totalArrears > 0) {
