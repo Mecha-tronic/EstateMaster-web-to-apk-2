@@ -1,8 +1,13 @@
 rules_version = '2';
+
+// EstateMaster never talks to Firestore from the browser or the Android app.
+// All reads and writes go through the authenticated API server, which uses the Firebase Admin SDK
+// (service-account credentials bypass these rules). Denying everything here guarantees that nobody
+// can read or modify tenant/landlord data directly with the public web API key.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

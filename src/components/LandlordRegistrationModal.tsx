@@ -48,8 +48,6 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
   const [bankName, setBankName] = useState('Equity Bank Kenya');
   const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
-  const [paymentPhone, setPaymentPhone] = useState('+254 ');
-  const [paymentMethod, setPaymentMethod] = useState<'M-Pesa Express' | 'Bank Transfer'>('M-Pesa Express');
 
   if (!isOpen) return null;
 
@@ -61,7 +59,6 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
       return;
     }
     setErrorMessage(null);
-    setPaymentPhone(phone.trim());
     setAccountName(companyName.trim());
     setStep(2);
   };
@@ -93,15 +90,15 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
         bankName,
         accountName: accountName ? accountName.trim() : companyName.trim(),
         accountNumber,
-        paymentMethod,
-        paymentPhone: paymentPhone.trim()
       });
 
-      setSuccessMessage(`✅ Subscription Active! Ref: ${res.receiptCode}. Welcome to EstateMaster.`);
+      // The account exists but is NOT active yet: the licence activates only when the payment is confirmed
+      // by Safaricom or the bank. The next screen collects it.
+      setSuccessMessage('Account created. One last step: pay the annual licence to activate your account.');
       setTimeout(() => {
         onRegistered(res.landlord);
         onClose();
-      }, 2000);
+      }, 1500);
     } catch (err: any) {
       setErrorMessage(err.message || 'Registration failed');
     } finally {
@@ -171,7 +168,7 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
             >
               2
             </span>
-            Subscription Payment (KSH 20,000)
+            Payout details &amp; licence
           </div>
         </div>
 
@@ -256,7 +253,8 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Create password for sign-in"
+                  placeholder="At least 10 characters, with a number or symbol"
+                  autoComplete="new-password"
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:border-blue-500 shadow-sm"
                 />
               </div>
@@ -301,7 +299,7 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
                 type="submit"
                 className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition flex items-center gap-1.5 shadow-sm"
               >
-                Continue to Subscription Payment (KSH 20,000) &rarr;
+                Continue to payout details &rarr;
               </button>
             </div>
           </form>
@@ -411,50 +409,11 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-emerald-900 font-bold mb-1">Select Checkout Method</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('M-Pesa Express')}
-                    className={`p-2.5 rounded-xl border text-left font-bold transition flex items-center gap-2 ${
-                      paymentMethod === 'M-Pesa Express'
-                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
-                        : 'bg-white text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    <Smartphone className="w-4 h-4" /> M-Pesa Express STK
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('Bank Transfer')}
-                    className={`p-2.5 rounded-xl border text-left font-bold transition flex items-center gap-2 ${
-                      paymentMethod === 'Bank Transfer'
-                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
-                        : 'bg-white text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    <CreditCard className="w-4 h-4" /> Bank Direct Transfer
-                  </button>
-                </div>
-              </div>
-
-              {paymentMethod === 'M-Pesa Express' && (
-                <div>
-                  <label className="block text-emerald-900 font-bold mb-1">M-Pesa Phone Number (+254)</label>
-                  <input
-                    type="text"
-                    required
-                    value={paymentPhone}
-                    onChange={(e) => setPaymentPhone(e.target.value)}
-                    placeholder="+254 712 345 678"
-                    className="w-full bg-white border border-emerald-300 rounded-lg p-2.5 text-slate-900 font-mono font-bold shadow-xs"
-                  />
-                  <p className="text-[10px] text-emerald-800 mt-1">
-                    An M-Pesa prompt for <strong>KSH 20,000</strong> will be sent directly to this phone number.
-                  </p>
-                </div>
-              )}
+              <ol className="list-decimal list-inside text-[11px] text-emerald-900 space-y-0.5">
+                <li>Create your account now (no payment is taken on this screen).</li>
+                <li>You are signed in and asked to pay {formatKSH(20000)} by M-Pesa prompt or bank transfer.</li>
+                <li>Your account activates automatically the moment Safaricom or your bank confirms the payment.</li>
+              </ol>
             </div>
 
             <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
@@ -473,11 +432,11 @@ export const LandlordRegistrationModal: React.FC<LandlordRegistrationModalProps>
               >
                 {isSubmitting ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" /> Processing KSH 20,000 STK Push...
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Creating your account...
                   </>
                 ) : (
                   <>
-                    <Lock className="w-4 h-4" /> Pay {formatKSH(20000)} & Activate Account
+                    <Lock className="w-4 h-4" /> Create account &amp; continue to payment
                   </>
                 )}
               </button>

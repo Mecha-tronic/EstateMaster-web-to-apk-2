@@ -1,6 +1,13 @@
-import nodemailer from 'nodemailer';
+import crypto from 'crypto';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import type { Transporter } from 'nodemailer';
 import { EmailLog } from '../types.js';
+
+// nodemailer is loaded lazily so the module graph (and the unit tests) do not need it unless SMTP is configured.
+// Resolved from the process working directory so it works in both ESM (tsx) and the CJS production bundle.
+const nodeRequire = createRequire(path.join(process.cwd(), 'package.json'));
+const loadNodemailer = (): typeof import('nodemailer') => nodeRequire('nodemailer');
 
 // Cache transporter instance using lazy initialization
 let transporterInstance: Transporter | null = null;
@@ -11,10 +18,23 @@ let lastSmtpCheckConfig: string = '';
  * e.g., SN-INV-2026-94812, SN-RCT-2026-38291, SN-OTP-2026-10492
  */
 export function generateUniqueSerialNumber(prefix: 'INV' | 'RCT' | 'OTP' | 'SEC' | 'QTE' | 'WLC' | 'MNT' | 'SUB' = 'SEC'): string {
-  const year = new Date().getFullYear();
-  const randomEntropy = Math.floor(100000 + Math.random() * 900000); // 6-digit cryptographic-style entropy
-  const timestampSuffix = Date.now().toString().slice(-4);
-  return `SN-${prefix}-${year}-${timestampSuffix}${randomEntropy.toString().slice(0, 3)}`;
+  // CSPRNG: serials must not be guessable or sequential.
+  return `SN-${prefix}-${new Date().getFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
+/** Escapes text for safe interpolation into HTML. */
+function esc(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** Single-line header-safe text (prevents header / display-name injection). */
+function headerSafe(value: unknown, max = 200): string {
+  return String(value ?? '').replace(/[\r\n\u0000-\u001f"<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
 /**
@@ -89,7 +109,7 @@ export function getTransporter(): Transporter | null {
 
   try {
     if (config.providerType === 'gmail' && config.gmailUser && config.gmailPass) {
-      transporterInstance = nodemailer.createTransport({
+      transporterInstance = loadNodemailer().createTransport({
         service: 'gmail',
         auth: {
           user: config.gmailUser,
@@ -97,7 +117,7 @@ export function getTransporter(): Transporter | null {
         }
       });
     } else if (config.providerType === 'resend' && config.resendApiKey) {
-      transporterInstance = nodemailer.createTransport({
+      transporterInstance = loadNodemailer().createTransport({
         host: 'smtp.resend.com',
         port: 465,
         secure: true,
@@ -107,7 +127,7 @@ export function getTransporter(): Transporter | null {
         }
       });
     } else if (config.smtpHost && config.smtpUser && config.smtpPass) {
-      transporterInstance = nodemailer.createTransport({
+      transporterInstance = loadNodemailer().createTransport({
         host: config.smtpHost,
         port: config.smtpPort,
         secure: config.smtpSecure,
@@ -153,7 +173,7 @@ export function wrapInEstateMasterTemplate(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${heading}</title>
+  <title>${esc(heading)}</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #0f172a;">
   <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 24px 12px;">
@@ -177,7 +197,7 @@ export function wrapInEstateMasterTemplate(
                   </td>
                   <td align="right" valign="top">
                     <div style="display: inline-block; background-color: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.8px;">
-                      ${badgeText}
+                      ${esc(badgeText)}
                     </div>
                   </td>
                 </tr>
@@ -193,7 +213,7 @@ export function wrapInEstateMasterTemplate(
                   <td>
                     <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Document Serial No:</span>
                     <span style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 13px; font-weight: 700; color: #0284c7; background-color: #e0f2fe; padding: 2px 8px; border-radius: 6px; margin-left: 6px; border: 1px solid #bae6fd;">
-                      ${serialNumber}
+                      ${esc(serialNumber)}
                     </span>
                   </td>
                   <td align="right">
@@ -209,7 +229,7 @@ export function wrapInEstateMasterTemplate(
             <td style="padding: 32px 28px; color: #334155; font-size: 14px; line-height: 1.6;">
               <div style="margin-bottom: 18px;">
                 <p style="margin: 0; font-size: 15px; color: #0f172a; font-weight: 600;">
-                  Dear ${recipientName || 'Valued Member'},
+                  Dear ${esc(recipientName || 'Valued Member')},
                 </p>
               </div>
 
@@ -230,7 +250,7 @@ export function wrapInEstateMasterTemplate(
                       Nairobi, Kenya • Automated Notification Dispatch Service • Support: support@estatemaster.co.ke
                     </p>
                     <div style="display: inline-block; padding: 6px 12px; background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 10px; color: #475569; font-family: monospace;">
-                      AUTHENTICATED SERIAL CODE: ${serialNumber}
+                      AUTHENTICATED SERIAL CODE: ${esc(serialNumber)}
                     </div>
                     <p style="margin: 12px 0 0 0; font-size: 10px; color: #94a3b8;">
                       This personalized message was generated and dispatched automatically to your registered account email. If you received this in error, please disregard or report it to security@estatemaster.co.ke.
@@ -307,8 +327,8 @@ export async function sendPersonalizedEmail(options: {
       
       const info = await transporter.sendMail({
         from: config.smtpFrom,
-        to: `"${options.recipientName}" <${options.recipientEmail}>`,
-        subject: `${options.subject} [${serialNumber}]`,
+        to: { name: headerSafe(options.recipientName, 120), address: headerSafe(options.recipientEmail, 254).replace(/\s/g, '') },
+        subject: `${headerSafe(options.subject, 240)} [${headerSafe(serialNumber, 40)}]`,
         html: completeHtml,
         attachments: options.attachments,
         headers: {

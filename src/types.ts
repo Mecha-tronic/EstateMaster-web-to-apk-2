@@ -9,6 +9,10 @@ export interface Landlord {
   password?: string;
   passwordHash?: string;
   passwordSalt?: string;
+  passwordAlgo?: string;
+  mustChangePassword?: boolean;
+  /** Lower-cased email used for uniqueness/lookup (server-maintained). */
+  emailLower?: string;
   idNumber?: string;
   // Security & Anti-Hacking Protection
   twoFactorEnabled?: boolean;
@@ -69,6 +73,7 @@ export interface Property {
 
 export interface Unit {
   id: string;
+  landlordId?: string;
   propertyId?: string;
   propertyName?: string;
   unitNumber: string;
@@ -97,6 +102,10 @@ export interface Tenant {
   password?: string;
   passwordHash?: string;
   passwordSalt?: string;
+  passwordAlgo?: string;
+  mustChangePassword?: boolean;
+  /** Lower-cased email used for uniqueness/lookup (server-maintained). */
+  emailLower?: string;
   idNumber?: string;
   // Security & Anti-Hacking Protection
   twoFactorEnabled?: boolean;
@@ -128,6 +137,8 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   invoiceNumber: string;
+  /** Short unique reference tenants quote on bank transfers, e.g. "EM-A101-7QK2". */
+  paymentReference?: string;
   serialNumber?: string;
   tenantId: string;
   tenantName: string;
@@ -150,6 +161,9 @@ export interface Invoice {
   taxAmount?: number;
   discount?: number;
   previousArrears?: number;
+  /** Set when this invoice's unpaid balance was rolled into a later invoice (so it is never collected twice). */
+  carriedForwardAmount?: number;
+  carriedForwardToInvoiceId?: string;
   totalAmount: number;
   status: 'Unpaid' | 'Paid' | 'Overdue' | 'Partial';
   amountPaid?: number;
@@ -161,6 +175,8 @@ export interface Invoice {
 
 export interface Quote {
   id: string;
+  landlordId?: string;
+  tenantId?: string;
   quoteNumber: string;
   serialNumber?: string;
   tenantName?: string;
@@ -211,16 +227,53 @@ export interface Payment {
   status: 'Completed' | 'Pending Verification' | 'Failed';
   notes?: string;
   externalDeliveryStatus?: 'delivered' | 'simulated_fallback' | 'failed' | 'pending';
+  /** Where the money was confirmed: a verified bank/M-Pesa feed, or manual landlord entry. */
+  verificationSource?: PaymentVerificationSource;
+  /** Bank that settled the transaction (when paid by bank rails). */
+  bank?: SupportedBank | 'mpesa';
+  /** Id of the immutable bank_transactions ledger row backing this payment. */
+  bankTransactionId?: string;
+  /** Tamper-evident audit trail shown on receipts for bank-verified payments. */
+  bankAudit?: BankAuditTrail;
+  /** Who recorded it when entered manually (landlord id). */
+  recordedBy?: string;
+}
+
+export type PaymentVerificationSource =
+  | 'bank-webhook'
+  | 'bank-api-query'
+  | 'mpesa-daraja'
+  | 'statement-reconciliation'
+  | 'manual-landlord';
+
+export type SupportedBank = 'equity' | 'kcb' | 'coop' | 'pesalink';
+
+export interface BankAuditTrail {
+  bank: SupportedBank | 'mpesa';
+  bankReference: string;
+  channel?: string;
+  verifiedVia: PaymentVerificationSource;
+  signatureVerified?: boolean;
+  receivedAt: string;
+  verifiedAt: string;
+  matchMethod?: 'invoice-reference' | 'unit-number' | 'phone-number' | 'manual-assignment' | 'api-query';
+  matchConfidence?: number;
+  payerName?: string;
+  payerPhoneMasked?: string;
+  accountMasked?: string;
+  currency?: string;
 }
 
 export interface MaintenanceRequest {
   id: string;
+  landlordId?: string;
   tenantId?: string;
   tenantName: string;
   tenantEmail?: string;
   unitId?: string;
   unitNumber?: string;
   propertyName?: string;
+  propertyId?: string;
   title?: string;
   description: string;
   category?: 'Plumbing' | 'Electrical' | 'HVAC' | 'Appliance' | 'Structural' | 'Locks & Keys' | 'Other';
@@ -243,6 +296,8 @@ export interface MaintenanceRequest {
 
 export interface EmailLog {
   id: string;
+  /** Owning landlord (used to scope who can read the message log). */
+  landlordId?: string;
   serialNumber?: string;
   recipientEmail: string;
   recipientName: string;
@@ -292,7 +347,12 @@ export type SecurityEventType =
   | 'UNAUTHORIZED_PAYMENT_DETAILS_CHANGE_ATTEMPT'
   | 'SESSION_REVOKED'
   | 'SUSPICIOUS_ACTIVITY'
-  | 'STEP_UP_VERIFIED';
+  | 'STEP_UP_VERIFIED'
+  | 'ACCESS_DENIED'
+  | 'ACCOUNT_REGISTERED'
+  | 'PAYMENT_RECORDED'
+  | 'PAYMENT_REVERSED'
+  | 'PASSWORD_RESET_REQUIRED';
 
 export interface SecurityLog {
   id: string;
@@ -334,6 +394,10 @@ export interface SecurityStatus {
 
 export interface UnaccountedPayment {
   id: string;
+  landlordId?: string;
+  bankTransactionId?: string;
+  bank?: SupportedBank | 'mpesa';
+  currency?: string;
   source: 'M-Pesa Till' | 'M-Pesa Paybill' | 'Bank Transfer' | 'Pesalink' | 'EFT / Wire' | 'Direct Deposit';
   referenceCode: string;
   senderName?: string;
@@ -345,6 +409,7 @@ export interface UnaccountedPayment {
   bankName?: string;
   notes?: string;
   status: 'Pending Assignment' | 'Reconciled' | 'Ignored';
+  ignoredReason?: string;
   reconciledTenantId?: string;
   reconciledTenantName?: string;
   reconciledInvoiceId?: string;
@@ -369,6 +434,11 @@ export interface BankStatementRecord {
   matchConfidence?: number;
   matchReason?: string;
   isReconciled?: boolean;
+  /** Set when the row cannot be submitted (e.g. no bank reference). */
+  parseWarning?: string;
+  /** Outcome returned by the server after a reconcile run. */
+  serverOutcome?: 'posted' | 'queued' | 'duplicate' | 'rejected' | 'ignored';
+  serverReason?: string;
 }
 
 

@@ -101,29 +101,15 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
       if (statusData) {
         setSecurityStatus(statusData);
       } else {
-        // Fallback default state
+        // The server returned nothing: show a neutral state rather than inventing sessions or scores.
         setSecurityStatus({
-          userId: user.id,
-          email: user.email,
           twoFactorEnabled: !!user.twoFactorEnabled,
-          securityScore: user.twoFactorEnabled ? 95 : 65,
-          activeSessions: [
-            {
-              id: 'sess-current',
-              userId: user.id,
-              email: user.email,
-              role,
-              ipAddress: '127.0.0.1 (Local Verified)',
-              userAgent: navigator.userAgent,
-              deviceType: /Mobile|Android|iPhone/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
-              createdAt: new Date().toISOString(),
-              lastActiveAt: new Date().toISOString(),
-              isCurrent: true
-            }
-          ],
-          failedAttempts: user.failedLoginAttempts || 0,
-          isLocked: !!(user.lockoutUntil && new Date(user.lockoutUntil).getTime() > Date.now()),
-          lockoutUntil: user.lockoutUntil
+          failedLoginAttempts: 0,
+          isLocked: false,
+          lockoutRemainingSeconds: 0,
+          securityScore: user.twoFactorEnabled ? 80 : 50,
+          recentLogs: [],
+          activeSessions: []
         });
       }
 
@@ -154,12 +140,12 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
       setSecurityStatus((prev) => {
         if (!prev) {
           return {
-            userId: user.id,
-            email: user.email,
             twoFactorEnabled: res.twoFactorEnabled,
             securityScore: res.securityScore,
             activeSessions: [],
-            failedAttempts: 0,
+            failedLoginAttempts: 0,
+            lockoutRemainingSeconds: 0,
+            recentLogs: [],
             isLocked: false
           };
         }
@@ -527,7 +513,7 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
               <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3 text-xs text-slate-600 dark:text-slate-300 space-y-2">
                 <div className="flex items-center justify-between">
                   <span>Current Failed Attempts:</span>
-                  <strong className="font-mono text-slate-900 dark:text-white">{securityStatus?.failedAttempts || 0} / 5</strong>
+                  <strong className="font-mono text-slate-900 dark:text-white">{securityStatus?.failedLoginAttempts || 0} / 5</strong>
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Account Lockout Status:</span>
@@ -970,7 +956,7 @@ export const SecurityShieldDashboard: React.FC<SecurityShieldDashboardProps> = (
                         </span>
                       </td>
                       <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 font-sans">
-                        {l.details}
+                        {l.description}
                       </td>
                       <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
                         {l.ipAddress || '127.0.0.1'}

@@ -41,15 +41,11 @@ import {
   recordPayment,
   updateMaintenanceStatus,
   getApiUrl,
-  subscribeToLandlords,
-  subscribeToTenants,
-  subscribeToProperties,
-  subscribeToUnits,
-  subscribeToInvoices,
-  subscribeToQuotes,
-  subscribeToPayments,
-  subscribeToMaintenance,
-  subscribeToEmails
+  logoutUser,
+  onSessionExpired,
+  fetchPublicVacancies,
+  fetchMe,
+  isSignedIn
 } from './lib/api';
 
 import {
@@ -97,7 +93,7 @@ export default function App() {
 
   // Data States
   const [landlords, setLandlords] = useState<Landlord[]>([]);
-  const [activeLandlordId, setActiveLandlordId] = useState<string>('landlord-1');
+  const [activeLandlordId, setActiveLandlordId] = useState<string>('');
   const [properties, setProperties] = useState<Property[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -286,9 +282,32 @@ export default function App() {
     };
   }, [handleUniversalBack]);
 
+  const clearPrivateData = useCallback(() => {
+    setLandlords([]);
+    setTenants([]);
+    setInvoices([]);
+    setQuotes([]);
+    setPayments([]);
+    setMaintenance([]);
+    setEmails([]);
+    setActiveLandlordId('');
+  }, []);
+
+  // The server scopes every response to the signed-in account, so what arrives here is already "my data only".
+  const loadInFlight = useRef(false);
   const loadAllData = async () => {
+    if (loadInFlight.current) return;
+    loadInFlight.current = true;
     try {
-      const [lData, pData, uData, tData, iData, qData, payData, mData, eData] = await Promise.all([
+      if (!isSignedIn()) {
+        // Visitors only see the public vacancy list (needed for tenant sign-up).
+        const pub = await fetchPublicVacancies();
+        setUnits(pub.units || []);
+        setProperties(pub.properties || []);
+        setHasInitialLoaded(true);
+        return;
+      }
+      const results = await Promise.allSettled([
         fetchLandlords(),
         fetchProperties(),
         fetchUnits(),
@@ -299,104 +318,83 @@ export default function App() {
         fetchMaintenance(),
         fetchEmails()
       ]);
-
-      setLandlords(lData);
-      if (lData.length > 0) {
-        if (!activeLandlordId) setActiveLandlordId(lData[0].id);
-        setSignedInLandlord((prev) => {
-          if (!prev) return null;
-          return lData.find((l) => l.id === prev.id || l.email === prev.email) || prev;
-        });
+      const ok = <T,>(r: PromiseSettledResult<T>, fallback: T): T => (r.status === 'fulfilled' ? r.value : fallback);
+      const lData = ok(results[0], [] as Landlord[]);
+      const tData = ok(results[3], [] as Tenant[]);
+      if (results[0].status === 'fulfilled') {
+        setLandlords(lData);
+        setSignedInLandlord((prev) => (prev ? lData.find((l) => l.id === prev.id) || prev : null));
       }
+      if (results[1].status === 'fulfilled') setProperties(results[1].value);
+      if (results[2].status === 'fulfilled') setUnits(results[2].value);
+      if (results[3].status === 'fulfilled') {
+        setTenants(tData);
+        setSignedInTenant((prev) => (prev ? tData.find((t) => t.id === prev.id) || prev : null));
+      }
+      if (results[4].status === 'fulfilled') setInvoices(results[4].value);
+      if (results[5].status === 'fulfilled') setQuotes(results[5].value);
+      if (results[6].status === 'fulfilled') setPayments(results[6].value);
+      if (results[7].status === 'fulfilled') setMaintenance(results[7].value);
+      if (results[8].status === 'fulfilled') setEmails(results[8].value);
       setHasInitialLoaded(true);
-      setProperties(pData);
-      setUnits(uData);
-      setTenants(tData);
-      setSignedInTenant((prevTenant) => {
-        if (!prevTenant) return null;
-        return tData.find((t) => t.id === prevTenant.id || t.email === prevTenant.email) || prevTenant;
-      });
-      setInvoices(iData);
-      setQuotes(qData);
-      setPayments(payData);
-      setMaintenance(mData);
-      setEmails(eData);
     } catch (err) {
       console.error('Error loading data:', err);
+    } finally {
+      loadInFlight.current = false;
     }
   };
 
+  // Restore a session after a page refresh (the token lives in sessionStorage), otherwise show the public view.
   useEffect(() => {
-    loadAllData();
+    let cancelled = false;
+    (async () => {
+      if (isSignedIn()) {
+        try {
+          const me = await fetchMe();
+          if (cancelled) return;
+          if (me.role === 'landlord') {
+            setSignedInLandlord(me.user as Landlord);
+            setActiveLandlordId(me.user.id);
+            setActiveRole('landlord');
+          } else {
+            setSignedInTenant(me.user as Tenant);
+            setActiveRole('tenant');
+          }
+        } catch {
+          // Expired / revoked token: the API client already dropped it.
+        }
+      }
+      if (!cancelled) await loadAllData();
+    })();
 
-    // Attach Firestore real-time cloud sync listeners (instant multi-device/multi-phone updates)
-    const unsubL = subscribeToLandlords((data) => {
-      if (data && data.length > 0) {
-        setLandlords(data);
-        localStorage.setItem('estatemaster_landlords', JSON.stringify(data));
-      }
+    // The server ends a session (expiry, password change, revoked device): return to the sign-in screen.
+    const unsubscribe = onSessionExpired((reason) => {
+      setSignedInLandlord(null);
+      setSignedInTenant(null);
+      clearPrivateData();
+      setInactivityNotice(reason);
+      fetchPublicVacancies().then((pub) => { setUnits(pub.units || []); setProperties(pub.properties || []); }).catch(() => undefined);
     });
-    const unsubP = subscribeToProperties((data) => {
-      if (data && data.length > 0) {
-        setProperties(data);
-        localStorage.setItem('estatemaster_properties', JSON.stringify(data));
-      }
-    });
-    const unsubU = subscribeToUnits((data) => {
-      if (data && data.length > 0) {
-        setUnits(data);
-        localStorage.setItem('estatemaster_units', JSON.stringify(data));
-      }
-    });
-    const unsubT = subscribeToTenants((data) => {
-      if (data && data.length > 0) {
-        setTenants(data);
-        localStorage.setItem('estatemaster_tenants', JSON.stringify(data));
-      }
-    });
-    const unsubI = subscribeToInvoices((data) => {
-      if (data && data.length > 0) {
-        setInvoices(data);
-        localStorage.setItem('estatemaster_invoices', JSON.stringify(data));
-      }
-    });
-    const unsubQ = subscribeToQuotes((data) => {
-      if (data && data.length > 0) {
-        setQuotes(data);
-        localStorage.setItem('estatemaster_quotes', JSON.stringify(data));
-      }
-    });
-    const unsubPay = subscribeToPayments((data) => {
-      if (data && data.length > 0) {
-        setPayments(data);
-        localStorage.setItem('estatemaster_payments', JSON.stringify(data));
-      }
-    });
-    const unsubM = subscribeToMaintenance((data) => {
-      if (data && data.length > 0) {
-        setMaintenance(data);
-        localStorage.setItem('estatemaster_maintenance', JSON.stringify(data));
-      }
-    });
-    const unsubE = subscribeToEmails((data) => {
-      if (data && data.length > 0) {
-        setEmails(data);
-        localStorage.setItem('estatemaster_emails', JSON.stringify(data));
-      }
-    });
+
+    // Light polling keeps invoices/payments current (bank and M-Pesa confirmations arrive on the server at any time).
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && isSignedIn()) loadAllData();
+    }, 30_000);
 
     return () => {
-      unsubL();
-      unsubP();
-      unsubU();
-      unsubT();
-      unsubI();
-      unsubQ();
-      unsubPay();
-      unsubM();
-      unsubE();
+      cancelled = true;
+      unsubscribe();
+      clearInterval(interval);
     };
   }, []);
+
+  const handleSignOut = useCallback(async () => {
+    await logoutUser();
+    setSignedInLandlord(null);
+    setSignedInTenant(null);
+    clearPrivateData();
+    try { const pub = await fetchPublicVacancies(); setUnits(pub.units || []); setProperties(pub.properties || []); } catch { /* offline */ }
+  }, [clearPrivateData]);
 
   // High-Performance Inactivity Engine (2-Minute Wall-Clock Guard)
   // Completely eliminates touch/scroll jank and handles APK wake/backgrounding seamlessly
@@ -409,11 +407,14 @@ export default function App() {
   }, []);
 
   const handleAutoLogout = useCallback(() => {
+    // End the session on the server too, not just on screen.
+    logoutUser().catch(() => undefined);
     setSignedInLandlord(null);
     setSignedInTenant(null);
+    clearPrivateData();
     setInactivityDeadline(null);
     setInactivityNotice('⚡ You were automatically signed out due to 2 minutes of inactivity for security.');
-  }, []);
+  }, [clearPrivateData]);
 
   useEffect(() => {
     if (!signedInLandlord && !signedInTenant) {
@@ -601,47 +602,14 @@ export default function App() {
   const isSignedLandlordSubscriptionExpired = signedInLandlord ? !checkLandlordSubscriptionActive(signedInLandlord) : false;
   const isSubscriptionActive = checkLandlordSubscriptionActive(currentLandlord);
 
-  // Landlord-scoped datasets for multi-tenant isolation
-  const currentLandlordEmail = (currentLandlord?.email || '').trim().toLowerCase();
-  const matchingLandlordIds = new Set<string>();
-  if (currentLandlord?.id) matchingLandlordIds.add(currentLandlord.id);
-  if (currentLandlordEmail) {
-    landlords
-      .filter((l) => l.email && l.email.trim().toLowerCase() === currentLandlordEmail)
-      .forEach((l) => matchingLandlordIds.add(l.id));
-    // Known aliases and database IDs for Allan Mokua
-    if (currentLandlordEmail === 'mokuaallan89@gmail.com' || currentLandlordEmail === 'mk@gmail.com') {
-      matchingLandlordIds.add('landlord-1786370548593');
-      matchingLandlordIds.add('landlord-mokua');
-      matchingLandlordIds.add('landlord-raha');
-      matchingLandlordIds.add('landlord-1786381154173');
-      matchingLandlordIds.add('landlord-1789304633125');
-    }
-  }
-
-  const scopedProperties = properties.filter((p) => {
-    if (!currentLandlord) return true;
-    if (p.landlordId && matchingLandlordIds.has(p.landlordId)) return true;
-    if (!p.landlordId && currentLandlord.id === 'landlord-1') return true;
-    if (!p.landlordId && (currentLandlordEmail === 'mokuaallan89@gmail.com' || currentLandlordEmail === 'mk@gmail.com')) return true;
-    return false;
-  });
-  const scopedUnits = units.filter((u) => scopedProperties.some((p) => p.id === u.propertyId) || properties.length === 0);
-  const scopedTenants = tenants.filter(
-    (t) =>
-      (t.landlordId && matchingLandlordIds.has(t.landlordId)) ||
-      scopedProperties.some((p) => p.id === t.propertyId) ||
-      scopedUnits.some((u) => u.id === t.unitId)
-  );
-  const scopedInvoices = invoices.filter(
-    (inv) => scopedTenants.some((t) => t.id === inv.tenantId) || scopedProperties.some((p) => p.id === inv.propertyId)
-  );
-  const scopedPayments = payments.filter(
-    (pay) => scopedInvoices.some((inv) => inv.id === pay.invoiceId) || scopedTenants.some((t) => t.id === pay.tenantId)
-  );
-  const scopedMaintenance = maintenance.filter(
-    (m) => scopedTenants.some((t) => t.id === m.tenantId) || scopedProperties.some((p) => p.id === m.propertyId)
-  );
+  // Data isolation is enforced by the SERVER (every endpoint returns only the caller's records). The client never
+  // re-filters by guessable ids or e-mail aliases, so these are simply the records the server returned.
+  const scopedProperties = properties;
+  const scopedUnits = units;
+  const scopedTenants = tenants;
+  const scopedInvoices = invoices;
+  const scopedPayments = payments;
+  const scopedMaintenance = maintenance;
 
   return (
     <AndroidFrame
@@ -669,20 +637,22 @@ export default function App() {
               <div className="flex-1 pb-12">
                 <SignInView
                   initialRole="landlord"
-                  tenants={tenants}
-                  landlords={landlords}
                   units={units}
                   properties={properties}
                   inactivityNotice={inactivityNotice}
                   onLandlordSuccess={(landlord) => {
                     setInactivityNotice(null);
+                    setSignedInTenant(null);
                     setSignedInLandlord(landlord);
                     setActiveLandlordId(landlord.id);
+                    loadAllData();
                   }}
                   onTenantSuccess={(tenant) => {
                     setInactivityNotice(null);
+                    setSignedInLandlord(null);
                     setSignedInTenant(tenant);
                     navigateRole('tenant');
+                    loadAllData();
                   }}
                   onOpenLandlordRegister={() => setShowLandlordRegModal(true)}
                   onRefreshData={loadAllData}
@@ -827,7 +797,7 @@ export default function App() {
                       emails={emails}
                       payments={scopedPayments}
                       signedInLandlord={currentLandlord}
-                      onSignOut={() => setSignedInLandlord(null)}
+                      onSignOut={handleSignOut}
                       onNavigate={(tab) => {
                         if (tab === 'register') navigateRole('register');
                         else navigateTab(tab);
@@ -1001,13 +971,19 @@ export default function App() {
                 maintenance={maintenance}
                 initialTenantEmail={recentRegisteredEmail}
                 signedInTenant={signedInTenant}
-                onSignIn={(tenant) => setSignedInTenant(tenant)}
-                onSignOut={() => setSignedInTenant(null)}
+                onSignIn={(tenant) => {
+                  setSignedInLandlord(null);
+                  setSignedInTenant(tenant);
+                  loadAllData();
+                }}
+                onSignOut={handleSignOut}
                 onLandlordSuccess={(landlord) => {
                   setInactivityNotice(null);
+                  setSignedInTenant(null);
                   setSignedInLandlord(landlord);
                   setActiveLandlordId(landlord.id);
                   navigateRole('landlord');
+                  loadAllData();
                 }}
                 onRefreshData={loadAllData}
                 onSwitchToRegister={() => navigateRole('register')}
@@ -1047,8 +1023,11 @@ export default function App() {
         isOpen={showLandlordRegModal}
         onClose={closeLandlordRegModal}
         onRegistered={(newLandlord) => {
-          setLandlords((prev) => [newLandlord, ...prev]);
+          // Registration signs the new landlord in (the API client already holds their session token).
+          setSignedInTenant(null);
+          setSignedInLandlord(newLandlord);
           setActiveLandlordId(newLandlord.id);
+          navigateRole('landlord', 'dashboard');
           loadAllData();
         }}
       />

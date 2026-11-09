@@ -26,7 +26,8 @@ interface UnaccountedPaymentsQueueProps {
   tenants: Tenant[];
   invoices: Invoice[];
   onAssignPayment: (unaccountedId: string, tenantId: string, invoiceId?: string, notes?: string) => Promise<void>;
-  onAddUnaccountedPayment: (data: Partial<UnaccountedPayment>) => Promise<void>;
+  /** Dismiss a deposit that is not rent (e.g. a refund or a payment for someone else). Needs a reason and is audited. */
+  onIgnorePayment?: (unaccountedId: string, reason: string) => Promise<void>;
 }
 
 export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> = ({
@@ -34,7 +35,7 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
   tenants,
   invoices,
   onAssignPayment,
-  onAddUnaccountedPayment
+  onIgnorePayment
 }) => {
   const [filterSource, setFilterSource] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'pending' | 'reconciled' | 'all'>('pending');
@@ -48,32 +49,17 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignSuccessMsg, setAssignSuccessMsg] = useState<string | null>(null);
 
-  // Manual Log Modal
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newSource, setNewSource] = useState<UnaccountedPayment['source']>('M-Pesa Till');
-  const [newRefCode, setNewRefCode] = useState('');
-  const [newAmount, setNewAmount] = useState('');
-  const [newSenderName, setNewSenderName] = useState('');
-  const [newSenderPhone, setNewSenderPhone] = useState('');
-  const [newNarration, setNewNarration] = useState('');
-  const [newBankName, setNewBankName] = useState('Equity Bank');
-  const [isAdding, setIsAdding] = useState(false);
-
   // Android Back Button handler
   useEffect(() => {
-    if (!showAddModal && !selectedPayment) return;
+    if (!selectedPayment) return;
     return registerBackHandler(() => {
-      if (showAddModal) {
-        setShowAddModal(false);
-        return true;
-      }
       if (selectedPayment) {
         setSelectedPayment(null);
         return true;
       }
       return false;
     });
-  }, [showAddModal, selectedPayment]);
+  }, [selectedPayment]);
 
   // Filtered payments
   const filteredList = unaccountedPayments.filter((p) => {
@@ -116,7 +102,7 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
     setAssignTenantId(initialTenantId);
 
     // Find unpaid invoice
-    const unpaid = invoices.find((i) => i.tenantId === initialTenantId && i.status !== 'Paid');
+    const unpaid = invoices.find((i) => i.tenantId === initialTenantId && i.status !== 'Paid' && !i.carriedForwardToInvoiceId);
     setAssignInvoiceId(unpaid ? unpaid.id : '');
     setAssignNotes('');
     setAssignSuccessMsg(null);
@@ -124,7 +110,7 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
 
   const handleTenantChange = (tenantId: string) => {
     setAssignTenantId(tenantId);
-    const unpaid = invoices.find((i) => i.tenantId === tenantId && i.status !== 'Paid');
+    const unpaid = invoices.find((i) => i.tenantId === tenantId && i.status !== 'Paid' && !i.carriedForwardToInvoiceId);
     setAssignInvoiceId(unpaid ? unpaid.id : '');
   };
 
@@ -161,7 +147,7 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
     const unpaidInvoice = invoices.find(
       (i) =>
         (i.tenantId === suggestedTenant.id || i.tenantName.toLowerCase() === suggestedTenant.fullName.toLowerCase()) &&
-        i.status !== 'Paid'
+        i.status !== 'Paid' && !i.carriedForwardToInvoiceId
     );
 
     try {
@@ -176,37 +162,19 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
     }
   };
 
-  const handleCreateManualUnaccounted = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newRefCode || !newAmount) return;
-
-    setIsAdding(true);
+  const handleIgnore = async (payment: UnaccountedPayment) => {
+    if (!onIgnorePayment) return;
+    const reason = window.prompt(`Why is ${payment.referenceCode} (${formatKSH(payment.amount)}) not rent? (at least 5 characters, kept in the audit log)`);
+    if (!reason || reason.trim().length < 5) return;
     try {
-      await onAddUnaccountedPayment({
-        source: newSource,
-        referenceCode: newRefCode.trim().toUpperCase(),
-        amount: parseFloat(newAmount),
-        senderName: newSenderName.trim() || 'Unidentified Payer',
-        senderPhone: newSenderPhone.trim(),
-        rawNarration: newNarration.trim(),
-        bankName: newSource.includes('Bank') ? newBankName : undefined,
-        notes: `Manually added to unassigned queue on ${new Date().toLocaleDateString()}`
-      });
-      setShowAddModal(false);
-      setNewRefCode('');
-      setNewAmount('');
-      setNewSenderName('');
-      setNewSenderPhone('');
-      setNewNarration('');
+      await onIgnorePayment(payment.id, reason.trim());
     } catch (err: any) {
-      alert(`Failed to add payment: ${err.message}`);
-    } finally {
-      setIsAdding(false);
+      alert(`Could not dismiss this deposit: ${err.message}`);
     }
   };
 
   const selectedTenantObj = tenants.find((t) => t.id === assignTenantId);
-  const tenantUnpaidInvoices = invoices.filter((i) => i.tenantId === assignTenantId && i.status !== 'Paid');
+  const tenantUnpaidInvoices = invoices.filter((i) => i.tenantId === assignTenantId && i.status !== 'Paid' && !i.carriedForwardToInvoiceId);
 
   return (
     <div className="space-y-6">
@@ -228,12 +196,10 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> Log Received Payment SMS
-            </button>
+            <span className="px-3 py-2 rounded-xl bg-white/70 border border-amber-200 text-[11px] font-semibold text-amber-900 flex items-start gap-1.5 max-w-xs" title="Deposits cannot be typed in: only signed bank / M-Pesa notifications and uploaded statements create entries here.">
+              <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+              Entries come only from verified bank / M-Pesa notifications and statement uploads. They cannot be typed in.
+            </span>
           </div>
         </div>
 
@@ -460,7 +426,18 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
                       </span>
                     </div>
 
-                    {!isReconciled && (
+                    {item.status === 'Ignored' && (
+                      <span className="text-[11px] text-slate-500 italic max-w-[200px] text-right">Dismissed{item.ignoredReason ? `: ${item.ignoredReason}` : ''}</span>
+                    )}
+                    {item.status === 'Pending Assignment' && onIgnorePayment && (
+                      <button
+                        onClick={() => handleIgnore(item)}
+                        className="text-[11px] font-bold text-slate-500 hover:text-rose-700 underline cursor-pointer"
+                      >
+                        Not rent: dismiss
+                      </button>
+                    )}
+                    {item.status === 'Pending Assignment' && (
                       <button
                         onClick={() => handleOpenAssignModal(item)}
                         className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm hover:scale-105 transition cursor-pointer"
@@ -603,151 +580,6 @@ export const UnaccountedPaymentsQueue: React.FC<UnaccountedPaymentsQueueProps> =
                   {isAssigning ? 'Processing Reconciliation...' : 'Confirm Assignment & Settle'}
                 </button>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* LOG UNACCOUNTED PAYMENT SMS MODAL */}
-      <AnimatePresence>
-        {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
-                    <Plus className="w-5 h-5 text-amber-600" /> Log Received Payment SMS
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Received an M-Pesa or Bank alert on your phone with an unrecognized sender? Log it here for automatic matching.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowAddModal(false)}
-                  className="text-slate-400 hover:text-slate-600 text-lg font-bold"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <form onSubmit={handleCreateManualUnaccounted} className="space-y-3.5 text-xs">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Channel Source</label>
-                    <select
-                      value={newSource}
-                      onChange={(e) => setNewSource(e.target.value as any)}
-                      className="w-full p-2 bg-white border border-slate-200 rounded-xl"
-                    >
-                      <option value="M-Pesa Till">M-Pesa Till (Buy Goods)</option>
-                      <option value="M-Pesa Paybill">M-Pesa Paybill</option>
-                      <option value="Bank Transfer">Bank Transfer (EFT / Pesalink)</option>
-                      <option value="Direct Deposit">Bank Counter Cash / Deposit</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Receipt Code / Ref *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. SAB9812401"
-                      value={newRefCode}
-                      onChange={(e) => setNewRefCode(e.target.value.toUpperCase())}
-                      className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono uppercase"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Amount (KSh) *</label>
-                    <input
-                      type="number"
-                      required
-                      placeholder="e.g. 65000"
-                      value={newAmount}
-                      onChange={(e) => setNewAmount(e.target.value)}
-                      className="w-full p-2 bg-white border border-slate-200 rounded-xl font-bold"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Sender Phone</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 0722 123 456"
-                      value={newSenderPhone}
-                      onChange={(e) => setNewSenderPhone(e.target.value)}
-                      className="w-full p-2 bg-white border border-slate-200 rounded-xl"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Sender Registered Name</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Peter Kamau"
-                      value={newSenderName}
-                      onChange={(e) => setNewSenderName(e.target.value)}
-                      className="w-full p-2 bg-white border border-slate-200 rounded-xl"
-                    />
-                  </div>
-
-                  {newSource.includes('Bank') && (
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Bank Name</label>
-                      <select
-                        value={newBankName}
-                        onChange={(e) => setNewBankName(e.target.value)}
-                        className="w-full p-2 bg-white border border-slate-200 rounded-xl"
-                      >
-                        <option value="Equity Bank">Equity Bank</option>
-                        <option value="KCB Bank">KCB Bank</option>
-                        <option value="Co-operative Bank">Co-operative Bank</option>
-                        <option value="NCBA Bank">NCBA Bank</option>
-                        <option value="Stanbic Bank">Stanbic Bank</option>
-                        <option value="ABSA Bank">ABSA Bank</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Full SMS / Narration (Optional)</label>
-                  <textarea
-                    rows={2}
-                    placeholder="Paste the raw SMS or transaction description here..."
-                    value={newNarration}
-                    onChange={(e) => setNewNarration(e.target.value)}
-                    className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono text-[11px]"
-                  />
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddModal(false)}
-                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isAdding}
-                    className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer"
-                  >
-                    {isAdding ? 'Saving...' : 'Add to Queue'}
-                  </button>
-                </div>
-              </form>
             </motion.div>
           </div>
         )}

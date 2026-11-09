@@ -1,4 +1,10 @@
-import PDFDocument from 'pdfkit';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+
+// pdfkit is loaded lazily (only when a PDF is actually generated).
+// Resolved from the process working directory so it works in both ESM (tsx) and the CJS production bundle.
+const nodeRequire = createRequire(path.join(process.cwd(), 'package.json'));
+const loadPdfKit = (): any => nodeRequire('pdfkit');
 
 export interface PaymentRecord {
   id?: string;
@@ -12,6 +18,8 @@ export interface PaymentRecord {
   status?: string;
   invoiceId?: string;
   invoiceNumber?: string;
+  /** Verification evidence printed on the receipt (e.g. bank audit trail). */
+  audit?: { title: string; lines: string[] };
   tenantName?: string;
   tenantEmail?: string;
   unitNumber?: string;
@@ -85,7 +93,7 @@ function formatMoney(amount: number): string {
 export function generatePaymentReceiptAndStatementPdf(options: StatementPdfOptions): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({
+      const doc = new (loadPdfKit())({
         size: 'A4',
         margin: 40,
         info: {
@@ -383,6 +391,24 @@ export function generatePaymentReceiptAndStatementPdf(options: StatementPdfOptio
         .text(formatMoney(options.cumulativeTotalPaid), 330, currentY + 12, { align: 'right', width: 210 });
 
       // -------------------------------------------------------------
+      // 5b. VERIFIED BANK AUDIT TRAIL (only when the payment was confirmed by a bank / M-Pesa feed)
+      // -------------------------------------------------------------
+      const auditInfo = options.currentPayment.audit;
+      if (auditInfo && auditInfo.lines.length) {
+        const boxH = 26 + auditInfo.lines.length * 12;
+        if (currentY + 52 + boxH > 760) {
+          doc.addPage();
+          currentY = 0;
+        }
+        const boxY = currentY + 52;
+        doc.rect(40, boxY, 515, boxH).fillAndStroke('#EFF6FF', '#BFDBFE');
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#1E3A8A').text(auditInfo.title.toUpperCase(), 55, boxY + 8);
+        doc.font('Helvetica').fontSize(8).fillColor('#1E40AF');
+        auditInfo.lines.forEach((ln, i) => doc.text(ln, 55, boxY + 22 + i * 12, { width: 485 }));
+        currentY = boxY + boxH - 55 + 8;
+      }
+
+      // -------------------------------------------------------------
       // 6. OFFICIAL AUTHENTICATION FOOTER
       // -------------------------------------------------------------
       const footerY = currentY + 55;
@@ -432,7 +458,7 @@ export function generatePaymentReceiptAndStatementPdf(options: StatementPdfOptio
 export function generateInvoicePdf(options: InvoicePdfOptions): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({
+      const doc = new (loadPdfKit())({
         size: 'A4',
         margin: 40,
         info: {

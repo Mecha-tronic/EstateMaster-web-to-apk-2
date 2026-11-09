@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, Lock, AlertCircle, RefreshCw, KeyRound, CheckCircle2, ArrowRight, Key, Eye, EyeOff } from 'lucide-react';
-import { verify2FaLogin, resend2FaOtp, LoginResponse } from '../lib/api';
+import { ShieldCheck, Lock, AlertCircle, RefreshCw, KeyRound, CheckCircle2, ArrowRight } from 'lucide-react';
+import { verify2FaLogin, resend2FaOtp } from '../lib/api';
 import { Tenant, Landlord } from '../types';
 
 interface TwoFactorModalProps {
@@ -10,8 +10,8 @@ interface TwoFactorModalProps {
   emailMasked?: string;
   phoneMasked?: string;
   userEmail?: string;
-  otpSimulation?: string;
-  onSuccess: (role: 'tenant' | 'landlord', user: Tenant | Landlord, sessionToken?: string) => void;
+  /** The session token is stored by the API client; `mustChangePassword` tells the caller to force a password change. */
+  onSuccess: (role: 'tenant' | 'landlord', user: Tenant | Landlord, mustChangePassword?: boolean) => void;
   onCancel: () => void;
 }
 
@@ -21,7 +21,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
   emailMasked,
   phoneMasked,
   userEmail,
-  otpSimulation,
   onSuccess,
   onCancel,
 }) => {
@@ -31,9 +30,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState(300); // 5 mins
-  const [usePasswordFallback, setUsePasswordFallback] = useState(false);
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -43,8 +39,6 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
     setError(null);
     setResendSuccess(null);
     setSecondsRemaining(300);
-    setUsePasswordFallback(false);
-    setPassword('');
 
     // Focus first input box
     const timer = setTimeout(() => {
@@ -115,36 +109,14 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
     try {
       const res = await verify2FaLogin(tempToken, otpCode);
       if (res.success && res.role && res.user) {
-        onSuccess(res.role, res.user, res.sessionToken);
+        onSuccess(res.role, res.user, res.mustChangePassword);
       } else {
-        throw new Error(res.message || 'Verification failed');
+        throw new Error(res.error || res.message || 'Verification failed');
       }
     } catch (err: any) {
-      setError(err.message || 'Invalid or expired 2FA code. Please check the code shown or try resending.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!password) {
-      setError('Please enter your account password.');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const res = await verify2FaLogin(tempToken, undefined, password.trim());
-      if (res.success && res.role && res.user) {
-        onSuccess(res.role, res.user, res.sessionToken);
-      } else {
-        throw new Error(res.message || 'Password verification failed');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Invalid password. Please enter your valid account password.');
+      setDigits(['', '', '', '', '', '']);
+      inputRefs.current[0]?.focus();
+      setError(err.message || 'Invalid or expired code. Please check your email or request a new code.');
     } finally {
       setLoading(false);
     }
@@ -202,7 +174,7 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
             )}
           </div>
 
-          {!usePasswordFallback ? (
+          {(
             <>
               {/* 6-Digit OTP Inputs */}
               <div className="flex justify-center items-center gap-2 sm:gap-3 py-1">
@@ -267,78 +239,8 @@ export const TwoFactorModal: React.FC<TwoFactorModalProps> = ({
                   )}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUsePasswordFallback(true);
-                    setError(null);
-                  }}
-                  className="w-full py-2 text-xs text-slate-600 hover:text-sky-600 dark:text-slate-400 dark:hover:text-sky-300 transition flex items-center justify-center gap-1 cursor-pointer"
-                >
-                  <Key className="w-3.5 h-3.5" />
-                  <span>Didn't receive email? Sign in with Master Password</span>
-                </button>
               </div>
             </>
-          ) : (
-            /* Backup: Master Password Fallback Verification */
-            <form onSubmit={handlePasswordSubmit} className="space-y-3 pt-1">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Master Password Fallback Verification
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    autoFocus
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your account password"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 pr-10 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2 pt-1">
-                <button
-                  type="submit"
-                  disabled={loading || !password}
-                  className="w-full py-3 px-4 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white font-medium text-sm rounded-xl shadow-lg shadow-sky-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition cursor-pointer"
-                >
-                  {loading ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Verifying Password...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>Verify Password & Sign In</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUsePasswordFallback(false);
-                    setError(null);
-                  }}
-                  className="w-full py-2 text-xs text-sky-600 dark:text-sky-400 hover:underline transition cursor-pointer"
-                >
-                  Back to 6-digit OTP code entry
-                </button>
-              </div>
-            </form>
           )}
 
           {/* Error / Success Notifications */}

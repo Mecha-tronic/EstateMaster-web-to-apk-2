@@ -22,7 +22,8 @@ export function analyzePaymentMatch(
 ): MatchAnalysis {
   const normNarration = (narration + ' ' + senderName).toLowerCase();
   const cleanPhone = senderPhone.replace(/[^0-9]/g, '');
-  const unpaidInvoices = invoices.filter((i) => i.status !== 'Paid');
+  // Invoices whose balance was rolled into a later invoice owe nothing themselves.
+  const unpaidInvoices = invoices.filter((i) => i.status !== 'Paid' && !i.carriedForwardToInvoiceId);
 
   let bestMatch: MatchAnalysis = {
     confidence: 0,
@@ -102,9 +103,40 @@ export function analyzePaymentMatch(
   return bestMatch;
 }
 
+/** Splits one CSV / TSV line, honouring "quoted, fields" so narrations containing commas stay in one column. */
+export function splitStatementLine(line: string): string[] {
+  const delimiter = line.includes('\t') ? '\t' : ',';
+  const out: string[] = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (quoted && line[i + 1] === '"') { cur += '"'; i++; } else quoted = !quoted;
+    } else if (ch === delimiter && !quoted) {
+      out.push(cur.trim());
+      cur = '';
+    } else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+/** A bank-issued transaction reference: 6-32 letters / digits / dashes with at least one digit, no spaces. */
+const looksLikeReference = (v: string): boolean => /^(?=.*\d)[A-Za-z0-9][A-Za-z0-9_-]{5,31}$/.test(v);
+
+const toAmount = (v: string): number => {
+  const n = parseFloat(String(v || '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+};
+
 /**
- * Standard Bank & M-Pesa CSV Statement Parser
- * Parses lines into structured BankStatementRecord entries.
+ * Standard Bank & M-Pesa CSV Statement Parser.
+ *
+ * IMPORTANT (anti-double-entry): a row only ever carries the reference the BANK printed. Earlier versions invented
+ * a random one when the column was missing, which made re-uploading the same statement post the same deposit twice.
+ * Rows without a genuine reference are returned with an empty `referenceCode` and a `parseWarning`; the UI refuses to
+ * submit them and the server would reject them anyway.
  */
 export function parseBankStatementCSV(
   csvContent: string,
@@ -114,66 +146,70 @@ export function parseBankStatementCSV(
 ): BankStatementRecord[] {
   if (!csvContent || !csvContent.trim()) return [];
 
-  const lines = csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const lines = csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(0, 2000);
   const records: BankStatementRecord[] = [];
+
+  // Column positions learned from the header row, when the file has one.
+  let creditIdx = -1;
+  let refIdx = -1;
+  let descIdx = -1;
 
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx].trim();
-    // Skip common headers
-    if (
-      line.toLowerCase().includes('date') &&
-      (line.toLowerCase().includes('description') ||
-        line.toLowerCase().includes('narration') ||
-        line.toLowerCase().includes('amount') ||
-        line.toLowerCase().includes('credit'))
-    ) {
+    const lower = line.toLowerCase();
+    // Header rows: remember where the credit / reference / narration columns are, then skip the row.
+    if (lower.includes('date') && (lower.includes('description') || lower.includes('narration') || lower.includes('amount') || lower.includes('credit') || lower.includes('reference') || lower.includes('particulars'))) {
+      const names = splitStatementLine(line).map((c) => c.toLowerCase());
+      creditIdx = names.findIndex((c) => /(credit|deposit|paid in|money in)/.test(c) && !/debit/.test(c));
+      if (creditIdx < 0) creditIdx = names.findIndex((c) => /amount/.test(c) && !/(debit|balance|withdraw)/.test(c));
+      refIdx = names.findIndex((c) => /(ref|transaction id|txn|receipt)/.test(c));
+      descIdx = names.findIndex((c) => /(narration|description|details|particulars|remarks)/.test(c));
       continue;
     }
 
-    // Parse comma or tab separated fields
-    const delimiter = line.includes('\t') ? '\t' : ',';
-    const cols = line.split(delimiter).map((c) => c.replace(/^["']|["']$/g, '').trim());
-
+    const cols = splitStatementLine(line);
     if (cols.length < 3) continue;
 
-    let dateStr = cols[0];
+    const dateStr = cols[0];
     let desc = cols[1];
     let refCode = '';
     let amountNum = 0;
 
-    // Detect Kenyan Bank Column Layouts:
-    // Format A: Date, Description, Reference, Amount (or Credit)
-    // Format B: Date, Reference, Description, Debit, Credit
-    if (cols.length >= 4) {
-      if (cols[2].match(/^[A-Z0-9_-]{5,20}$/i)) {
+    if (creditIdx >= 0 && creditIdx < cols.length) {
+      // Header known: only the CREDIT column counts. A blank credit cell means a debit row, which is ignored.
+      amountNum = toAmount(cols[creditIdx]);
+      if (descIdx >= 0 && cols[descIdx]) desc = cols[descIdx];
+      if (refIdx >= 0 && looksLikeReference(cols[refIdx] || '')) refCode = cols[refIdx];
+      else refCode = (desc.match(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{8,12}\b/i) || [''])[0];
+    } else if (cols.length >= 4) {
+      if (looksLikeReference(cols[2])) {
+        // Format A: Date, Description, Reference, Amount (credit)
         refCode = cols[2];
-        amountNum = parseFloat(cols[3].replace(/[^0-9.-]/g, '')) || 0;
+        amountNum = toAmount(cols[3]);
+      } else if (looksLikeReference(cols[1])) {
+        // Format B: Date, Reference, Description, [Debit,] Credit. With no header the LAST column is the credit,
+        // never an earlier (debit) column.
+        refCode = cols[1];
+        desc = cols[2];
+        amountNum = toAmount(cols[cols.length - 1]);
       } else {
-        refCode = cols[1].match(/[A-Z0-9]{8,12}/i)?.[0] || `TX-${Date.now().toString().slice(-6)}-${idx}`;
-        // Find first positive numeric col starting from right
-        for (let c = cols.length - 1; c >= 2; c--) {
-          const val = parseFloat(cols[c].replace(/[^0-9.-]/g, ''));
-          if (!isNaN(val) && val > 0) {
-            amountNum = val;
-            break;
-          }
-        }
+        // Reference hidden inside the narration (e.g. an M-Pesa code)
+        refCode = (cols[1].match(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{8,12}\b/i) || [''])[0];
+        amountNum = toAmount(cols[cols.length - 1]);
       }
     } else {
-      refCode = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
-      amountNum = parseFloat(cols[2].replace(/[^0-9.-]/g, '')) || 0;
+      amountNum = toAmount(cols[2]);
     }
 
     // Ignore debit / zero transactions
     if (amountNum <= 0) continue;
 
-    // Run reconciliation analysis against this line
     const match = analyzePaymentMatch(amountNum, desc, refCode, '', '', tenants, invoices);
 
     records.push({
-      id: `stmt-${Date.now()}-${idx}`,
-      date: dateStr || new Date().toISOString().split('T')[0],
-      referenceCode: refCode || `TRX-${Math.floor(100000 + Math.random() * 900000)}`,
+      id: `stmt-${idx}-${(refCode || 'noref').toUpperCase()}`,
+      date: dateStr || '',
+      referenceCode: refCode.toUpperCase(),
       description: desc || 'Direct Bank Deposit',
       amount: amountNum,
       bankName: bankName || 'Bank / M-Pesa Statement',
@@ -183,89 +219,10 @@ export function parseBankStatementCSV(
       matchedInvoiceId: match.suggestedInvoice?.id,
       matchConfidence: match.confidence,
       matchReason: match.reason,
-      isReconciled: false
+      isReconciled: false,
+      parseWarning: refCode ? undefined : 'No bank reference found on this row. It cannot be posted: add the reference column and upload again.'
     });
   }
 
   return records;
 }
-
-/**
- * Realistic Sample Kenyan Bank & M-Pesa Statements for Demo & Testing
- */
-export const SAMPLE_BANK_STATEMENTS = {
-  equity: `Date,Description,Reference,Credit
-2026-09-18,EFT RENT UNIT A101 JANE WANJIKU,EQ98102910,65000
-2026-09-19,PESALINK FROM DAVID OMONDI UNIT B201,EQ98102922,95000
-2026-09-20,DIRECT DEPOSIT SUITE 301 GRANDVIEW,EQ98103011,120000
-2026-09-21,MOBILE TRANSFER KPLC ELECTRICITY REBATE,EQ98103045,4500
-2026-09-22,CASH DEPOSIT KILIMANI BRANCH NO NARRATION,EQ98103190,48000`,
-
-  kcb: `Date,Narration,Transaction_Ref,Amount
-2026-09-15,KCB MPESA TO ACC JANE WANJIKU A101,KCB-771920,65000
-2026-09-17,STANDING ORDER DAVID OMONDI RENT B201,KCB-771945,95000
-2026-09-21,PESALINK INWARD DEPOSIT A102 AVAILABLE UNIT,KCB-772001,48000
-2026-09-22,UNIDENTIFIED CASHIER REMITTANCE TILL 998,KCB-772109,25000`,
-
-  mpesaTill: `Date,Description,ReceiptCode,Amount
-2026-09-18,CustomerBuyGoodsOnline - 0712345678 JANE WANJIKU,SAB98214K1,65000
-2026-09-19,CustomerBuyGoodsOnline - 0733456789 DAVID OMONDI,SAB98214K2,95000
-2026-09-20,CustomerPayBillOnline - ACC: A101 RENT SEPTEMBER,SAB98214K3,65000
-2026-09-21,CustomerBuyGoodsOnline - 0722000111 UNKNOWN SENDER,SAB98214K4,35000
-2026-09-22,CustomerBuyGoodsOnline - 0799444333 ACC: SUITE 301,SAB98214K5,120000`
-};
-
-/**
- * Initial sample unaccounted payments for simulation if local store is empty
- */
-export const DEFAULT_UNACCOUNTED_PAYMENTS: UnaccountedPayment[] = [
-  {
-    id: 'unacc-1',
-    source: 'M-Pesa Till',
-    referenceCode: 'SAB8912401',
-    senderName: 'Peter Kamau (Spouse/Relative)',
-    senderPhone: '0722 987 654',
-    amount: 65000,
-    receivedDate: '2026-09-21T09:30:00.000Z',
-    rawNarration: 'Buy Goods Till #892102 from 0722987654 (Ref: Peter Kamau)',
-    accountReferenceRaw: '',
-    status: 'Pending Assignment',
-    matchConfidence: 85,
-    suggestedTenantName: 'Jane Wanjiku',
-    suggestedUnitNumber: 'A101',
-    notes: 'Phone number matches Emergency Contact for Jane Wanjiku (Unit A101). Amount exactly matches monthly rent KSh 65,000.'
-  },
-  {
-    id: 'unacc-2',
-    source: 'Bank Transfer',
-    referenceCode: 'EFT-8812903',
-    senderName: 'Apex Tech Solutions Ltd',
-    senderPhone: '',
-    amount: 95000,
-    receivedDate: '2026-09-20T14:15:00.000Z',
-    rawNarration: 'EFT Corporate Housing Allowance REF 9901 - B201',
-    accountReferenceRaw: 'B201',
-    bankName: 'Equity Bank',
-    status: 'Pending Assignment',
-    matchConfidence: 90,
-    suggestedTenantName: 'David Omondi',
-    suggestedUnitNumber: 'B201',
-    notes: 'Narration contains unit reference B201. Amount KSh 95,000 matches David Omondi rent.'
-  },
-  {
-    id: 'unacc-3',
-    source: 'M-Pesa Paybill',
-    referenceCode: 'SAB7712399',
-    senderName: 'Mary Atieno',
-    senderPhone: '0746 549 710',
-    amount: 48000,
-    receivedDate: '2026-09-22T08:00:00.000Z',
-    rawNarration: 'Paybill 247247 Acc: "RENT HOUSE"',
-    accountReferenceRaw: 'RENT HOUSE',
-    status: 'Pending Assignment',
-    matchConfidence: 50,
-    suggestedTenantName: '',
-    suggestedUnitNumber: 'A102',
-    notes: 'Tenant typed generic "RENT HOUSE" instead of unit number. Amount matches Unit A102 rent (KSh 48,000).'
-  }
-];
