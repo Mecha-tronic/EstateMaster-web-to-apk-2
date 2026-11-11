@@ -66,6 +66,33 @@ Add one of these sets of variables (`gcloud run services update estatemaster --r
 Other optional settings (M-Pesa, Equity/KCB/Co-op, Gemini AI, platform paybills) are listed in `.env.example`.
 Put real secrets in Google Secret Manager rather than plain environment variables once you are live.
 
+## If step 1 says PERMISSION_DENIED ("Permission denied to enable service")
+
+`horizontal-disk-2ds98` was created automatically by AI Studio, and your Google account is not allowed to administer it
+(it cannot enable services or deploy to it). Use a project you own instead. This needs a Google billing account
+(Cloud Run is only available with billing on; small apps normally stay inside the free allowance). Old data in the
+AI Studio database is not copied across: the new server starts with an empty database.
+
+```bash
+cd ~/EstateMaster-web-to-apk-2
+PROJECT=estatemaster-$RANDOM$RANDOM
+gcloud projects create $PROJECT --name="EstateMaster"
+
+gcloud billing accounts list        # note the ACCOUNT_ID. If the list is empty, create one at https://console.cloud.google.com/billing
+gcloud billing projects link $PROJECT --billing-account=ACCOUNT_ID
+
+gcloud config set project $PROJECT
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com firestore.googleapis.com
+gcloud firestore databases create --location=europe-west1
+
+SECRET=$(openssl rand -hex 48)
+gcloud run deploy estatemaster --source . --region europe-west1 --allow-unauthenticated \
+  --set-env-vars "DATA_STORE=firestore,FIREBASE_PROJECT_ID=$PROJECT,LINK_SIGNING_SECRET=$SECRET,TRUST_PROXY_HOPS=1,APP_URL=https://placeholder.invalid"
+```
+
+Then continue from "APP_URL must be the service's own address" in step 1. In the later commands replace
+`horizontal-disk-2ds98` with `$PROJECT`. Do not set `FIREBASE_DATABASE_ID` for the new project (it uses the default database).
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |
