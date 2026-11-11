@@ -212,6 +212,15 @@ describe('authentication gate', () => {
     }
   });
 
+  test('health is public and identifies this server version, so the app can reject the old server', async () => {
+    const r = await call('GET', '/api/health');
+    assert.equal(r.status, 200);
+    assert.equal(r.body.status, 'ok');
+    assert.equal(r.body.service, 'estatemaster');
+    assert.ok(Number(r.body.apiVersion) >= 2, 'apiVersion must be >= REQUIRED_API_VERSION used by the app');
+    assert.equal(JSON.stringify(r.body).match(/secret|password|token|key/i), null);
+  });
+
   test('garbage, forged and malformed bearer tokens are rejected', async () => {
     for (const t of ['x', 'Bearer', 'a'.repeat(64), crypto.randomBytes(32).toString('hex'), '../../etc/passwd']) {
       assert.equal((await call('GET', '/api/tenants', { token: t })).status, 401);

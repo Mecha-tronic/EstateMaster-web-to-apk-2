@@ -30,6 +30,8 @@ export interface ServerStatusInfo {
 }
 
 const API_URL_KEY = 'estatemaster_api_url';
+/** Minimum server API version this app works with (see /api/health). Version 2 = bearer-token server. */
+const REQUIRED_API_VERSION = 2;
 
 function safeStorage(kind: 'local' | 'session'): Storage | null {
   try {
@@ -120,8 +122,14 @@ export async function testServerConnection(targetUrl?: string): Promise<ServerSt
     const res = await fetch(`${base}/api/health`, { signal: controller.signal, cache: 'no-store' });
     clearTimeout(timer);
     const latency = Date.now() - started;
-    if (!res.ok) return { connected: false, latencyMs: latency, message: `Server returned HTTP ${res.status}` };
-    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { connected: false, latencyMs: latency, message: `The address answered with HTTP ${res.status}, so it is not a working EstateMaster server.` };
+    const data: any = await res.json().catch(() => null);
+    if (!data || data.status !== 'ok') {
+      return { connected: false, latencyMs: latency, message: 'That address answered, but it is not an EstateMaster server. Check the address.' };
+    }
+    if (Number(data.apiVersion || 1) < REQUIRED_API_VERSION) {
+      return { connected: false, latencyMs: latency, message: 'This server is running an older EstateMaster version that this app cannot use. Deploy the updated server, then test again.' };
+    }
     let emailConfigured = false;
     let emailProvider = 'none';
     try {
@@ -130,8 +138,22 @@ export async function testServerConnection(targetUrl?: string): Promise<ServerSt
     } catch { /* optional */ }
     return { connected: true, latencyMs: latency, message: 'Server connection verified and active.', serverTime: data.time || new Date().toISOString(), emailConfigured, emailProvider };
   } catch (err: any) {
-    return { connected: false, latencyMs: Date.now() - started, message: err?.name === 'AbortError' ? 'Connection timed out after 6 seconds.' : (err?.message || 'Cannot connect to server.') };
+    return {
+      connected: false,
+      latencyMs: Date.now() - started,
+      message: err?.name === 'AbortError'
+        ? 'Connection timed out after 6 seconds. The server may be asleep, offline or the address may be wrong.'
+        : 'Cannot reach this address. The server may be offline or private (requires a Google sign-in), or the address may be wrong.'
+    };
   }
+}
+
+/** Host name of the server the app is currently talking to (empty when it uses the page's own origin). */
+function currentServerHost(): string {
+  try {
+    const base = getApiBaseUrl();
+    return base ? new URL(base).host : '';
+  } catch { return ''; }
 }
 
 // ===========================================================================
@@ -203,7 +225,10 @@ async function request<T = any>(method: string, path: string, body?: unknown, op
   try {
     res = await fetch(getApiUrl(path), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal, cache: 'no-store' });
   } catch (err: any) {
-    throw new ApiError(err?.name === 'AbortError' ? 'The server took too long to respond. Please try again.' : 'Cannot reach the EstateMaster server. Check your internet connection and try again.', 0);
+    const host = currentServerHost();
+    throw new ApiError(err?.name === 'AbortError'
+      ? 'The server took too long to respond. Please try again.'
+      : `Cannot reach the EstateMaster server${host ? ` (${host})` : ''}. Check your internet connection, or open Server settings to check the server address.`, 0);
   } finally {
     clearTimeout(timer);
   }

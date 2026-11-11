@@ -150,7 +150,7 @@ export const ServerConnectionModal: React.FC<ServerConnectionModalProps> = ({
                       ? 'Pinging Server...'
                       : testResult?.connected
                       ? 'Connected to Live Server'
-                      : 'Standalone Mobile / Offline Mode'}
+                      : 'Not connected to the server'}
                   </span>
                   {testResult?.latencyMs ? (
                     <span className="px-2 py-0.5 rounded-full bg-emerald-200/70 dark:bg-emerald-800/60 text-emerald-900 dark:text-emerald-100 font-bold text-[11px]">
@@ -160,7 +160,7 @@ export const ServerConnectionModal: React.FC<ServerConnectionModalProps> = ({
                 </div>
                 <p className="opacity-90 leading-relaxed text-xs">
                   {testResult?.message ||
-                    'EstateMaster functions smoothly offline using secure on-device storage. To send real emails or sync across multiple phones, connect to your live backend server.'}
+                    'Press Test to check the server address below. EstateMaster keeps all accounts and payment records on your server, so the app cannot sign in without it.'}
                 </p>
                 {testResult?.emailConfigured !== undefined && (
                   <div className="pt-1 flex items-center gap-1.5 font-semibold text-xs">
@@ -183,12 +183,12 @@ export const ServerConnectionModal: React.FC<ServerConnectionModalProps> = ({
                 Why does an APK require a Backend Server?
               </div>
               <p className="leading-relaxed">
-                When running in a web browser, the app connects directly to the Node.js Express server. An Android APK runs on your phone’s local processor; it needs network access to your hosted server to dispatch real SMTP emails and sync multi-device accounts.
+                The app on your phone is only the screens. Accounts, passwords, payments and records live on your EstateMaster server, which must be online and reachable over https:// for sign-in, e-mail codes and payment checks to work.
               </p>
               <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300 font-medium">
                 <ShieldCheck className="w-4 h-4" />
                 <span>
-                  <strong>Offline Mode Active:</strong> 2FA codes, login, and email alerts are simulated locally on this phone when no server is connected.
+                  <strong>No offline mode:</strong> nothing is stored or simulated on this phone, which keeps your data safe if the phone is lost.
                 </span>
               </div>
             </div>
@@ -217,7 +217,7 @@ export const ServerConnectionModal: React.FC<ServerConnectionModalProps> = ({
                 </button>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Leave empty for same-origin web server or local standalone operation.
+                Must start with https://. Leave empty to use the address built into this app.
               </p>
             </div>
 
@@ -231,17 +231,17 @@ export const ServerConnectionModal: React.FC<ServerConnectionModalProps> = ({
                   type="button"
                   onClick={() => handleSetPreset(DEFAULT_PRODUCTION_API_URL)}
                   className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                  title="Official Cloud Run Backend Server"
+                  title="The server address built into this app"
                 >
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  Live Cloud Server (Cloud Run)
+                  Built-in address
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSetPreset('')}
                   className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
                 >
-                  Auto / On-Device Standalone
+                  Clear (use built-in)
                 </button>
                 <button
                   type="button"

@@ -42,7 +42,9 @@ export function buildBankDeps(): BankRouteDeps {
 
 export function registerAllRoutes(app: App) {
   const deps = buildBankDeps();
-  app.get('/api/health', (_req: any, res: any) => res.json({ status: 'ok', time: new Date().toISOString() }));
+  // apiVersion lets the mobile app tell this server apart from the older, unauthenticated EstateMaster server
+  // (whose /api/health looked identical) instead of reporting "connected" and then failing at sign-in.
+  app.get('/api/health', (_req: any, res: any) => res.json({ status: 'ok', service: 'estatemaster', apiVersion: 2, time: new Date().toISOString() }));
   registerAuthRoutes(app);
   registerAccountRoutes(app);
   registerBillingRoutes(app);

@@ -46,6 +46,8 @@ interface SignInViewProps {
   onOpenLandlordRegister?: () => void;
   onRefreshData?: () => void;
   inactivityNotice?: string | null;
+  /** Opens the server address screen so the mobile app can be pointed at a working server before signing in. */
+  onOpenServerSettings?: () => void;
 }
 
 export const SignInView: React.FC<SignInViewProps> = ({
@@ -58,6 +60,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
   onOpenLandlordRegister,
   onRefreshData,
   inactivityNotice,
+  onOpenServerSettings,
 }) => {
   const [activeTab, setActiveTab] = useState<'tenant' | 'landlord'>(initialRole);
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
@@ -424,7 +427,18 @@ export const SignInView: React.FC<SignInViewProps> = ({
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
               <span>{errorMessage}</span>
             </div>
-            {(errorMessage.toLowerCase().includes('no account') || 
+            {onOpenServerSettings && /cannot reach|took too long/i.test(errorMessage) && (
+              <div className="mt-1 pt-2 border-t border-rose-200/80">
+                <button
+                  type="button"
+                  onClick={onOpenServerSettings}
+                  className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                >
+                  Open server settings
+                </button>
+              </div>
+            )}
+            {(errorMessage.toLowerCase().includes('no account') ||
               errorMessage.toLowerCase().includes('not exist') || 
               errorMessage.toLowerCase().includes('register') || 
               errorMessage.toLowerCase().includes('no registered')) && (
@@ -1006,6 +1020,18 @@ export const SignInView: React.FC<SignInViewProps> = ({
             </div>
           )}
         </div>
+
+        {onOpenServerSettings && (
+          <div className="text-center pt-1">
+            <button
+              type="button"
+              onClick={onOpenServerSettings}
+              className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 underline underline-offset-2 cursor-pointer"
+            >
+              Server settings
+            </button>
+          </div>
+        )}
 
         {/* Two-Factor Authentication Modal */}
         {pending2Fa && (

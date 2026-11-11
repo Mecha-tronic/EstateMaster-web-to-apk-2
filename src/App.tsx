@@ -640,6 +640,7 @@ export default function App() {
                   units={units}
                   properties={properties}
                   inactivityNotice={inactivityNotice}
+                  onOpenServerSettings={openServerSyncModal}
                   onLandlordSuccess={(landlord) => {
                     setInactivityNotice(null);
                     setSignedInTenant(null);
