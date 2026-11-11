@@ -93,6 +93,41 @@ gcloud run deploy estatemaster --source . --region europe-west1 --allow-unauthen
 Then continue from "APP_URL must be the service's own address" in step 1. In the later commands replace
 `horizontal-disk-2ds98` with `$PROJECT`. Do not set `FIREBASE_DATABASE_ID` for the new project (it uses the default database).
 
+## No payment card? Free route: Firebase (database) + Render (server)
+
+Google Cloud Run needs billing. This route needs no card: Firebase's free Spark plan for the database and Render's
+free web service for the server (as documented by Firebase and Render when this was written; check their pricing pages).
+
+**A. Firebase (database)**
+1. https://console.firebase.google.com > Add project > name it `estatemaster` > turn Google Analytics off > Create.
+2. Build > Firestore Database > Create database > location `europe-west1` > Production mode > Enable.
+3. Project settings (gear) > General: copy the **Project ID**. Then Service accounts > **Generate new private key**.
+   A `.json` file downloads. It is a password to your database: never post it, commit it or send it to anyone.
+
+**B. Render (server)**
+1. https://render.com > sign up with GitHub.
+2. New > **Web Service** > connect this repo > Branch `claude/security-audit-bank-integration` (or `main` once merged) >
+   Language **Docker** > Region Frankfurt > Instance type **Free** > Advanced > Health Check Path `/api/health`.
+3. Environment variables (Add):
+   - `DATA_STORE` = `firestore`
+   - `FIREBASE_PROJECT_ID` = the Project ID from A3
+   - `FIREBASE_SERVICE_ACCOUNT` = the whole contents of the `.json` file
+   - `LINK_SIGNING_SECRET` = a random string of 48+ characters (Cloud Shell: `openssl rand -hex 48`)
+   - `TRUST_PROXY_HOPS` = `1`
+   - `APP_URL` = `https://placeholder.invalid` (replaced in the next step)
+4. Create Web Service. When the first deploy is live, copy the address at the top (`https://....onrender.com`), set
+   `APP_URL` to it (Environment tab, Save; Render redeploys) and open `<address>/api/health`.
+
+Limits of the free plans
+- The free server sleeps after 15 minutes without traffic and takes about a minute to wake. The app waits up to 75 seconds.
+- **Bank and M-Pesa callbacks sent while it sleeps can be missed.** Fine for testing; for real payments use an
+  always-on plan.
+- Render's free plan blocks outgoing SMTP ports (25, 465, 587). All e-mail options in step 3 use SMTP, so **no e-mail is
+  sent**: forgot-password, e-mailed sign-in codes and approving payout-detail changes do not work until an HTTPS
+  e-mail sender is added or the server moves to a host that allows SMTP. Password sign-in, tenants, invoices and
+  payment verification do not need e-mail.
+- Firebase's free quota is 20,000 writes and 50,000 reads per day.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

@@ -32,6 +32,8 @@ export interface ServerStatusInfo {
 const API_URL_KEY = 'estatemaster_api_url';
 /** Minimum server API version this app works with (see /api/health). Version 2 = bearer-token server. */
 const REQUIRED_API_VERSION = 2;
+/** Free hosts put an idle server to sleep; waking it takes about a minute, so the app waits that long before giving up. */
+const SERVER_WAKE_TIMEOUT_MS = 75_000;
 
 function safeStorage(kind: 'local' | 'session'): Storage | null {
   try {
@@ -118,7 +120,7 @@ export async function testServerConnection(targetUrl?: string): Promise<ServerSt
   const started = Date.now();
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
+    const timer = setTimeout(() => controller.abort(), SERVER_WAKE_TIMEOUT_MS);
     const res = await fetch(`${base}/api/health`, { signal: controller.signal, cache: 'no-store' });
     clearTimeout(timer);
     const latency = Date.now() - started;
@@ -142,7 +144,7 @@ export async function testServerConnection(targetUrl?: string): Promise<ServerSt
       connected: false,
       latencyMs: Date.now() - started,
       message: err?.name === 'AbortError'
-        ? 'Connection timed out after 6 seconds. The server may be asleep, offline or the address may be wrong.'
+        ? 'No answer after 75 seconds. The server may be offline or the address may be wrong. Free servers can take about a minute to wake up, so try again once.'
         : 'Cannot reach this address. The server may be offline or private (requires a Google sign-in), or the address may be wrong.'
     };
   }
@@ -218,7 +220,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, op
   if (token && !opts.anonymous) headers.Authorization = `Bearer ${token}`;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30_000);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? SERVER_WAKE_TIMEOUT_MS);
   if (opts.signal) opts.signal.addEventListener('abort', () => controller.abort(), { once: true });
 
   let res: Response;
@@ -227,7 +229,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, op
   } catch (err: any) {
     const host = currentServerHost();
     throw new ApiError(err?.name === 'AbortError'
-      ? 'The server took too long to respond. Please try again.'
+      ? 'The server took too long to respond (free servers can take a minute to wake up). Please try again.'
       : `Cannot reach the EstateMaster server${host ? ` (${host})` : ''}. Check your internet connection, or open Server settings to check the server address.`, 0);
   } finally {
     clearTimeout(timer);
